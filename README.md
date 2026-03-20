@@ -2,7 +2,7 @@
 
 Monitor websites by extracting the part that matters and reporting changes as JSON.
 
-`ffhn` is a JSON-first CLI for watching a specific part of a page instead of diffing an entire document. It fetches a URL, passes the HTML to `htmlcut`, stores the extracted result on disk, and reports whether the target was `initialized`, `changed`, `unchanged`, or `failed`. In `ffhn`, "strict" means it prefers explicit errors over guesswork: config is schema-validated, malformed state is treated as invalid instead of silently repaired, unsupported CLI combinations are rejected, and stored artifacts are verified before they are trusted. That makes the tool predictable for scripts, cron jobs, and AI agents.
+`ffhn` is a JSON-first CLI for watching a specific part of a page instead of diffing an entire document. It fetches a URL, passes the HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut), stores the extracted result on disk, and reports whether the target was `initialized`, `changed`, `unchanged`, or `failed`. In `ffhn`, "strict" means it prefers explicit errors over guesswork: config is schema-validated, malformed state is treated as invalid instead of silently repaired, unsupported CLI combinations are rejected, and stored artifacts are verified before they are trusted. That makes the tool predictable for scripts, cron jobs, and AI agents.
 
 ## Why ffhn
 
@@ -15,12 +15,12 @@ Monitor websites by extracting the part that matters and reporting changes as JS
 
 - Node.js 24+
 - npm available in the same active Node environment
-- `htmlcut` available on `PATH`
+- [`htmlcut`](https://github.com/resoltico/HTMLCut) available on `PATH`
 
 ## Install
 
 ffhn is distributed through GitHub, not npmjs.com.
-It also depends on the separate `htmlcut` command, which must be installed in the same active Node environment first.
+It also depends on the separate [`htmlcut`](https://github.com/resoltico/HTMLCut) command, which must be installed in the same active Node environment first.
 
 That means there are two practical install modes:
 
@@ -40,7 +40,7 @@ node -v
 npm prefix -g
 ```
 
-2. Download and extract the GitHub release archive for `htmlcut`.
+2. Download and extract the GitHub release archive for [`htmlcut`](https://github.com/resoltico/HTMLCut).
 
 3. Install and link `htmlcut` from its extracted directory:
 
@@ -84,10 +84,10 @@ node -v
 npm prefix -g
 ```
 
-2. Clone, install, and link `htmlcut` first:
+2. Clone, install, and link [`htmlcut`](https://github.com/resoltico/HTMLCut) first:
 
 ```bash
-git clone <htmlcut-repo-url>
+git clone https://github.com/resoltico/HTMLCut
 cd htmlcut
 npm install
 npm link
@@ -231,7 +231,7 @@ ffhn status --target news-site
 ## How It Works
 
 1. Fetch the target URL.
-2. Send the HTML to `htmlcut`.
+2. Send the HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut).
 3. Hash the extracted output.
 4. Persist state and report whether the target was `initialized`, `changed`, `unchanged`, or `failed`.
 
@@ -283,7 +283,7 @@ Rules:
 - `[target]` is required and currently supports `url` only.
 - `[extract]` is required and supports `from`, `to`, `pattern`, `flags`, `capture`, `all`.
 - `[request]` is optional and supports `timeout_ms`, `max_attempts`, `retry_delay_ms`, `user_agent`.
-- `ffhn` does not bundle `htmlcut`; it invokes the separate `htmlcut` binary available on `PATH`.
+- `ffhn` does not bundle [`htmlcut`](https://github.com/resoltico/HTMLCut); it invokes the separate `htmlcut` binary available on `PATH`.
 - The default request user-agent is `ffhn/<current package version>`.
 - `pattern` applies to both delimiters. There are no separate regex toggles for `from` and `to`.
 - Unknown sections and unknown keys fail fast.
@@ -489,7 +489,7 @@ State files are validated. Invalid JSON or wrong schema versions are treated as 
 - `0`: all requested targets succeeded
 - `1`: usage error
 - `2`: config error, including invalid targets discovered during `run` or `status`
-- `3`: dependency error, such as missing `htmlcut`
+- `3`: dependency error, such as missing [`htmlcut`](https://github.com/resoltico/HTMLCut)
 - `4`: target runtime failure, such as network, extraction, state, or filesystem errors
 - `5`: internal error
 
@@ -498,7 +498,7 @@ State files are validated. Invalid JSON or wrong schema versions are treated as 
 - Atomic writes are used for config/state/content updates.
 - `current.txt` is written on every successful run.
 - `previous.txt` is updated only for real changes after initialization.
-- `ffhn` streams fetched HTML to `htmlcut` over stdin and reads extracted text from stdout.
+- `ffhn` streams fetched HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut) over stdin and reads extracted text from stdout.
 - Successful results include compact previews so callers can triage changes without opening files immediately.
 - Successful results also include compact added/removed line summaries, so callers can usually identify the exact change without opening files.
 - `status` verifies that stored files actually match the hashes in `state.json` before reporting a target as `ready`.
