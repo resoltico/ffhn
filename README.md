@@ -352,19 +352,6 @@ ffhn --version status
 - `status` verifies that stored files really match the hashes recorded in `state.json` before reporting a target as `ready`.
 - Unsupported CLI flag/command combinations fail as usage errors instead of being silently ignored.
 - Output is always JSON, which makes the contract stable for automation.
-- Because this is the first public release, there is no compatibility layer or migration path for earlier private or pre-release layouts.
-
-## What 1.0.0 Locks In
-
-These are the layout and behavior decisions that the first public release starts from:
-
-- `meta.json` is gone. Runtime state now lives in `state.json`.
-- `target.toml` no longer has `target.name`. The directory name is the target name.
-- First successful runs are `initialized`, not `changed`.
-- `ffhn init` now requires `--target`.
-- The config schema is strict. Unknown sections and unknown keys fail validation.
-
-There is no compatibility layer or migration path for earlier private or pre-release layouts by design.
 
 ## Output Model
 
