@@ -1,0 +1,50 @@
+########################################
+# Node.js dependencies and artifacts
+########################################
+
+# Installed packages (auto-generated, never commit)
+node_modules/
+
+# Node version file (ignored if you do NOT want to pin Node version in Git)
+.node-version
+
+
+########################################
+# Test and coverage output
+########################################
+
+# Coverage reports (e.g., Jest, nyc)
+coverage/
+coverage.lcov
+
+
+########################################
+# macOS system files
+########################################
+
+# Finder metadata (created automatically in folders)
+.DS_Store
+
+
+########################################
+# Local databases and history files
+########################################
+
+# SQLite databases or local caches
+*.db
+
+
+########################################
+# Test and coverage output
+########################################
+
+# Coverage reports (e.g., Jest, nyc)
+coverage/
+
+
+########################################
+# Editor and IDE configuration
+########################################
+
+# VS Code workspace settings (user-specific)
+.vscode/
