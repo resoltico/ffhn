@@ -1,0 +1,47 @@
+{
+  "name": "ffhn",
+  "version": "1.0.0",
+  "description": "Monitor websites by extracting the part that matters and reporting changes as JSON.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "ffhn": "./bin/ffhn.js"
+  },
+  "scripts": {
+    "start": "node bin/ffhn.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "coverage": "node --experimental-test-coverage --test --test-coverage-include=\"bin/**/*.js\" --test-coverage-include=\"lib/**/*.js\" --test-coverage-lines=100 --test-coverage-branches=99 --test-coverage-functions=100 \"test/**/*.test.js\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:check": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "smol-toml": "1.6.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.0.3"
+  },
+  "overrides": {
+    "flatted": "3.4.2"
+  },
+  "keywords": [
+    "monitoring",
+    "website-monitoring",
+    "content-change",
+    "htmlcut",
+    "cli",
+    "json-output",
+    "change-detection"
+  ],
+  "author": "Ervins Strauhmanis",
+  "license": "MIT",
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "LICENSE",
+    "changelog.md"
+  ]
+}

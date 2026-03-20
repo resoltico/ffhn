@@ -1,0 +1,14 @@
+[target]
+url = "https://example.com"
+
+[extract]
+from = "<main\\b[^>]*>"
+to = "</main>"
+pattern = "regex"
+capture = "inner"
+all = false
+
+[request]
+timeout_ms = 30000
+max_attempts = 3
+retry_delay_ms = 750
