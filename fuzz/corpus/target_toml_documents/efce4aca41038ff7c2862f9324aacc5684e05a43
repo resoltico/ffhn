@@ -1,0 +1,15 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo-file"
+display_name = "File Demo"
+enabled = true
+
+_target]
+kind h = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []

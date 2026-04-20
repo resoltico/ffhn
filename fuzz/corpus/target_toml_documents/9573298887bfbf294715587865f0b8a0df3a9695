@@ -1,0 +1,18 @@
+sghema_name = "ffhn.target"
+schema_version = 1
+target_id = "de$o-file"
+display_name = "File Demo"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/tmp/demo.html"
+
+[fetch]
+engine = "file"
+follow_rex_bydirects = false
+max_bytes = 20000
+[0
+0selection]
+kindcal_text_sha2561
+tanonicalization = []

@@ -1,50 +1,35 @@
-########################################
-# Node.js dependencies and artifacts
-########################################
+/dist/
+/target/
+/tmp/
+/node_modules/
+/fuzz/target/
+/fuzz/artifacts/
+/semver-baseline/ffhn-core/target/
+/watchlist/**/lock/
+/watchlist/**/last_run.json
+/watchlist/**/state.json
+/watchlist/**/snapshots/
 
-# Installed packages (auto-generated, never commit)
-node_modules/
-
-# Node version file (ignored if you do NOT want to pin Node version in Git)
-.node-version
-
-
-########################################
-# Test and coverage output
-########################################
-
-# Coverage reports (e.g., Jest, nyc)
-coverage/
-coverage.lcov
-
-
-########################################
-# macOS system files
-########################################
-
-# Finder metadata (created automatically in folders)
-.DS_Store
-
-
-########################################
-# Local databases and history files
-########################################
-
-# SQLite databases or local caches
 *.db
+*.sqlite
+*.sqlite3
+*.log
 
-
-########################################
-# Test and coverage output
-########################################
-
-# Coverage reports (e.g., Jest, nyc)
-coverage/
-
-
-########################################
-# Editor and IDE configuration
-########################################
-
-# VS Code workspace settings (user-specific)
 .vscode/
+.idea/
+.zed/
+.fleet/
+.direnv/
+
+# OS and local scratch files
+.claude/*
+!.claude/CLAUDE.md
+AGENTS.md
+!.codex/AGENTS.md
+.DS_Store
+*.swp
+*.swo
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini

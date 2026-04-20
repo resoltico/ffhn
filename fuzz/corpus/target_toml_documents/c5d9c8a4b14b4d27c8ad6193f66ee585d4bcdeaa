@@ -1,0 +1,32 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo-http"
+display_name = "HTTP Demo"
+enabled = true
+
+[target]
+kind = http"
+source_url = "https://example.com/page"
+
+[fetch]
+engine = "http"
+method = "GET"
+tieeout_ms = 14999
+max_bytes = 2000000
+user_agent = "ffhn/2.0.0"
+follow_redirects = true
+acceptarget_id = "demo-file"
+display_name = "File Demo"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/tmp/demo.html"
+
+[fetch]
+engine = "file"
+follow_redirects = false
+max_bytes = 2000000
+
+[sele"canonical_text_sha256"
+canonicalization = []

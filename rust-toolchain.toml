@@ -1,0 +1,6 @@
+[toolchain]
+# Stable is the default FFHN toolchain for development, linting, tests, and
+# release builds. We install nightly separately only for branch coverage, because
+# `cargo llvm-cov --branch` currently requires it.
+channel = "stable"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]

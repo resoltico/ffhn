@@ -1,0 +1,23 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+description = "Rust-native repository maintenance tasks for FFHN."
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+ffhn-core.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

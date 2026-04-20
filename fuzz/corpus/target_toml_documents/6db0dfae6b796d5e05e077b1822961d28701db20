@@ -1,0 +1,5 @@
+schema_name = "ffhn.target"
+schema_version = 0
+target_id = "demo-http"
+display_name = "HTTP Demo"
+schema_nameenabled  == "f
