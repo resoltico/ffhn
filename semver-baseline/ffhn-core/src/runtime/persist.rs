@@ -46,25 +46,20 @@ pub(crate) fn persist_successful_run(
 ) -> Result<Option<StateDocument>, CoreError> {
     let extraction_json = stable_json(input.extraction_record)?;
     let prior = prior_valid_state(input.prior_state);
+    let canonical_text = input.canonical_text;
+    let outer_html = input.outer_html;
+    let history_limit = input.target.storage.history_limit;
 
     let (current_snapshot, snapshot_history) = match input.run_outcome {
         RunOutcome::Initialized => {
             clear_dir_if_exists(&paths.history_snapshots_dir())?;
-            let current_reference = write_new_current_snapshot(
-                paths,
-                input.canonical_text,
-                input.outer_html,
-                &extraction_json,
-            )?;
+            let current_reference =
+                write_new_current_snapshot(paths, canonical_text, outer_html, &extraction_json)?;
             (Some(current_reference), Vec::new())
         }
         RunOutcome::Changed => {
-            let current_reference = write_new_current_snapshot(
-                paths,
-                input.canonical_text,
-                input.outer_html,
-                &extraction_json,
-            )?;
+            let current_reference =
+                write_new_current_snapshot(paths, canonical_text, outer_html, &extraction_json)?;
             let mut snapshot_history = prior
                 .map(|state| state.document.snapshot_history.clone())
                 .unwrap_or_default();
@@ -72,7 +67,7 @@ pub(crate) fn persist_successful_run(
                 let archived = archive_current_snapshot(paths, previous_current)?;
                 snapshot_history.insert(0, archived);
             }
-            prune_history(paths, &mut snapshot_history, input.target.storage.history_limit)?;
+            prune_history(paths, &mut snapshot_history, history_limit)?;
             (Some(current_reference), snapshot_history)
         }
         RunOutcome::Unchanged => (
@@ -81,9 +76,7 @@ pub(crate) fn persist_successful_run(
                 .map(|state| state.document.snapshot_history.clone())
                 .unwrap_or_default(),
         ),
-        RunOutcome::FailedTransient
-        | RunOutcome::FailedPermanent
-        | RunOutcome::SkippedDisabled => {
+        RunOutcome::FailedTransient | RunOutcome::FailedPermanent | RunOutcome::SkippedDisabled => {
             return Err(CoreError::htmlcut(
                 "persist_successful_run only supports successful outcomes",
             ));
@@ -208,7 +201,8 @@ fn write_new_current_snapshot(
 ) -> Result<SnapshotReference, CoreError> {
     let captured_at = now_utc()?;
     let current_snapshot_dir = paths.current_snapshot_dir();
-    write_current_snapshot(&current_snapshot_dir, canonical_text, outer_html, extraction_json)?;
+    let current_dir = &current_snapshot_dir;
+    write_current_snapshot(current_dir, canonical_text, outer_html, extraction_json)?;
     Ok(SnapshotReference {
         slot: SnapshotSlot::Current,
         canonical_text_sha256: sha256_hex(canonical_text.as_bytes()),
@@ -245,10 +239,7 @@ fn history_snapshot_key(reference: &SnapshotReference) -> String {
         .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
         .to_ascii_lowercase();
-    format!(
-        "{compact_time}-{}",
-        &reference.canonical_text_sha256[..12]
-    )
+    format!("{compact_time}-{}", &reference.canonical_text_sha256[..12])
 }
 
 fn prune_history(
@@ -258,17 +249,18 @@ fn prune_history(
 ) -> Result<(), CoreError> {
     let max_history_entries = history_limit.saturating_sub(1);
     while snapshot_history.len() > max_history_entries {
-        if let Some(removed) = snapshot_history.pop() {
-            let history_path = paths.target_dir().join(
-                removed
-                    .canonical_text_path
-                    .split('/')
-                    .take(3)
-                    .collect::<Vec<_>>()
-                    .join("/"),
-            );
-            clear_dir_if_exists(&history_path)?;
-        }
+        let removed = snapshot_history
+            .pop()
+            .expect("history length is positive while pruning");
+        let history_path = paths.target_dir().join(
+            removed
+                .canonical_text_path
+                .split('/')
+                .take(3)
+                .collect::<Vec<_>>()
+                .join("/"),
+        );
+        clear_dir_if_exists(&history_path)?;
     }
     Ok(())
 }
@@ -378,7 +370,10 @@ mod tests {
         }
     }
 
-    fn prior_state_with(current: Option<SnapshotArtifacts>, history: Vec<SnapshotArtifacts>) -> StateLoad {
+    fn prior_state_with(
+        current: Option<SnapshotArtifacts>,
+        history: Vec<SnapshotArtifacts>,
+    ) -> StateLoad {
         StateLoad::Valid(Box::new(super::super::state::LoadedState {
             document: StateDocument {
                 schema_name: STATE_SCHEMA_NAME.to_owned(),
@@ -424,7 +419,10 @@ mod tests {
         .expect("persist existing state");
         assert!(wrote_state);
         let state = state.expect("state document");
-        assert_eq!(state.last_reason_code, Some(ReasonCode::FetchHttpServerError));
+        assert_eq!(
+            state.last_reason_code,
+            Some(ReasonCode::FetchHttpServerError)
+        );
         assert_eq!(state.last_run_outcome, Some(RunOutcome::FailedTransient));
 
         let (wrote_state, state) = persist_state_only(
@@ -498,19 +496,26 @@ mod tests {
             "after"
         );
         assert_eq!(state.snapshot_history.len(), 1);
-        assert_eq!(
-            state.snapshot_history[0].slot,
-            SnapshotSlot::History
+        assert_eq!(state.snapshot_history[0].slot, SnapshotSlot::History);
+        assert!(
+            state.snapshot_history[0]
+                .canonical_text_path
+                .starts_with("snapshots/history/")
         );
-        assert!(state.snapshot_history[0]
-            .canonical_text_path
-            .starts_with("snapshots/history/"));
     }
 
     #[test]
     fn persist_successful_run_handles_initialized_and_unchanged_runs() {
         let temp = tempdir().expect("tempdir");
         let paths = TargetPaths::new(temp.path(), "demo");
+        write_exact_text(
+            paths
+                .history_snapshots_dir()
+                .join("stale")
+                .join("canonical.txt"),
+            "stale",
+        )
+        .expect("write stale history");
         let initialized = persist_successful_run(
             &paths,
             SuccessfulPersistInput {
@@ -526,7 +531,7 @@ mod tests {
         .expect("persist initialized run")
         .expect("state");
         assert!(initialized.snapshot_history.is_empty());
-        assert!(paths.history_snapshots_dir().exists() || !paths.history_snapshots_dir().exists());
+        assert!(!paths.history_snapshots_dir().join("stale").exists());
 
         let current = snapshot(
             SnapshotSlot::Current,
@@ -555,10 +560,61 @@ mod tests {
         .expect("persist unchanged run")
         .expect("state");
         assert_eq!(
-            unchanged.current_snapshot.expect("current").canonical_text_sha256,
+            unchanged
+                .current_snapshot
+                .expect("current")
+                .canonical_text_sha256,
             current.reference.canonical_text_sha256
         );
         assert_eq!(unchanged.snapshot_history.len(), 1);
+    }
+
+    #[test]
+    fn persist_successful_run_changed_without_prior_current_keeps_history_empty() {
+        let temp = tempdir().expect("tempdir");
+        let paths = TargetPaths::new(temp.path(), "demo");
+        let state = persist_successful_run(
+            &paths,
+            SuccessfulPersistInput {
+                target: &target(),
+                prior_state: &prior_state_with(None, Vec::new()),
+                run_started_at: "2026-04-05T13:30:00Z",
+                run_outcome: RunOutcome::Changed,
+                canonical_text: "after",
+                outer_html: "<main>After</main>",
+                extraction_record: &extraction_record(&sha256_hex("<main>After</main>".as_bytes())),
+            },
+        )
+        .expect("persist changed run without prior current")
+        .expect("state");
+
+        assert_eq!(state.snapshot_history, Vec::new());
+    }
+
+    #[test]
+    fn persist_successful_run_rejects_failed_outcomes() {
+        let temp = tempdir().expect("tempdir");
+        let paths = TargetPaths::new(temp.path(), "demo");
+
+        let error = persist_successful_run(
+            &paths,
+            SuccessfulPersistInput {
+                target: &target(),
+                prior_state: &StateLoad::Missing,
+                run_started_at: "2026-04-05T12:30:00Z",
+                run_outcome: RunOutcome::FailedTransient,
+                canonical_text: "fresh",
+                outer_html: "<main>Fresh</main>",
+                extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
+            },
+        )
+        .expect_err("failed outcome should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("persist_successful_run only supports successful outcomes")
+        );
     }
 
     #[test]

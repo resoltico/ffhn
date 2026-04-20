@@ -154,6 +154,24 @@ mod tests {
         assert_eq!(CanonicalizerKind::StripRegex.as_str(), "strip_regex");
         assert_eq!(CanonicalizerKind::Lowercase.as_str(), "lowercase");
     }
+
+    #[test]
+    fn reason_code_failure_class_maps_success_and_failures() {
+        assert_eq!(ReasonCode::Ok.failure_class(), None);
+        assert_eq!(ReasonCode::Disabled.failure_class(), None);
+        assert_eq!(
+            ReasonCode::FetchTimeout.failure_class(),
+            Some(FailureClass::Transient)
+        );
+        assert_eq!(
+            ReasonCode::FetchSourceError.failure_class(),
+            Some(FailureClass::Permanent)
+        );
+        assert_eq!(
+            ReasonCode::ConfigInvalid.failure_class(),
+            Some(FailureClass::Permanent)
+        );
+    }
 }
 
 /// Supported target-status vocabulary.
@@ -246,6 +264,8 @@ pub enum ReasonCode {
     FetchHttpClientError,
     /// HTTP 5xx failure.
     FetchHttpServerError,
+    /// Local source access failure.
+    FetchSourceError,
     /// Network failure.
     FetchNetworkError,
     /// Timeout failure.
@@ -286,6 +306,7 @@ impl ReasonCode {
             Self::ConfigInvalid
             | Self::StateInvalid
             | Self::FetchHttpClientError
+            | Self::FetchSourceError
             | Self::FetchTooLarge
             | Self::FetchUnsupportedContentType
             | Self::FetchDecodeError

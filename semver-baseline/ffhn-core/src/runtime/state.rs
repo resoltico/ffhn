@@ -27,50 +27,49 @@ pub(crate) struct LoadedState {
 pub(crate) enum StateLoad {
     Missing,
     Valid(Box<LoadedState>),
+    Unreadable,
     InvalidSchema(Option<StatePhase>),
     IntegrityMismatch(Option<StatePhase>),
 }
 
-pub(crate) fn load_state(paths: &TargetPaths) -> Result<StateLoad, CoreError> {
+pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
     let state_path = paths.state_file();
     if !state_path.is_file() {
-        return Ok(StateLoad::Missing);
+        return StateLoad::Missing;
     }
 
-    let state_json = read_text(&state_path)?;
+    let state_json = match read_text(&state_path) {
+        Ok(state_json) => state_json,
+        Err(_) => return StateLoad::Unreadable,
+    };
     let document = match serde_json::from_str::<StateDocument>(&state_json) {
         Ok(document) => document,
-        Err(_) => return Ok(StateLoad::InvalidSchema(None)),
+        Err(_) => return StateLoad::InvalidSchema(None),
     };
     let parsed_phase = Some(document.state_phase);
 
     if document.target_id != paths.target_id() {
-        return Ok(StateLoad::InvalidSchema(parsed_phase));
+        return StateLoad::InvalidSchema(parsed_phase);
     }
     if document.validate().is_err() {
-        return Ok(StateLoad::InvalidSchema(parsed_phase));
+        return StateLoad::InvalidSchema(parsed_phase);
     }
 
     let current = if let Some(reference) = &document.current_snapshot {
         match load_snapshot(paths.target_dir(), reference) {
             Ok(snapshot) => snapshot,
-            Err(_) => return Ok(StateLoad::IntegrityMismatch(parsed_phase)),
+            Err(_) => return StateLoad::IntegrityMismatch(parsed_phase),
         }
     } else {
         None
     };
     for reference in &document.snapshot_history {
-        match load_snapshot(paths.target_dir(), reference) {
-            Ok(Some(_snapshot)) => {}
-            Ok(None) => {}
-            Err(_) => return Ok(StateLoad::IntegrityMismatch(parsed_phase)),
+        if load_snapshot(paths.target_dir(), reference).is_err() {
+            return StateLoad::IntegrityMismatch(parsed_phase);
         }
     }
 
-    Ok(StateLoad::Valid(Box::new(LoadedState {
-        document,
-        current,
-    })))
+    StateLoad::Valid(Box::new(LoadedState { document, current }))
 }
 
 fn load_snapshot(
@@ -129,7 +128,10 @@ fn validate_snapshot_integrity(
 pub(crate) fn prior_valid_state(state: &StateLoad) -> Option<&LoadedState> {
     match state {
         StateLoad::Valid(state) => Some(state.as_ref()),
-        StateLoad::Missing | StateLoad::InvalidSchema(_) | StateLoad::IntegrityMismatch(_) => None,
+        StateLoad::Missing
+        | StateLoad::Unreadable
+        | StateLoad::InvalidSchema(_)
+        | StateLoad::IntegrityMismatch(_) => None,
     }
 }
 
@@ -143,6 +145,7 @@ pub(crate) fn state_phase_or_default(state: &StateLoad) -> StatePhase {
     match state {
         StateLoad::Missing => StatePhase::NeverSucceeded,
         StateLoad::Valid(state) => state.document.state_phase,
+        StateLoad::Unreadable => StatePhase::NeverSucceeded,
         StateLoad::InvalidSchema(phase) | StateLoad::IntegrityMismatch(phase) => {
             phase.unwrap_or(StatePhase::NeverSucceeded)
         }
@@ -156,7 +159,9 @@ pub(crate) fn status_from_state(state: &StateLoad) -> TargetStatus {
             TargetStatus::Ready
         }
         StateLoad::Valid(_) => TargetStatus::Pending,
-        StateLoad::InvalidSchema(_) | StateLoad::IntegrityMismatch(_) => TargetStatus::Invalid,
+        StateLoad::Unreadable | StateLoad::InvalidSchema(_) | StateLoad::IntegrityMismatch(_) => {
+            TargetStatus::Invalid
+        }
     }
 }
 
@@ -185,6 +190,8 @@ mod tests {
         OutputKind, ReasonCode, RunOutcome, SelectionKind, SelectionMatch, SnapshotSlot,
     };
     use serde_json::json;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
     const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -279,10 +286,7 @@ mod tests {
         let temp = tempdir().expect("tempdir");
         let paths = TargetPaths::new(temp.path(), "demo");
 
-        assert!(matches!(
-            load_state(&paths).expect("missing state"),
-            StateLoad::Missing
-        ));
+        assert!(matches!(load_state(&paths), StateLoad::Missing));
         assert_eq!(
             state_phase_or_default(&StateLoad::Missing),
             StatePhase::NeverSucceeded
@@ -305,7 +309,7 @@ mod tests {
         )
         .expect("write valid state");
 
-        let loaded_state = load_state(&paths).expect("load valid state");
+        let loaded_state = load_state(&paths);
         assert!(matches!(loaded_state, StateLoad::Valid(_)));
         let loaded = prior_valid_state(&loaded_state)
             .expect("prior valid state")
@@ -346,7 +350,7 @@ mod tests {
 
         write_json(paths.state_file(), &state_document(None, Vec::new()))
             .expect("write pending state");
-        let pending = load_state(&paths).expect("load pending state");
+        let pending = load_state(&paths);
         assert!(matches!(pending, StateLoad::Valid(_)));
         assert_eq!(status_from_state(&pending), TargetStatus::Pending);
         assert_eq!(
@@ -363,7 +367,7 @@ mod tests {
         )
         .expect("write invalid schema state");
         assert!(matches!(
-            load_state(&paths).expect("load invalid schema"),
+            load_state(&paths),
             StateLoad::InvalidSchema(Some(StatePhase::HasBaseline))
         ));
         assert_eq!(
@@ -372,10 +376,30 @@ mod tests {
         );
 
         write_exact_text(paths.state_file(), "{not json").expect("write malformed state");
-        assert!(matches!(
-            load_state(&paths).expect("load malformed state"),
-            StateLoad::InvalidSchema(None)
-        ));
+        assert!(matches!(load_state(&paths), StateLoad::InvalidSchema(None)));
+
+        #[cfg(unix)]
+        {
+            write_json(
+                paths.state_file(),
+                &state_document(Some(current.clone()), vec![]),
+            )
+            .expect("write unreadable state");
+            let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
+            let original = metadata.permissions();
+            let mut denied = original.clone();
+            denied.set_mode(0o000);
+            std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
+            let unreadable = load_state(&paths);
+            std::fs::set_permissions(paths.state_file(), original)
+                .expect("restore state permissions");
+            assert!(matches!(unreadable, StateLoad::Unreadable));
+            assert_eq!(
+                state_phase_or_default(&unreadable),
+                StatePhase::NeverSucceeded
+            );
+            assert_eq!(status_from_state(&unreadable), TargetStatus::Invalid);
+        }
 
         write_json(
             paths.state_file(),
@@ -386,7 +410,7 @@ mod tests {
         )
         .expect("write mismatched target state");
         assert!(matches!(
-            load_state(&paths).expect("load mismatched target id"),
+            load_state(&paths),
             StateLoad::InvalidSchema(Some(StatePhase::HasBaseline))
         ));
 
@@ -401,7 +425,7 @@ mod tests {
         )
         .expect("tamper canonical");
         assert!(matches!(
-            load_state(&paths).expect("load canonical mismatch"),
+            load_state(&paths),
             StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
         ));
 
@@ -412,7 +436,7 @@ mod tests {
         )
         .expect("tamper outer html");
         assert!(matches!(
-            load_state(&paths).expect("load integrity mismatch"),
+            load_state(&paths),
             StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
         ));
         assert_eq!(
@@ -431,7 +455,7 @@ mod tests {
         )
         .expect("tamper previous outer html");
         assert!(matches!(
-            load_state(&paths).expect("load previous integrity mismatch"),
+            load_state(&paths),
             StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
         ));
 
@@ -443,7 +467,27 @@ mod tests {
         )
         .expect("write mismatched extraction record");
         assert!(matches!(
-            load_state(&paths).expect("load extraction mismatch"),
+            load_state(&paths),
+            StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        ));
+    }
+
+    #[test]
+    fn load_state_rejects_missing_history_snapshot_artifacts() {
+        let temp = tempdir().expect("tempdir");
+        let paths = TargetPaths::new(temp.path(), "demo");
+        let current = snapshot(SnapshotSlot::Current, "hello", "<main>Hello</main>");
+        let history = snapshot(SnapshotSlot::History, "before", "<main>Before</main>");
+        write_snapshot(&paths, &current, "hello", "<main>Hello</main>");
+        write_json(
+            paths.state_file(),
+            &state_document(Some(current), vec![history]),
+        )
+        .expect("write state");
+
+        let loaded = load_state(&paths);
+        assert!(matches!(
+            loaded,
             StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
         ));
     }

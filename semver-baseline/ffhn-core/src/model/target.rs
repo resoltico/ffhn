@@ -235,11 +235,10 @@ impl TargetSource {
                 }
             }
             TargetKind::File => {
-                validate_absolute_file_path(
-                    self.file_path.as_deref().ok_or_else(|| {
-                        CoreError::htmlcut("target.file_path is required for file targets")
-                    })?,
-                )?;
+                let file_path = self.file_path.as_deref().ok_or_else(|| {
+                    CoreError::htmlcut("target.file_path is required for file targets")
+                })?;
+                validate_absolute_file_path(file_path)?;
                 if self.source_url.is_some() {
                     return Err(CoreError::htmlcut(
                         "target.source_url is only valid for http targets",
@@ -280,22 +279,28 @@ impl FetchConfig {
             }
             TargetKind::File => {
                 if self.engine != FetchEngine::File {
-                    return Err(CoreError::htmlcut(
-                        "file targets require fetch.engine = file",
+                    return Err(contract_error("file targets require fetch.engine = file"));
+                }
+                if self.timeout_ms != default_fetch_timeout_ms() {
+                    return Err(contract_error(
+                        "file targets require the fixed fetch.timeout_ms default of 15000",
                     ));
                 }
-                if self.method != HttpMethod::GET {
-                    return Err(CoreError::htmlcut("file targets require fetch.method = GET"));
-                }
                 if self.follow_redirects {
-                    return Err(CoreError::htmlcut(
+                    return Err(contract_error(
                         "file targets must disable fetch.follow_redirects",
                     ));
                 }
-                if !self.headers.is_empty() {
-                    return Err(CoreError::htmlcut(
-                        "file targets must not define fetch.headers",
+                if !self.user_agent.is_empty() {
+                    return Err(contract_error(
+                        "file targets must not define fetch.user_agent",
                     ));
+                }
+                if !self.accept.is_empty() {
+                    return Err(contract_error("file targets must not define fetch.accept"));
+                }
+                if !self.headers.is_empty() {
+                    return Err(contract_error("file targets must not define fetch.headers"));
                 }
             }
         }
@@ -328,12 +333,12 @@ impl NotificationHook {
             ));
         }
         if self.on.is_empty() {
-            return Err(CoreError::htmlcut(
+            return Err(contract_error(
                 "notifications.on must list at least one event",
             ));
         }
         if self.timeout_ms < 100 || self.timeout_ms > 60_000 {
-            return Err(CoreError::htmlcut(
+            return Err(contract_error(
                 "notifications.timeout_ms must be in 100..60000",
             ));
         }
@@ -473,6 +478,10 @@ fn validate_unique_hook_names(hooks: &[NotificationHook]) -> Result<(), CoreErro
     Ok(())
 }
 
+fn contract_error(message: &'static str) -> CoreError {
+    CoreError::htmlcut(message)
+}
+
 const fn default_fetch_method() -> HttpMethod {
     HttpMethod::GET
 }
@@ -502,258 +511,4 @@ const fn default_notification_timeout_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION};
-    use url::Url;
-
-    fn valid_target() -> TargetDocument {
-        TargetDocument {
-            schema_name: TARGET_SCHEMA_NAME.to_owned(),
-            schema_version: TARGET_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
-            display_name: "Demo".to_owned(),
-            enabled: true,
-            target: TargetSource {
-                kind: TargetKind::Http,
-                source_url: Some(Url::parse("https://example.com/page").expect("url")),
-                file_path: None,
-            },
-            fetch: FetchConfig {
-                engine: FetchEngine::Http,
-                method: HttpMethod::GET,
-                timeout_ms: 15_000,
-                max_bytes: 2_000_000,
-                user_agent: "ffhn/2.0.0".to_owned(),
-                follow_redirects: true,
-                accept: "text/html".to_owned(),
-                headers: BTreeMap::new(),
-                extensions: None,
-            },
-            selection: SelectionConfig {
-                kind: SelectionKind::CssSelector,
-                r#match: SelectionMatch::Single,
-                index: None,
-                output: OutputKind::OuterHtml,
-                whitespace: WhitespaceMode::Normalize,
-                rewrite_urls: false,
-                selector: Some("main".to_owned()),
-                start: None,
-                end: None,
-                mode: None,
-                include_start: None,
-                include_end: None,
-                flags: Vec::new(),
-            },
-            compare: CompareConfig {
-                basis: CompareBasis::CanonicalTextSha256,
-                canonicalization: Vec::new(),
-            },
-            storage: Default::default(),
-            notifications: Vec::new(),
-            extensions: None,
-        }
-    }
-
-    #[test]
-    fn valid_css_selector_target_document_passes_validation() {
-        valid_target().validate().expect("valid target");
-
-        TargetDocument {
-            compare: CompareConfig {
-                basis: CompareBasis::CanonicalTextSha256,
-                canonicalization: vec![CanonicalizerSpec {
-                    kind: CanonicalizerKind::Trim,
-                    pattern: None,
-                    flags: Vec::new(),
-                }],
-            },
-            ..valid_target()
-        }
-        .validate()
-        .expect("valid target with compare pipeline");
-    }
-
-    #[test]
-    fn target_validation_checks_url_ranges_and_header_values() {
-        let mut target = valid_target();
-        target.schema_name = "wrong".to_owned();
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target.target.source_url = Some(Url::parse("file:///tmp/demo").expect("file url"));
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target.fetch.timeout_ms = 999;
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target.fetch.max_bytes = 100;
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target.fetch.timeout_ms = 600_001;
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target.fetch.max_bytes = 104_857_601;
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target
-            .fetch
-            .headers
-            .insert("".to_owned(), "value".to_owned());
-        assert!(target.validate().is_err());
-
-        let mut target = valid_target();
-        target
-            .fetch
-            .headers
-            .insert("x-demo".to_owned(), "".to_owned());
-        assert!(target.validate().is_err());
-
-        CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
-            canonicalization: vec![CanonicalizerSpec {
-                kind: CanonicalizerKind::Lowercase,
-                pattern: None,
-                flags: Vec::new(),
-            }],
-        }
-        .validate()
-        .expect("compare config");
-    }
-
-    #[test]
-    fn selection_validation_enforces_match_index_rules() {
-        let mut selection = valid_target().selection;
-        selection.r#match = SelectionMatch::Nth;
-        selection.index = Some(2);
-        selection.validate().expect("nth with index");
-
-        selection.index = None;
-        assert!(selection.validate().is_err());
-
-        selection.index = Some(0);
-        assert!(selection.validate().is_err());
-
-        let mut selection = valid_target().selection;
-        selection.index = Some(2);
-        assert!(selection.validate().is_err());
-    }
-
-    #[test]
-    fn css_selection_forbids_delimiter_specific_fields_and_flags() {
-        let mut selection = valid_target().selection;
-        selection.start = Some("BEGIN".to_owned());
-        assert!(selection.validate().is_err());
-
-        let mut selection = valid_target().selection;
-        selection.flags = vec![RegexFlag::CaseInsensitive];
-        assert!(selection.validate().is_err());
-    }
-
-    #[test]
-    fn delimiter_selection_requires_its_full_contract() {
-        let mut selection = valid_target().selection;
-        selection.kind = SelectionKind::DelimiterPair;
-        selection.r#match = SelectionMatch::Nth;
-        selection.index = Some(1);
-        selection.selector = None;
-        selection.start = Some("BEGIN".to_owned());
-        selection.end = Some("END".to_owned());
-        selection.mode = Some(DelimiterMode::Regex);
-        selection.include_start = Some(false);
-        selection.include_end = Some(true);
-        selection.flags = vec![RegexFlag::CaseInsensitive];
-        selection.validate().expect("valid delimiter selection");
-
-        let mut missing_mode = selection.clone();
-        missing_mode.mode = None;
-        assert!(missing_mode.validate().is_err());
-
-        let mut literal_with_flags = selection.clone();
-        literal_with_flags.mode = Some(DelimiterMode::Literal);
-        assert!(literal_with_flags.validate().is_err());
-
-        let mut missing_include = selection.clone();
-        missing_include.include_end = None;
-        assert!(missing_include.validate().is_err());
-
-        let mut missing_include_start = selection.clone();
-        missing_include_start.include_start = None;
-        assert!(missing_include_start.validate().is_err());
-
-        let mut literal_without_flags = selection.clone();
-        literal_without_flags.mode = Some(DelimiterMode::Literal);
-        literal_without_flags.flags = Vec::new();
-        literal_without_flags
-            .validate()
-            .expect("literal delimiter without regex flags");
-
-        let mut with_selector = selection;
-        with_selector.selector = Some("main".to_owned());
-        assert!(with_selector.validate().is_err());
-    }
-
-    #[test]
-    fn canonicalizer_validation_checks_pattern_usage() {
-        CanonicalizerSpec {
-            kind: CanonicalizerKind::Trim,
-            pattern: None,
-            flags: Vec::new(),
-        }
-        .validate()
-        .expect("trim");
-
-        assert!(
-            CanonicalizerSpec {
-                kind: CanonicalizerKind::Trim,
-                pattern: Some("x".to_owned()),
-                flags: Vec::new(),
-            }
-            .validate()
-            .is_err()
-        );
-
-        assert!(
-            CanonicalizerSpec {
-                kind: CanonicalizerKind::Trim,
-                pattern: None,
-                flags: vec![RegexFlag::CaseInsensitive],
-            }
-            .validate()
-            .is_err()
-        );
-
-        CanonicalizerSpec {
-            kind: CanonicalizerKind::StripRegex,
-            pattern: Some(r"\d+".to_owned()),
-            flags: vec![RegexFlag::CaseInsensitive],
-        }
-        .validate()
-        .expect("strip regex");
-
-        assert!(
-            CanonicalizerSpec {
-                kind: CanonicalizerKind::StripRegex,
-                pattern: None,
-                flags: Vec::new(),
-            }
-            .validate()
-            .is_err()
-        );
-
-        assert!(
-            CanonicalizerSpec {
-                kind: CanonicalizerKind::StripRegex,
-                pattern: Some("[".to_owned()),
-                flags: Vec::new(),
-            }
-            .validate()
-            .is_err()
-        );
-    }
-}
+mod tests;

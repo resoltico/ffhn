@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fixed `cargo xtask refresh-semver-baseline` to accept the documented `--git-ref` argument and rebuild the checked-in `ffhn-core` baseline from the explicit published Git ref instead of the live worktree.
+
 ## [2.0.0] - 2026-04-20
 
 - Updated FFHN to `htmlcut-core` `v4.2.0`, aligned all persisted interop identity with the published `htmlcut-v1` profile, and shipped the public Rust `2.0.0` release line.

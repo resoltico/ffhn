@@ -13,30 +13,34 @@ pub(crate) fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, Cor
 }
 
 pub(crate) fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
-    let _lock = lock_shared(paths)?;
-    let state = load_state(paths)?;
-
     match validate_target(paths) {
-        Ok(target) => status_for_valid_target(&target, state),
+        Ok(target) => {
+            let _lock = lock_shared(paths)?;
+            status_for_valid_target(&target, load_state(paths))
+        }
         Err(_) => {
-            let report = StatusReport {
-                schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
-                schema_version: STATUS_REPORT_SCHEMA_VERSION,
-                target_id: paths.target_id().to_owned(),
-                target_status: TargetStatus::Invalid,
-                reason_code: ReasonCode::ConfigInvalid,
-                state_phase: None,
-                artifacts: ArtifactStatus {
-                    current_valid: false,
-                    previous_valid: false,
-                },
-                current_snapshot: None,
-                snapshot_history: Vec::new(),
-                extensions: None,
-            };
+            let report = invalid_target_status_report(paths);
             report.validate()?;
             Ok(report)
         }
+    }
+}
+
+fn invalid_target_status_report(paths: &TargetPaths) -> StatusReport {
+    StatusReport {
+        schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
+        schema_version: STATUS_REPORT_SCHEMA_VERSION,
+        target_id: paths.target_id().to_owned(),
+        target_status: TargetStatus::Invalid,
+        reason_code: ReasonCode::ConfigInvalid,
+        state_phase: None,
+        artifacts: ArtifactStatus {
+            current_valid: false,
+            previous_valid: false,
+        },
+        current_snapshot: None,
+        snapshot_history: Vec::new(),
+        extensions: None,
     }
 }
 
@@ -73,13 +77,28 @@ fn status_for_valid_target(
             snapshot_history: Vec::new(),
             extensions: None,
         },
-        StateLoad::InvalidSchema(_) => StatusReport {
+        StateLoad::Unreadable => StatusReport {
             schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
             schema_version: STATUS_REPORT_SCHEMA_VERSION,
             target_id: target.target_id.clone(),
             target_status: TargetStatus::Invalid,
             reason_code: ReasonCode::StateInvalid,
             state_phase: Some(StatePhase::NeverSucceeded),
+            artifacts: ArtifactStatus {
+                current_valid: false,
+                previous_valid: false,
+            },
+            current_snapshot: None,
+            snapshot_history: Vec::new(),
+            extensions: None,
+        },
+        StateLoad::InvalidSchema(phase) => StatusReport {
+            schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
+            schema_version: STATUS_REPORT_SCHEMA_VERSION,
+            target_id: target.target_id.clone(),
+            target_status: TargetStatus::Invalid,
+            reason_code: ReasonCode::StateInvalid,
+            state_phase: Some(phase.unwrap_or(StatePhase::NeverSucceeded)),
             artifacts: ArtifactStatus {
                 current_valid: false,
                 previous_valid: false,
@@ -148,6 +167,8 @@ mod tests {
         WhitespaceMode,
     };
     use serde_json::json;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
     use url::Url;
 
@@ -295,12 +316,15 @@ mod tests {
         assert_eq!(report.reason_code, ReasonCode::ConfigInvalid);
         assert_eq!(report.target_status, TargetStatus::Invalid);
         assert!(report.state_phase.is_none());
+        assert!(!paths.run_lock_file().exists());
 
         write_target(&paths, &target_document("demo"));
         let report = status(&paths).expect("pending status");
         assert_eq!(report.reason_code, ReasonCode::Ok);
         assert_eq!(report.target_status, TargetStatus::Pending);
         assert_eq!(report.state_phase, Some(StatePhase::NeverSucceeded));
+        assert!(paths.lock_dir().is_dir());
+        assert!(paths.run_lock_file().is_file());
 
         write_json(
             paths.state_file(),
@@ -340,6 +364,23 @@ mod tests {
         let report = status(&paths).expect("invalid state status");
         assert_eq!(report.reason_code, ReasonCode::StateInvalid);
         assert_eq!(report.target_status, TargetStatus::Invalid);
+        assert_eq!(report.state_phase, Some(StatePhase::HasBaseline));
+
+        #[cfg(unix)]
+        {
+            write_valid_state(&paths);
+            let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
+            let original = metadata.permissions();
+            let mut denied = original.clone();
+            denied.set_mode(0o000);
+            std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
+            let report = status(&paths).expect("unreadable state status");
+            std::fs::set_permissions(paths.state_file(), original)
+                .expect("restore state permissions");
+            assert_eq!(report.reason_code, ReasonCode::StateInvalid);
+            assert_eq!(report.target_status, TargetStatus::Invalid);
+            assert_eq!(report.state_phase, Some(StatePhase::NeverSucceeded));
+        }
 
         write_valid_state(&paths);
         write_exact_text(
@@ -357,5 +398,21 @@ mod tests {
         assert_eq!(report.target_status, TargetStatus::Ready);
         assert_eq!(report.state_phase, Some(StatePhase::HasBaseline));
         assert!(report.current_snapshot.is_some());
+
+        #[cfg(unix)]
+        {
+            write_text(paths.target_file(), "bad = [").expect("break target");
+            let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
+            let original = metadata.permissions();
+            let mut denied = original.clone();
+            denied.set_mode(0o000);
+            std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
+            let report = status(&paths).expect("config invalid wins over unreadable state");
+            std::fs::set_permissions(paths.state_file(), original)
+                .expect("restore state permissions");
+            assert_eq!(report.reason_code, ReasonCode::ConfigInvalid);
+            assert_eq!(report.target_status, TargetStatus::Invalid);
+            assert_eq!(report.state_phase, None);
+        }
     }
 }

@@ -45,6 +45,10 @@ toml = "0.8.23"
 features = ["derive"]
 version = "4.6.0"
 
+[workspace.dependencies.ffhn-core]
+path = "crates/ffhn-core"
+version = "2.0.0"
+
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
 package = "htmlcut-core"

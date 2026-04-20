@@ -12,8 +12,8 @@ use super::RegexFlag;
 const SHA256_HEX_LEN: usize = 64;
 const TARGET_ID_PATTERN: &str = r"^[a-z0-9][a-z0-9_-]{0,63}$";
 const RESERVED_TARGET_IDS: &[&str] = &[
-    "aux", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "con",
-    "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "nul", "prn",
+    "aux", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "con", "lpt1",
+    "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "nul", "prn",
 ];
 
 pub(crate) fn validate_identity(
@@ -183,7 +183,10 @@ mod tests {
         assert!(validate_target_id("Demo").is_err());
         assert!(validate_target_id("").is_err());
         assert!(validate_target_id("demo__1").is_err());
+        assert!(validate_target_id("demo--1").is_err());
+        assert!(validate_target_id("demo-_1").is_err());
         assert!(validate_target_id("demo-").is_err());
+        assert!(validate_target_id("demo_").is_err());
         assert!(validate_target_id("con").is_err());
     }
 
