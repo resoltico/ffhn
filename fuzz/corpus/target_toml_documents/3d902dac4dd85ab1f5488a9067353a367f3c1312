@@ -1,0 +1,6 @@
+schema_name = "ffhn.target"se
+chma_version = 1
+target_id = "demo-http"
+display_name = "HTTP Demo"
+enabled =schema_name = "ffhn.target"
+schema_versions =

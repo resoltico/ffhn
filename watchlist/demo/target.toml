@@ -1,14 +1,35 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo"
+display_name = "Example Main Article"
+enabled = true
+
 [target]
-url = "https://example.com"
+kind = "http"
+source_url = "https://example.com"
 
-[extract]
-from = "<main\\b[^>]*>"
-to = "</main>"
-pattern = "regex"
-capture = "inner"
-all = false
+[fetch]
+engine = "http"
+method = "GET"
+timeout_ms = 15000
+max_bytes = 2000000
+user_agent = "ffhn/demo"
+follow_redirects = true
+accept = "text/html,application/xhtml+xml"
 
-[request]
-timeout_ms = 30000
-max_attempts = 3
-retry_delay_ms = 750
+[selection]
+kind = "css_selector"
+selector = "body"
+match = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+
+[[compare.canonicalization]]
+kind = "trim"
+
+[[compare.canonicalization]]
+kind = "collapse_whitespace"

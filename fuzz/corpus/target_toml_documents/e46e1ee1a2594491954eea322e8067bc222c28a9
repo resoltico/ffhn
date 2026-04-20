@@ -1,0 +1,34 @@
+schema_name = "ffhn.target"
+schema_version_url = "https://example.com/page"
+
+[fetch]
+engine = "http"
+method = "GET"
+arget]
+kind = "http"
+source_url = "https://example.com/page"
+
+[fetch]
+engine = "http"
+method = "GET"
+timeout_ms = 15000
+max_byte = 1
+target_id = "demo-file"
+display_name = "File Demo"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/tmp/demo.html"
+
+[fetch]
+engine = "file"
+follow_redirects = false
+max_bytes = 2000000
+
+[selection]
+kind = "delimiter_pair"
+start = "<main>"
+end = "</main>"
+mode = "literal"
+includenonicalization = []

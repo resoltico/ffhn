@@ -1,501 +1,213 @@
+<!--
+RETRIEVAL_HINTS:
+  keywords: [ffhn, deterministic monitoring, ffhn-core, ffhn-cli, htmlcut, watch root, target.toml, snapshots]
+  answers: [what is ffhn?, how do I run ffhn?, how does ffhn work?, where are the ffhn docs?, what does ffhn persist?]
+  related: [docs/README.md, docs/cli.md, docs/targets.md, docs/reports.md, docs/contracts.md, CONTRIBUTING.md, fuzz/README.md]
+-->
 # ffhn
 
-Monitor websites by extracting the part that matters and reporting changes as JSON.
+`ffhn` is a Rust workspace for deterministic monitoring of websites and local HTML files.
 
-`ffhn` is a JSON-first CLI for watching a specific part of a page instead of diffing an entire document. It fetches a URL, passes the HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut), stores the extracted result on disk, and reports whether the target was `initialized`, `changed`, `unchanged`, or `failed`. In `ffhn`, "strict" means it prefers explicit errors over guesswork: config is schema-validated, malformed state is treated as invalid instead of silently repaired, unsupported CLI combinations are rejected, and stored artifacts are verified before they are trusted. That makes the tool predictable for scripts, cron jobs, and AI agents.
+It fetches or reads a source, extracts the exact slice you care about through HTMLCut, canonicalizes that content before comparison, persists durable snapshots, and emits machine-readable JSON reports. The engine lives in `ffhn-core`. The CLI in `ffhn-cli` is only a process adapter that renders a core-owned command contract into help text, argument parsing, JSON output, and exit codes.
 
-## Why ffhn
+## Why FFHN
 
-- Watch only the part of a page that matters instead of the whole HTML document.
-- Get machine-friendly JSON output every time.
-- Keep durable on-disk state with `current.txt`, `previous.txt`, and `state.json`.
-- See explicit failures when config, state, or stored artifacts are broken.
-
-## Requirements
-
-- Node.js 24+
-- npm available in the same active Node environment
-- [`htmlcut`](https://github.com/resoltico/HTMLCut) available on `PATH`
+- Deterministic comparisons: FFHN compares canonicalized content instead of raw page noise.
+- Clean ownership boundaries: FFHN owns fetching, persistence, reports, and notifications; HTMLCut owns extraction execution.
+- Real operational surface: live runs, dry runs, batch runs, retained history snapshots, and shell-hook notifications are first-class features.
+- Automation-friendly CLI: the supported operations emit stable JSON documents instead of human-only terminal text.
+- Two source families: monitor `http` or `https` pages, or monitor local files through absolute paths.
+- Sharper file-target contract: file sources reject HTTP-only fetch knobs instead of silently ignoring them, and FFHN expects local file bytes to decode as UTF-8.
 
 ## Install
 
-ffhn is distributed through GitHub, not npmjs.com.
-It also depends on the separate [`htmlcut`](https://github.com/resoltico/HTMLCut) command, which must be installed in the same active Node environment first.
-
-That means there are two practical install modes:
-
-- install from GitHub release archives
-- install from git checkouts
-
-In both modes, the final step is `npm link`, which makes the global command point at the directory on disk that you installed from.
-
-### Install From GitHub Release Archives
-
-Use this when you want released versions without cloning repository history.
-
-1. Confirm which Node environment is active:
+Build from source:
 
 ```bash
-node -v
-npm prefix -g
+cargo build --release -p ffhn-cli
+./target/release/ffhn --help
 ```
 
-2. Download and extract the GitHub release archive for [`htmlcut`](https://github.com/resoltico/HTMLCut).
+Regular builds and normal CLI usage do not need nightly Rust. Nightly is only part of the coverage and fuzzing workflows.
 
-3. Install and link `htmlcut` from its extracted directory:
+Or download a standalone binary from [GitHub Releases](https://github.com/resoltico/ffhn/releases). The maintained release matrix currently covers macOS arm64, macOS x64, Linux x64 musl, and Windows x64.
+
+The maintained public release assets are:
+
+- `ffhn-<version>.zip`
+- `ffhn-<version>.tar.gz`
+- `ffhn-aarch64-apple-darwin`
+- `ffhn-aarch64-apple-darwin.sha256`
+- `ffhn-x86_64-apple-darwin`
+- `ffhn-x86_64-apple-darwin.sha256`
+- `ffhn-x86_64-unknown-linux-musl`
+- `ffhn-x86_64-unknown-linux-musl.sha256`
+- `ffhn-x86_64-pc-windows-msvc.exe`
+- `ffhn-x86_64-pc-windows-msvc.exe.sha256`
+
+Release choreography lives in [docs/release-protocol.md](docs/release-protocol.md). Packaging mechanics live in [docs/operations.md](docs/operations.md).
+
+If you are working directly from the repository without installing the binary, replace `ffhn` in the examples below with `cargo run -p ffhn-cli --`.
+
+## Five-Minute Start
+
+FFHN expects one directory per target under a watch root. The default watch root is `./watchlist`.
+
+The checked-in `watchlist/demo` directory is a starter config, not a frozen sample state. Live runs create local runtime artifacts such as `state.json`, `last_run.json`, and `snapshots/` under that directory, and both `run` and `status` may create `lock/` on first use for locking. Those generated artifacts are ignored by Git.
+
+Use the checked-in demo target:
 
 ```bash
-cd /path/to/htmlcut-<version>
-npm install
-npm link
+ffhn run --target demo
 ```
 
-4. Download and extract the GitHub release archive for `ffhn`.
-
-5. Install and link `ffhn` from its extracted directory:
+Inspect the current status for that same target:
 
 ```bash
-cd /path/to/ffhn-<version>
-npm install
-npm link
+ffhn status --target demo
 ```
 
-6. Refresh your shell's command cache and verify both commands:
+Run the full watch root in parallel:
 
 ```bash
-hash -r
-command -v htmlcut
-htmlcut --version
-command -v ffhn
-ffhn --version
-ffhn --help
+ffhn run --all --jobs 4
 ```
 
-Keep both extracted directories. The global commands point back to them. If you delete or move them, the links break.
-
-### Install From Git Checkouts
-
-Use this when you want to track the repositories directly or develop from source.
-
-1. Confirm which Node environment is active:
+Inspect everything without mutating snapshots or run reports:
 
 ```bash
-node -v
-npm prefix -g
+ffhn run --target demo --dry-run
 ```
 
-2. Clone, install, and link [`htmlcut`](https://github.com/resoltico/HTMLCut) first:
+## Mental Model
 
-```bash
-git clone https://github.com/resoltico/HTMLCut
-cd htmlcut
-npm install
-npm link
-```
+One live FFHN run is intentionally simple:
 
-3. Clone, install, and link `ffhn` second:
+1. load and validate `target.toml`
+2. acquire the exclusive run lock
+3. load stored state
+4. fetch the URL or read the local file
+5. ask HTMLCut for the configured slice
+6. canonicalize the compare text and classify the outcome
+7. persist state and snapshots when applicable
+8. attempt best-effort notifications
+9. attempt the final `last_run.json` write
 
-```bash
-git clone <ffhn-repo-url>
-cd ffhn
-npm install
-npm link
-```
+Dry-run uses the same validation, fetch, extraction, and comparison path, but it takes the shared run lock before reading state, then skips snapshot writes, `state.json` writes, `last_run.json` writes, and notifications.
 
-4. Refresh your shell's command cache and verify both commands:
+## Minimal Target
 
-```bash
-hash -r
-command -v htmlcut
-htmlcut --version
-command -v ffhn
-ffhn --version
-ffhn --help
-```
+Every target lives at `<watch_root>/<target_id>/target.toml`.
 
-## Update
+- [watchlist/demo/target.toml](watchlist/demo/target.toml): minimal HTTP target
+- [examples/file-target-with-notifications.toml](examples/file-target-with-notifications.toml): file-backed target with `follow_redirects = false`, history retention, and notification hooks
 
-### Update A GitHub Release Archive Install
+Those checked-in example targets are validated by the test suite against the current `ffhn.target` contract, so they are the canonical public examples in this repository. The full target contract, defaults, and validation rules live in [docs/targets.md](docs/targets.md).
 
-To update a release-archive install, download and extract the newer releases, then relink in this order: `htmlcut` first, `ffhn` second.
+## What FFHN Persists
 
-```bash
-cd /path/to/htmlcut-<new-version>
-npm install
-npm link
-
-cd /path/to/ffhn-<new-version>
-npm install
-npm link
-
-hash -r
-htmlcut --version
-ffhn --version
-```
-
-Once the new links work, the older extracted directories can be removed.
-
-### Update A Git Checkout Install
-
-If your global `ffhn` command points at git checkouts, update and relink in this order: `htmlcut` first, `ffhn` second:
-
-```bash
-cd /path/to/htmlcut
-git pull
-npm install
-npm link
-
-cd /path/to/ffhn
-git pull
-npm install
-npm link
-hash -r
-htmlcut --version
-ffhn --version
-```
-
-If you only changed source files in an already linked checkout, you usually do not need to run `npm link` again. Run it again after switching Node environments, after reinstalling Node, or whenever the global link disappears.
-
-## Node Version Changes And Troubleshooting
-
-If you use `fnm`, `nvm`, `asdf`, `volta`, or any setup that switches the active Node installation, the `npm link` registration belongs to that active Node environment.
-
-For `ffhn`, there is one extra rule: `htmlcut` must also be linked in that same active environment.
-
-That means:
-
-- switching Node versions can make `htmlcut`, `ffhn`, or both disappear even though their install directories still exist
-- upgrading Node can change the active global prefix
-- your shell can cache an old command path until you run `hash -r`
-- deleting or moving an extracted or checked-out directory that `npm link` points at breaks that command
-
-Use this sequence after a Node switch, Node upgrade, or a sudden `command not found`:
-
-1. Inspect the active environment:
-
-```bash
-node -v
-npm prefix -g
-command -v htmlcut || true
-command -v ffhn || true
-```
-
-2. Go back to the directories you installed from.
-`htmlcut` first, then `ffhn`:
-
-```bash
-cd /path/to/htmlcut-or-htmlcut-<version>
-npm install
-npm link
-
-cd /path/to/ffhn-or-ffhn-<version>
-npm install
-npm link
-```
-
-3. Refresh the shell cache and verify:
-
-```bash
-hash -r
-command -v htmlcut
-htmlcut --version
-command -v ffhn
-ffhn --version
-ffhn --help
-```
-
-If you want the tools available under more than one installed Node version, repeat `npm link` for each tool once per version while that version is active.
-
-## Quick Start
-
-Create a target:
-
-```bash
-ffhn init --target news-site
-```
-
-Edit `watchlist/news-site/target.toml` so it points at the page you want and extracts the part you care about.
-
-Run it:
-
-```bash
-ffhn run --target news-site --pretty
-```
-
-Check the stored state later:
-
-```bash
-ffhn status --target news-site
-```
-
-## How It Works
-
-1. Fetch the target URL.
-2. Send the HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut).
-3. Hash the extracted output.
-4. Persist state and report whether the target was `initialized`, `changed`, `unchanged`, or `failed`.
-
-## Layout
-
-Each target lives under a watchlist directory.
+For each target, FFHN uses a durable directory layout like this:
 
 ```text
-watchlist/
-  news-site/
+<watch_root>/
+  <target_id>/
     target.toml
     state.json
-    current.txt
-    previous.txt
+    last_run.json
+    lock/
+      run.lock
+    snapshots/
+      current/
+        canonical.txt
+        outer.html
+        extraction.json
+      history/
+        <snapshot_key>/
+          canonical.txt
+          outer.html
+          extraction.json
 ```
 
-Files:
+In practice:
 
-- `target.toml`: the target definition you edit
-- `state.json`: ffhn runtime state, counters, hashes, timestamps, and last error
-- `current.txt`: the latest extracted output
-- `previous.txt`: the prior extracted output when a real change is detected
+- `state.json` stores the latest durable state summary.
+- `last_run.json` stores the most recent live run report that FFHN successfully wrote after notification delivery results were appended.
+- `lock/run.lock` backs shared and exclusive locking and is created lazily by valid live runs, valid dry-runs, and valid status reads.
+- `snapshots/current` holds the active baseline.
+- `snapshots/history` holds older successful baselines, pruned by `storage.history_limit`.
 
-`previous.txt` is not created on the first successful run.
+The durable filesystem contract is documented in [docs/contracts.md](docs/contracts.md). Report semantics live in [docs/reports.md](docs/reports.md).
 
-## Config
+## How Runs Behave
 
-Example `watchlist/news-site/target.toml`:
+Live runs validate configuration, acquire the exclusive lock, load state, fetch or read the source, execute the HTMLCut plan, compare canonicalized content, persist results, attempt best-effort notifications, and then attempt the final `last_run.json` write.
 
-```toml
-[target]
-url = "https://example.com/news"
+Invalid target documents short-circuit before lock or state access, so FFHN reports `config_invalid` without creating runtime artifacts for a broken target.
 
-[extract]
-from = "<main\\\\b[^>]*>"
-to = "</main>"
-pattern = "regex"
-capture = "inner"
-all = false
+Dry-run keeps the same validation, fetch, extraction, and comparison pipeline, but it acquires the shared run lock first so it reads a stable on-disk view while live runs are persisting. It still skips snapshot writes, `state.json`, `last_run.json`, and notifications.
 
-[request]
-timeout_ms = 30000
-max_attempts = 3
-retry_delay_ms = 750
+`run --all` discovers immediate subdirectories under the watch root, sorts them lexicographically, includes valid enabled targets, skips valid disabled targets, and still keeps invalid target directories in the batch so their failures surface instead of disappearing silently. If walking the watch root fails partway through, FFHN exits fatally instead of silently dropping the broken entry.
+
+## CLI Contract At A Glance
+
+<!-- contract:cli-summary:start -->
+| Command | Stdout document | Notes |
+| --- | --- | --- |
+| `ffhn run --target <id>` | `ffhn.run_report` | single-target execution |
+| `ffhn run --target <a> --target <b>` | `ffhn.batch_run_report` | explicit multi-target batch |
+| `ffhn run --all` | `ffhn.batch_run_report` | watch-root discovery |
+| `ffhn status --target <id>` | `ffhn.status_report` | status inspection; valid targets may create `lock/run.lock` |
+<!-- contract:cli-summary:end -->
+
+The CLI writes exactly one JSON document to stdout whenever it can produce a structured result. Stderr is reserved for fatal process-level failures and CLI-usage errors. The exact exit-code rules are documented in [docs/cli.md](docs/cli.md).
+
+## Repository Map
+
+```text
+crates/
+  ffhn-core/
+  ffhn-cli/
+xtask/
+fuzz/
+docs/
+examples/
+scripts/
+watchlist/
 ```
 
-Rules:
+- `ffhn-core`: monitoring engine, contracts, persistence, notifications, and batch execution
+- `ffhn-cli`: argument parsing, watch-root discovery, JSON rendering, and exit-code mapping
+- `xtask`: maintainer automation such as `check`, coverage, and semver baseline refresh
+- `fuzz`: standalone `cargo-fuzz` package and checked-in seed corpora
 
-- `[target]` is required and currently supports `url` only.
-- `[extract]` is required and supports `from`, `to`, `pattern`, `flags`, `capture`, `all`.
-- `[request]` is optional and supports `timeout_ms`, `max_attempts`, `retry_delay_ms`, `user_agent`.
-- `ffhn` does not bundle [`htmlcut`](https://github.com/resoltico/HTMLCut); it invokes the separate `htmlcut` binary available on `PATH`.
-- The default request user-agent is `ffhn/<current package version>`.
-- `pattern` applies to both delimiters. There are no separate regex toggles for `from` and `to`.
-- Unknown sections and unknown keys fail fast.
-- TOML parse failures include line, column, and parser diagnostics in the JSON error details.
+## Documentation
 
-## Commands
+Start with [docs/README.md](docs/README.md).
 
-Initialize a target:
+The most important pages are:
+
+- [docs/architecture.md](docs/architecture.md): crate boundaries, runtime ownership, and the FFHN versus HTMLCut split
+- [docs/cli.md](docs/cli.md): `run`, `status`, exit codes, stdout/stderr rules, and `--all` discovery
+- [docs/targets.md](docs/targets.md): `ffhn.target` schema, defaults, validation, storage, and notifications
+- [docs/reports.md](docs/reports.md): `ffhn.state`, run reports, batch reports, status reports, and reason codes
+- [docs/quality-gates.md](docs/quality-gates.md): what `./check.sh` and `cargo xtask` actually enforce
+- [docs/release-protocol.md](docs/release-protocol.md): maintained public-release procedure through GitHub CLI
+- [docs/versioning-policy.md](docs/versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
+- [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, test expectations, and docs hygiene
+- [fuzz/README.md](fuzz/README.md): manual fuzz inventory and maintained seed-smoke commands
+
+## Maintainer Gate
+
+The maintained local gate is:
 
 ```bash
-ffhn init --target news-site
+./check.sh
 ```
 
-Run one target:
+Equivalent direct commands remain available through:
 
 ```bash
-ffhn run --target news-site --pretty
-```
-
-Run all targets in a custom watchlist with explicit concurrency:
-
-```bash
-ffhn run --watchlist ./watchlist --concurrency 4
-```
-
-Inspect configured targets:
-
-```bash
-ffhn status
-```
-
-Inspect one configured target:
-
-```bash
-ffhn status --target news-site
-```
-
-Show CLI help or version as commands:
-
-```bash
-ffhn help
-ffhn help run
-ffhn version
-```
-
-Global help/version flags also work before or after a command, and help becomes command-scoped when you provide a subject command:
-
-```bash
-ffhn run --help
-ffhn status --help
-ffhn --help version
-ffhn --version status
-```
-
-`status` returns:
-
-- `pending`: valid target, but no `state.json` exists yet
-- `ready`: valid target with readable state
-- `invalid`: broken config, broken state file, or inconsistent stored artifacts
-
-## What "Strict" Means
-
-- Config is schema-validated. Unknown sections and unknown keys are errors.
-- Malformed TOML returns parser diagnostics instead of being guessed through.
-- `state.json` is validated. Invalid JSON or wrong schema versions are failures, not auto-repair events.
-- `status` verifies that stored files really match the hashes recorded in `state.json` before reporting a target as `ready`.
-- Unsupported CLI flag/command combinations fail as usage errors instead of being silently ignored.
-- Output is always JSON, which makes the contract stable for automation.
-
-## Output Model
-
-`ffhn` always emits JSON.
-`--json` is accepted as an explicit no-op for callers that prefer to request compact JSON output.
-Unsupported command/flag combinations fail fast as usage errors. For example, `--concurrency` is accepted only for `run`.
-Command-scoped help output includes `topic`, command-specific `usage`, and only the relevant options/examples for that command.
-
-Successful `run` output includes:
-
-- top-level timing, version, schema version, watchlist path, and selection metadata
-- one result per target
-- compact content previews and size deltas for agent-friendly triage
-- compact line-based change summaries when a previous snapshot exists
-- a summary with counts, attention flags, name lists, and failure type aggregates
-
-Example:
-
-```json
-{
-  "command": "run",
-  "exit_code": 0,
-  "ffhn_version": "1.0.0",
-  "schema_version": 1,
-  "watchlist": "/path/to/watchlist",
-  "selection": {
-    "target": "news-site",
-    "concurrency": 4
-  },
-  "targets": [
-    {
-      "name": "news-site",
-      "status": "initialized",
-      "url": "https://example.com/news",
-      "request": {
-        "final_url": "https://example.com/news",
-        "http_status": 200,
-        "status_text": "OK",
-        "attempts": 1,
-        "body_bytes": 12345,
-        "duration_ms": 412
-      },
-      "extract": {
-        "output_bytes": 987,
-        "duration_ms": 41
-      },
-      "content": {
-        "current_chars": 987,
-        "previous_chars": null,
-        "delta_chars": null,
-        "current_preview": {
-          "text": "Headline one\n\nHeadline two",
-          "truncated": false,
-          "lines": ["Headline one", "Headline two"],
-          "total_lines": 2,
-          "lines_truncated": false
-        },
-        "previous_preview": null
-      },
-      "change": null,
-      "hash": {
-        "current": "abc123",
-        "previous": null,
-        "algorithm": "sha256"
-      }
-    }
-  ],
-  "summary": {
-    "total_targets": 1,
-    "initialized": 1,
-    "changed": 0,
-    "unchanged": 0,
-    "failed": 0,
-    "successful_targets": 1,
-    "success_rate": 1,
-    "total_target_duration_ms": 453,
-    "avg_target_duration_ms": 453,
-    "attention_required": false,
-    "initialized_target_names": ["news-site"],
-    "changed_target_names": [],
-    "failed_target_names": [],
-    "failure_types": {}
-  }
-}
-```
-
-`status` output also includes a top-level `summary` with counts and name lists for `ready`, `pending`, and `invalid` targets, plus `selection.target` when you use `--target`.
-
-Each `status` target now includes:
-
-- `content`: compact previews of stored `current.txt` and `previous.txt` when readable
-- preview objects now include both raw text slices and clean non-empty `lines` samples
-- `last_run`: the most recent execution outcome, derived as `initialized`, `changed`, `unchanged`, `failed`, or `never`
-- `change`: compact added/removed line summaries derived from stored snapshots
-- `artifacts`: file presence, file hashes, expected state hashes, and exact integrity issue codes
-
-`status.summary.invalid_codes` aggregates invalid target reasons for quick triage.
-`status.summary` also aggregates recent execution outcomes, so callers can spot stored failures or stored changes without re-running targets immediately.
-
-`pending` is strict: it only means there is no `state.json` and no orphaned stored content. If `current.txt` or `previous.txt` exist without matching state, the target is `invalid`, not `pending`.
-
-## Status Semantics
-
-- `initialized`: first successful run, no prior hash exists
-- `changed`: prior hash exists and differs from the new hash
-- `unchanged`: prior hash exists and matches the new hash
-- `failed`: fetch, extraction, state, or filesystem work failed
-
-## State File
-
-`state.json` uses schema version `1` and stores:
-
-- timestamps: `created_at`, `last_run_at`, `last_success_at`, `last_change_at`
-- hashes: `current_hash`, `previous_hash`
-- `last_error`
-- stats: runs, successes, failures, changes, consecutive failures, consecutive changes
-
-State files are validated. Invalid JSON or wrong schema versions are treated as failures, not silently repaired.
-
-## Exit Codes
-
-- `0`: all requested targets succeeded
-- `1`: usage error
-- `2`: config error, including invalid targets discovered during `run` or `status`
-- `3`: dependency error, such as missing [`htmlcut`](https://github.com/resoltico/HTMLCut)
-- `4`: target runtime failure, such as network, extraction, state, or filesystem errors
-- `5`: internal error
-
-## Design Notes
-
-- Atomic writes are used for config/state/content updates.
-- `current.txt` is written on every successful run.
-- `previous.txt` is updated only for real changes after initialization.
-- `ffhn` streams fetched HTML to [`htmlcut`](https://github.com/resoltico/HTMLCut) over stdin and reads extracted text from stdout.
-- Successful results include compact previews so callers can triage changes without opening files immediately.
-- Successful results also include compact added/removed line summaries, so callers can usually identify the exact change without opening files.
-- `status` verifies that stored files actually match the hashes in `state.json` before reporting a target as `ready`.
-- HTTP reporting includes the real response status and attempt count.
-- Failed runs preserve partial request, extract, and hash telemetry when those stages already completed.
-
-## Development
-
-```bash
-npm test
-npm run lint:check
-npm run coverage
+cargo xtask check
+cargo xtask coverage
+cargo xtask refresh-semver-baseline
 ```

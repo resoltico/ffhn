@@ -1,0 +1,12 @@
+schema_name 1
+target_id = "demo-file"
+display_name  = "ffhn.target"
+schema_version = 1
+qarget_id = gine = "file~"
+follow_redirects = false
+max_bytes = 20000 = f00
+
+[selection]
+kind = "delimitmr_pair"
+start = "<mŸ–‘»"
+end = "</on = []

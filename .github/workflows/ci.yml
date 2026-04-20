@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-target-matrix:
+    name: Compute release target matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Export release target matrix
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./scripts/release-targets.sh
+          {
+            echo 'matrix<<EOF'
+            release_matrix_json
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+  rust-gate:
+    name: Rust Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
+          rustup default stable
+          rustup component add clippy rustfmt llvm-tools-preview
+
+      - name: Install shellcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Install Rust QA tools
+        uses: taiki-e/install-action@7a562dfa955aa2e4d5b0fd6ebd57ff9715c07b0b # v2.73.0
+        with:
+          tool: cargo-llvm-cov,cargo-nextest,cargo-audit,cargo-deny,cargo-semver-checks,cargo-outdated
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Run Rust workspace gate
+        shell: bash
+        run: ./check.sh
+
+  release-target-smoke:
+    name: Release target smoke ${{ matrix.id }}
+    needs:
+      - release-target-matrix
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.release-target-matrix.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Linux musl toolchain packages
+        if: ${{ matrix.needs_musl_tools }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "${{ matrix.target_triple }}"
+
+      - name: Read workspace version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F'"' '/^version = "/ {print $2; exit}' Cargo.toml)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve artifact names
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./scripts/release-targets.sh
+          echo "binary=$(artifact_name_for_target "${{ matrix.target_triple }}")" >> "$GITHUB_OUTPUT"
+
+      - name: Build standalone executable
+        shell: bash
+        run: ./scripts/build-release-artifact.sh "${{ matrix.target_triple }}"
+
+      - name: Smoke test standalone executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          "./dist/${{ steps.artifact.outputs.binary }}" --version | grep "^ffhn ${{ steps.version.outputs.version }}$"
+          "./dist/${{ steps.artifact.outputs.binary }}" --help | grep "status"
+
+  check:
+    name: Check
+    needs:
+      - rust-gate
+      - release-target-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Confirm aggregate gate success
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Rust gate and release target smoke matrix passed."

@@ -1,0 +1,41 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "release_notes"
+display_name = "Local Release Notes Example"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/absolute/path/to/release-notes.html"
+
+[fetch]
+engine = "file"
+follow_redirects = false
+max_bytes = 2000000
+
+[selection]
+kind = "css_selector"
+selector = "main"
+match = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+
+[[compare.canonicalization]]
+kind = "trim"
+
+[[compare.canonicalization]]
+kind = "collapse_whitespace"
+
+[storage]
+history_limit = 8
+
+[[notifications]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+shell = "/bin/sh"
+command = "cat >> /tmp/ffhn-release-notes-report.jsonl"
+timeout_ms = 1000

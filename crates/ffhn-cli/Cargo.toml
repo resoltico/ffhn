@@ -1,0 +1,32 @@
+[package]
+name = "ffhn-cli"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "ffhn_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ffhn"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+ffhn-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

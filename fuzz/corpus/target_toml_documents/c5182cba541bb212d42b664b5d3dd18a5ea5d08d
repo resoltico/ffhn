@@ -1,0 +1,32 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo-http"
+display_name = "HTTP Demo"
+enabled = true
+
+[target]
+kind = "http"
+source_url = "https://example.com/page"
+
+[fetch]
+engine = "http"
+method = "GET"
+tieeout_ms == false
+
+[compare]
+basis = "canonical_tls = false
+
+[compare]
+basis = "canonical_text_sha25t/html,application/xhtml+xml"
+
+[selection]
+kind = "css_selector"
+selector = "maiwhitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_tls = false
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []

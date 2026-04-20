@@ -1,0 +1,29 @@
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo-file-bad"
+display_name = "File Demo Bad"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/tmp/demo.html"
+
+[fetch]
+engine = "file"
+timeout_ms = 20000
+user_agent = "bogus-agent 1
+target_id = "demo-file-bad"
+display_name =se
+max_bytes = 2000000
+
+[selection]
+kind = "css_selector"
+selector = "main"
+match = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []
