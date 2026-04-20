@@ -3,16 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::coverage::{
     coverage_clean_command, coverage_command, coverage_output_path, evaluate_coverage_report,
     read_coverage_report, tracked_files,
 };
 use crate::model::{CommandSpec, DynResult};
-use crate::plan::{
-    check_plan, is_semver_check_spec, semver_scratch_dir, with_workspace_stub, workspace_version,
-};
+use crate::plan::{check_plan, is_semver_check_spec, semver_scratch_dir, with_workspace_stub};
 
 const XTASK_NAME: &str = env!("CARGO_PKG_NAME");
 const XTASK_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
@@ -28,7 +26,13 @@ struct Cli {
 enum Task {
     Check,
     Coverage,
-    RefreshSemverBaseline,
+    RefreshSemverBaseline(RefreshSemverBaselineArgs),
+}
+
+#[derive(Args)]
+struct RefreshSemverBaselineArgs {
+    #[arg(long, value_name = "REF")]
+    git_ref: String,
 }
 
 /// Parses the xtask CLI and dispatches the selected maintenance action.
@@ -44,7 +48,7 @@ pub fn run() -> DynResult<()> {
     match cli.command {
         Task::Check => run_check(&repo_root),
         Task::Coverage => run_coverage(&repo_root),
-        Task::RefreshSemverBaseline => refresh_semver_baseline(&repo_root),
+        Task::RefreshSemverBaseline(args) => refresh_semver_baseline(&repo_root, &args.git_ref),
     }
 }
 
@@ -111,49 +115,34 @@ fn run_coverage(repo_root: &Path) -> DynResult<()> {
     cleanup
 }
 
-fn refresh_semver_baseline(repo_root: &Path) -> DynResult<()> {
-    let version = workspace_version(repo_root)?;
-    let workspace_manifest = fs::read_to_string(repo_root.join("Cargo.toml"))?;
+pub(crate) fn refresh_semver_baseline(repo_root: &Path, git_ref: &str) -> DynResult<()> {
+    let workspace_manifest = git_file_contents(repo_root, git_ref, "Cargo.toml")?;
     let baseline_parent = repo_root.join("semver-baseline");
     let baseline_dir = baseline_parent.join("ffhn-core");
-    let extracted_dir = baseline_parent.join(format!("ffhn-core-{version}"));
-    let archive = repo_root
-        .join("target")
-        .join("package")
-        .join(format!("ffhn-core-{version}.crate"));
-    let source_dir = repo_root.join("crates").join("ffhn-core");
+    let archive = baseline_parent.join("ffhn-core.tar.gz");
 
     if baseline_dir.exists() {
         fs::remove_dir_all(&baseline_dir)?;
     }
-    if extracted_dir.exists() {
-        fs::remove_dir_all(&extracted_dir)?;
-    }
+    remove_file_if_exists(&archive)?;
     fs::create_dir_all(&baseline_parent)?;
 
-    let package_result = run_spec(
+    run_spec(
         repo_root,
         &CommandSpec::new(
-            "cargo",
-            ["package", "--allow-dirty", "--no-verify", "-p", "ffhn-core"],
+            "git",
+            vec![
+                "archive".to_owned(),
+                "--format=tar.gz".to_owned(),
+                "--prefix=ffhn-core/".to_owned(),
+                "--output".to_owned(),
+                archive.to_string_lossy().into_owned(),
+                format!("{git_ref}:crates/ffhn-core"),
+            ],
             false,
-            true,
+            false,
         ),
-    );
-
-    if package_result.is_err() {
-        eprintln!(
-            "ffhn-core could not be packaged for semver baseline refresh; falling back to a source snapshot"
-        );
-        copy_dir_all(&source_dir, &baseline_dir)?;
-        let baseline_manifest = baseline_dir.join("Cargo.toml");
-        let cargo_toml = fs::read_to_string(&baseline_manifest)?;
-        fs::write(
-            &baseline_manifest,
-            with_workspace_stub(&cargo_toml, &workspace_manifest)?,
-        )?;
-        return Ok(());
-    }
+    )?;
 
     run_spec(
         repo_root,
@@ -169,15 +158,34 @@ fn refresh_semver_baseline(repo_root: &Path) -> DynResult<()> {
             false,
         ),
     )?;
+    remove_file_if_exists(&archive)?;
 
-    let baseline_manifest = extracted_dir.join("Cargo.toml");
+    let baseline_manifest = baseline_dir.join("Cargo.toml");
     let cargo_toml = fs::read_to_string(&baseline_manifest)?;
     fs::write(
         &baseline_manifest,
         with_workspace_stub(&cargo_toml, &workspace_manifest)?,
     )?;
-    fs::rename(extracted_dir, baseline_dir)?;
     Ok(())
+}
+
+fn git_file_contents(repo_root: &Path, git_ref: &str, relative_path: &str) -> DynResult<String> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .arg("show")
+        .arg(format!("{git_ref}:{relative_path}"))
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(
+            format!("failed to read {relative_path} from git ref {git_ref}: {stderr}").into(),
+        );
+    }
+
+    String::from_utf8(output.stdout).map_err(|error| {
+        format!("git returned non-UTF-8 contents for {relative_path}: {error}").into()
+    })
 }
 
 fn run_spec(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
@@ -210,28 +218,17 @@ fn repo_root() -> DynResult<PathBuf> {
         .ok_or_else(|| "xtask should live directly under the workspace root".into())
 }
 
-fn copy_dir_all(source: &Path, destination: &Path) -> DynResult<()> {
-    fs::create_dir_all(destination)?;
-
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let entry_type = entry.file_type()?;
-        let from = entry.path();
-        let to = destination.join(entry.file_name());
-
-        if entry_type.is_dir() {
-            copy_dir_all(&from, &to)?;
-        } else if entry_type.is_file() {
-            fs::copy(&from, &to)?;
-        }
+fn remove_dir_if_exists(path: &Path) -> DynResult<()> {
+    if path.exists() {
+        fs::remove_dir_all(path)?;
     }
 
     Ok(())
 }
 
-fn remove_dir_if_exists(path: &Path) -> DynResult<()> {
+fn remove_file_if_exists(path: &Path) -> DynResult<()> {
     if path.exists() {
-        fs::remove_dir_all(path)?;
+        fs::remove_file(path)?;
     }
 
     Ok(())

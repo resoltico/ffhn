@@ -57,7 +57,7 @@ fn write_stable_json_value(value: &Value, output: &mut String) -> Result<(), Cor
         Value::Object(map) => {
             output.push('{');
             let mut entries = map.iter().collect::<Vec<_>>();
-            entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            entries.sort_unstable_by_key(|(key, _)| *key);
             for (index, (key, value)) in entries.iter().enumerate() {
                 if index > 0 {
                     output.push(',');

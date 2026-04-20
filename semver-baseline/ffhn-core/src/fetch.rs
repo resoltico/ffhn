@@ -9,8 +9,8 @@ use ureq::tls::{RootCerts, TlsConfig};
 use url::Url;
 
 use crate::canonical::normalize_line_endings;
-use crate::{FetchConfig, FetchEngine, ReasonCode, RunFetchSection, TargetDocument};
 use crate::model::TargetKind;
+use crate::{FetchConfig, FetchEngine, ReasonCode, RunFetchSection, TargetDocument};
 
 /// Successful fetch payload returned to FFHN's extraction stage.
 #[derive(Clone, Debug)]
@@ -80,15 +80,14 @@ fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
     };
 
     let duration_ms = started.elapsed().as_millis() as u64;
-    let final_url = Url::parse(&response.get_uri().to_string())
-        .unwrap_or_else(|_| {
-            target
-                .target
-                .source_url
-                .as_ref()
-                .expect("validated http source url")
-                .clone()
-        });
+    let final_url = parse_final_url_or_source(
+        &response.get_uri().to_string(),
+        target
+            .target
+            .source_url
+            .as_ref()
+            .expect("validated http source url"),
+    );
     let http_status = response.status().as_u16();
     let content_type = header_value(&response, "content-type");
 
@@ -197,7 +196,7 @@ fn fetch_file_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
         Ok(bytes) => bytes,
         Err(_) => {
             return Err(FetchFailure {
-                reason_code: ReasonCode::FetchNetworkError,
+                reason_code: ReasonCode::FetchSourceError,
                 report: RunFetchSection {
                     engine: FetchEngine::File,
                     final_url: None,
@@ -243,17 +242,7 @@ fn fetch_file_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
 
     let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let final_url = Url::from_file_path(&canonical_path)
-        .map_err(|_| FetchFailure {
-            reason_code: ReasonCode::FetchDecodeError,
-            report: RunFetchSection {
-                engine: FetchEngine::File,
-                final_url: None,
-                http_status: None,
-                content_type: None,
-                bytes_read: Some(bytes.len()),
-                duration_ms: started.elapsed().as_millis() as u64,
-            },
-        })?;
+        .expect("validated absolute file paths map to file URLs");
 
     Ok(FetchSuccess {
         final_url: final_url.clone(),
@@ -311,6 +300,10 @@ fn map_http_status_reason(status: u16) -> ReasonCode {
     } else {
         ReasonCode::FetchHttpClientError
     }
+}
+
+fn parse_final_url_or_source(candidate: &str, fallback: &Url) -> Url {
+    Url::parse(candidate).unwrap_or_else(|_| fallback.clone())
 }
 
 fn http_status_is_success(status: u16) -> bool {
@@ -493,6 +486,54 @@ mod tests {
         }
     }
 
+    fn file_target_for(path: &Path) -> TargetDocument {
+        TargetDocument {
+            schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
+            schema_version: crate::TARGET_SCHEMA_VERSION,
+            target_id: "demo_file".to_owned(),
+            display_name: "Demo File".to_owned(),
+            enabled: true,
+            target: TargetSource {
+                kind: crate::model::TargetKind::File,
+                source_url: None,
+                file_path: Some(path.to_string_lossy().into_owned()),
+            },
+            fetch: FetchConfig {
+                engine: FetchEngine::File,
+                method: HttpMethod::GET,
+                timeout_ms: 1_000,
+                max_bytes: 1_024,
+                user_agent: String::new(),
+                follow_redirects: false,
+                accept: String::new(),
+                headers: BTreeMap::new(),
+                extensions: None,
+            },
+            selection: SelectionConfig {
+                kind: SelectionKind::CssSelector,
+                r#match: SelectionMatch::Single,
+                index: None,
+                output: OutputKind::OuterHtml,
+                whitespace: WhitespaceMode::Normalize,
+                rewrite_urls: false,
+                selector: Some("main".to_owned()),
+                start: None,
+                end: None,
+                mode: None,
+                include_start: None,
+                include_end: None,
+                flags: Vec::new(),
+            },
+            compare: CompareConfig {
+                basis: CompareBasis::CanonicalTextSha256,
+                canonicalization: Vec::new(),
+            },
+            storage: Default::default(),
+            notifications: Vec::new(),
+            extensions: None,
+        }
+    }
+
     #[test]
     fn fetch_target_reads_successful_html_and_normalizes_line_endings() {
         let body = b"<html><main>Hello\r\nWorld</main></html>".to_vec();
@@ -523,6 +564,30 @@ mod tests {
             Some("text/html; charset=utf-8")
         );
         assert_eq!(result.report.bytes_read, Some(38));
+    }
+
+    #[test]
+    fn fetch_target_preserves_browser_engine_in_reports_while_using_http_transport() {
+        let body = b"<html><main>Hello</main></html>".to_vec();
+        let (url, handle) = serve_once(TestResponse {
+            status_line: "200 OK",
+            headers: vec![
+                ("Content-Type", "text/html; charset=utf-8".to_owned()),
+                ("Content-Length", body.len().to_string()),
+            ],
+            body,
+            delay_before_response_ms: 0,
+        });
+
+        let mut target = target_for(url.clone());
+        target.fetch.engine = FetchEngine::Browser;
+
+        let result = fetch_target(&target).expect("successful browser-engine fetch");
+        handle.join().expect("server join");
+
+        assert_eq!(result.final_url.as_str(), url.as_str());
+        assert_eq!(result.report.engine, FetchEngine::Browser);
+        assert_eq!(result.report.http_status, Some(200));
     }
 
     #[test]
@@ -694,6 +759,10 @@ mod tests {
             ReasonCode::FetchHttpServerError
         );
         assert_eq!(
+            map_http_status_reason(404),
+            ReasonCode::FetchHttpClientError
+        );
+        assert_eq!(
             map_ureq_error(&ureq::Error::ConnectionFailed),
             ReasonCode::FetchNetworkError
         );
@@ -701,5 +770,45 @@ mod tests {
             map_ureq_error(&ureq::Error::Other(Box::new(io::Error::other("other")))),
             ReasonCode::FetchNetworkError
         );
+        assert_eq!(
+            parse_final_url_or_source(
+                "not a url",
+                &Url::parse("https://example.com/fallback").expect("fallback url")
+            )
+            .as_str(),
+            "https://example.com/fallback"
+        );
+    }
+
+    #[test]
+    fn fetch_target_covers_file_source_success_and_failure_modes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source_path = temp.path().join("source.html");
+        std::fs::write(&source_path, "<html><main>Hello</main></html>").expect("write source");
+
+        let success = fetch_target(&file_target_for(&source_path)).expect("file success");
+        assert_eq!(success.report.engine, FetchEngine::File);
+        assert!(success.final_url.as_str().starts_with("file://"));
+        assert_eq!(success.report.bytes_read, Some(31));
+
+        let missing_path = temp.path().join("missing.html");
+        let missing = fetch_target(&file_target_for(&missing_path)).expect_err("missing file");
+        assert_eq!(missing.reason_code, ReasonCode::FetchSourceError);
+        assert!(missing.report.bytes_read.is_none());
+
+        let oversized_path = temp.path().join("oversized.html");
+        std::fs::write(&oversized_path, "<main>too large</main>").expect("write oversized");
+        let mut oversized_target = file_target_for(&oversized_path);
+        oversized_target.fetch.max_bytes = 8;
+        let oversized = fetch_target(&oversized_target).expect_err("oversized file");
+        assert_eq!(oversized.reason_code, ReasonCode::FetchTooLarge);
+        assert_eq!(oversized.report.bytes_read, Some(22));
+
+        let invalid_utf8_path = temp.path().join("invalid.bin");
+        std::fs::write(&invalid_utf8_path, [0xff, 0xfe, 0xfd]).expect("write invalid utf8");
+        let invalid_utf8 =
+            fetch_target(&file_target_for(&invalid_utf8_path)).expect_err("decode failure");
+        assert_eq!(invalid_utf8.reason_code, ReasonCode::FetchDecodeError);
+        assert_eq!(invalid_utf8.report.bytes_read, Some(3));
     }
 }

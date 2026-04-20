@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::model::{CommandSpec, DynResult};
 
@@ -210,6 +210,8 @@ pub(crate) fn release_tag_exists(repo_root: &Path, version: &str) -> DynResult<b
         .arg("-q")
         .arg("--verify")
         .arg(format!("refs/tags/v{version}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()?;
 
     Ok(status.success())

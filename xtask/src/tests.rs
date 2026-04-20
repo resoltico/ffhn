@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::tempdir;
 
+use crate::app::refresh_semver_baseline;
 use crate::coverage::{
     coverage_clean_command, coverage_command, evaluate_coverage_report, read_coverage_report,
     tracked_files,
@@ -26,6 +27,34 @@ fn write_repo_scaffold(repo_root: &Path) {
     )
     .expect("write Cargo.toml");
     fs::write(repo_root.join("changelog.md"), "## [Unreleased]\n").expect("write changelog.md");
+}
+
+fn write_semver_fixture(repo_root: &Path, workspace_version: &str, lib_body: &str) {
+    let crate_dir = repo_root.join("crates").join("ffhn-core");
+    let src_dir = crate_dir.join("src");
+    fs::create_dir_all(&src_dir).expect("create ffhn-core src");
+    fs::write(
+        repo_root.join("Cargo.toml"),
+        format!(
+            "[workspace]\nmembers = [\"crates/ffhn-core\"]\nresolver = \"2\"\n\n[workspace.package]\nversion = \"{workspace_version}\"\nedition = \"2024\"\nlicense = \"MIT\"\ndescription = \"FFHN semver fixture\"\n"
+        ),
+    )
+    .expect("write workspace Cargo.toml");
+    fs::write(
+        crate_dir.join("Cargo.toml"),
+        "[package]\nname = \"ffhn-core\"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\ndescription.workspace = true\n",
+    )
+    .expect("write ffhn-core Cargo.toml");
+    fs::write(src_dir.join("lib.rs"), lib_body).expect("write lib.rs");
+}
+
+fn run_git(repo_root: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .current_dir(repo_root)
+        .args(args)
+        .status()
+        .expect("run git");
+    assert!(status.success(), "git {:?} failed with {status}", args);
 }
 
 #[test]
@@ -288,6 +317,126 @@ version = "2.0.0"
     let version = workspace_version_from_manifest(manifest).expect("workspace version");
 
     assert_eq!(version, "2.0.0");
+}
+
+#[test]
+fn refresh_semver_baseline_uses_the_requested_git_ref_instead_of_the_worktree() {
+    let repo_root = tempdir().expect("tempdir");
+    write_semver_fixture(
+        repo_root.path(),
+        "2.0.0",
+        "pub const RELEASE_LINE: &str = \"tagged\";\n",
+    );
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed published snapshot"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    write_semver_fixture(
+        repo_root.path(),
+        "9.9.9",
+        "pub const RELEASE_LINE: &str = \"worktree\";\n",
+    );
+
+    refresh_semver_baseline(repo_root.path(), "v2.0.0").expect("refresh baseline");
+
+    let baseline_manifest = fs::read_to_string(
+        repo_root
+            .path()
+            .join("semver-baseline")
+            .join("ffhn-core")
+            .join("Cargo.toml"),
+    )
+    .expect("read baseline manifest");
+    let baseline_lib = fs::read_to_string(
+        repo_root
+            .path()
+            .join("semver-baseline")
+            .join("ffhn-core")
+            .join("src")
+            .join("lib.rs"),
+    )
+    .expect("read baseline lib");
+
+    assert!(baseline_manifest.contains("version = \"2.0.0\""));
+    assert!(!baseline_manifest.contains("version = \"9.9.9\""));
+    assert_eq!(baseline_lib, "pub const RELEASE_LINE: &str = \"tagged\";\n");
+}
+
+#[test]
+fn refresh_semver_baseline_replaces_existing_baseline_artifacts() {
+    let repo_root = tempdir().expect("tempdir");
+    write_semver_fixture(
+        repo_root.path(),
+        "2.0.0",
+        "pub const RELEASE_LINE: &str = \"published\";\n",
+    );
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed published snapshot"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    let baseline_parent = repo_root.path().join("semver-baseline");
+    let baseline_dir = baseline_parent.join("ffhn-core");
+    fs::create_dir_all(baseline_dir.join("src")).expect("create stale baseline dir");
+    fs::write(baseline_dir.join("src").join("lib.rs"), "stale\n").expect("write stale baseline");
+    fs::create_dir_all(&baseline_parent).expect("create baseline parent");
+    fs::write(baseline_parent.join("ffhn-core.tar.gz"), "stale archive")
+        .expect("write stale archive");
+
+    refresh_semver_baseline(repo_root.path(), "v2.0.0").expect("refresh baseline");
+
+    let baseline_lib = fs::read_to_string(baseline_dir.join("src").join("lib.rs"))
+        .expect("read refreshed baseline");
+    assert_eq!(
+        baseline_lib,
+        "pub const RELEASE_LINE: &str = \"published\";\n"
+    );
+    assert!(!baseline_parent.join("ffhn-core.tar.gz").exists());
+}
+
+#[test]
+fn refresh_semver_baseline_reports_missing_git_refs() {
+    let repo_root = tempdir().expect("tempdir");
+    write_semver_fixture(
+        repo_root.path(),
+        "2.0.0",
+        "pub const RELEASE_LINE: &str = \"published\";\n",
+    );
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed published snapshot"],
+    );
+
+    let error = refresh_semver_baseline(repo_root.path(), "v9.9.9").expect_err("missing ref");
+    assert!(
+        error
+            .to_string()
+            .contains("failed to read Cargo.toml from git ref v9.9.9")
+    );
 }
 
 #[test]
