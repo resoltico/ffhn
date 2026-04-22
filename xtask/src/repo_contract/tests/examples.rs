@@ -17,7 +17,7 @@ fn public_target_examples_validate_against_the_current_target_contract() {
 
 #[test]
 fn public_target_example_helper_covers_non_watchlist_file_targets() {
-    let workspace_version = "2.0.1";
+    let workspace_version = "2.1.0";
     let path = Path::new("/tmp/examples/release_notes.toml");
     let document = r#"
 schema_name = "ffhn.target"

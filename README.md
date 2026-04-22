@@ -33,7 +33,7 @@ Maintained builds are pinned to Rust `1.95.0` through [`rust-toolchain.toml`](ru
 Install a prebuilt release package on macOS or Linux:
 
 ```bash
-VERSION="2.0.1"
+VERSION="2.1.0"
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) TARGET="aarch64-apple-darwin" ;;
   Darwin/x86_64) TARGET="x86_64-apple-darwin" ;;
@@ -61,7 +61,7 @@ ffhn --help
 Install a prebuilt release package on Windows PowerShell:
 
 ```powershell
-$Version = "2.0.1"
+$Version = "2.1.0"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-$Target.zip" -OutFile "ffhn-$Version-$Target.zip"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-checksums.txt" -OutFile "ffhn-$Version-checksums.txt"
@@ -262,5 +262,5 @@ Equivalent direct commands remain available through:
 ```bash
 cargo xtask check
 cargo xtask coverage
-cargo xtask refresh-semver-baseline --git-ref v2.0.1
+cargo xtask refresh-semver-baseline --git-ref v2.1.0
 ```

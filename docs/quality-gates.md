@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "2.0.1"
+version: "2.1.0"
 domain: QUALITY
 updated: "2026-04-22"
 route:
@@ -52,7 +52,7 @@ cargo xtask coverage
 Semver baseline refresh:
 
 ```bash
-cargo xtask refresh-semver-baseline --git-ref v2.0.1
+cargo xtask refresh-semver-baseline --git-ref v2.1.0
 ```
 
 ## What `cargo xtask check` Actually Enforces
