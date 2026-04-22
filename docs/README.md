@@ -25,6 +25,7 @@ Use this page as the routing index for the maintained FFHN documentation set.
 - [release-protocol.md](release-protocol.md): GitHub CLI driven public release choreography for FFHN
 - [versioning-policy.md](versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
 - [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow and documentation/test expectations
+- [../examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md): runnable file-target example materialization flow and included sample HTML
 - [../fuzz/README.md](../fuzz/README.md): manual fuzz inventory and the maintained seed-smoke commands
 
 The changelog stays intentionally separate from this index. Use [../changelog.md](../changelog.md) for release history, not for current-state reference behavior.

@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: CORE
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [core runtime, validate_target, status, run_once, run_once_dry_run, run_batch, locking, dry run]
   questions: ["what operations does ffhn-core expose?", "what does ffhn dry-run skip?", "how does ffhn-core classify successful and failed runs?"]
@@ -46,6 +46,8 @@ The main differences are in locking and side effects.
 7. attempt notification hooks that match the final run outcome
 8. attempt the final `last_run.json` write after notification delivery results are known
 
+An explicitly disabled live target short-circuits to `skipped_disabled` instead of fetching or extracting.
+
 Live successful outcomes are:
 
 1. `initialized`
@@ -71,6 +73,8 @@ Fatal errors sit outside the structured run-outcome vocabulary. They only occur 
 5. no notification hooks
 
 Dry-run also relaxes live-state strictness. If an existing `state.json` is unreadable or invalid, or the retained snapshot artifacts fail integrity checks, dry-run still proceeds as an inspection run instead of returning the live-mode permanent failure. Shared locking keeps that relaxed inspection path from racing a live persist and fabricating transient integrity drift out of a half-updated target directory.
+
+Dry-run also treats `enabled = false` differently from live mode. An explicitly named disabled target still follows the inspection path, while discovery-based `run --all` continues to exclude valid disabled directories before `run_batch` is called.
 
 ## Batch Behavior
 

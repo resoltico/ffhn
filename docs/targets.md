@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: TARGETS
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]
@@ -24,9 +24,15 @@ Every target document requires:
 8. `[selection]`
 9. `[compare]`
 
-Optional sections are `[storage]`, `[[notifications]]`, and reserved `extensions`.
+Optional sections are `[storage]`, `[[notifications]]`, top-level `[extensions]`, and reserved `[fetch.extensions]`.
 
-The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and [examples/file-target-with-notifications.toml](../examples/file-target-with-notifications.toml) are validated by the test suite against the current schema, so they are the canonical example documents in this repository.
+`enabled` has three user-facing effects:
+
+1. live explicit runs return `skipped_disabled`
+2. `run --all` excludes the target from discovery when the document is otherwise valid
+3. explicit dry-runs still inspect the target instead of short-circuiting
+
+The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md) are repo-contract-tested against the current schema, so they are the canonical example entrypoints in this repository.
 
 ## `target_id` Rules
 
@@ -83,6 +89,8 @@ Rules:
 1. `file_path` must be an absolute filesystem path
 2. `source_url` is forbidden
 3. `fetch.engine` must be `file`
+
+The `file_path` above is schematic. For a checked-in runnable file-target example that materializes a real absolute path to included sample HTML, use [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md).
 
 ## Fetch Section
 
@@ -263,11 +271,7 @@ FFHN sends the validated pre-notification run report to the hook on stdin and al
 2. `FFHN_RUN_OUTCOME`
 3. `FFHN_REASON_CODE`
 4. `FFHN_RUN_MODE`
-5. `FFHN_FAILURE_CLASS`
-6. `FFHN_NOTIFICATION_EVENT`
-3. `FFHN_REASON_CODE`
-4. `FFHN_RUN_MODE`
-5. `FFHN_FAILURE_CLASS`
+5. `FFHN_FAILURE_CLASS` (empty string for non-failure outcomes)
 6. `FFHN_NOTIFICATION_EVENT`
 
-That stdin payload is the run report before notification delivery results are appended, so it does not include the hook outcomes in `notifications`, and `persist.wrote_last_run` is still `false`.
+That stdin payload is the run report before notification delivery results are appended, so the serialized payload omits `notifications` entirely and `persist.wrote_last_run` is still `false`.

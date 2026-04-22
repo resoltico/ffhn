@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: ARCHITECTURE
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [architecture, ffhn-core, ffhn-cli, xtask, fuzz package, htmlcut boundary, watch root]
   questions: ["what are the ffhn repository boundaries?", "what does ffhn-core own versus ffhn-cli?", "how does ffhn interact with htmlcut?"]
@@ -51,7 +51,7 @@ watchlist/
 
 1. `cargo xtask check`
 2. `cargo xtask coverage`
-3. `cargo xtask refresh-semver-baseline`
+3. `cargo xtask refresh-semver-baseline --git-ref <published-tag>`
 
 `fuzz/` is a separate `cargo-fuzz` package. It is not part of the normal workspace members and is compile-smoked by the maintainer gate through its own manifest.
 

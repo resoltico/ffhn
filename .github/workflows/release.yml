@@ -18,6 +18,9 @@ concurrency:
   group: publication-${{ github.workflow }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  RUST_STABLE_VERSION: 1.95.0
+
 jobs:
   release-target-matrix:
     name: Compute release target matrix
@@ -154,8 +157,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal
+          rustup default "${RUST_STABLE_VERSION}"
           rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts

@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: REPORTS
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [reports, ffhn.state, ffhn.run_report, ffhn.batch_run_report, ffhn.status_report, reason codes]
   questions: ["what do ffhn reports mean?", "what is stored in ffhn.state?", "which reason codes can ffhn emit?"]
@@ -109,7 +109,7 @@ Key invariants:
 4. successful outcomes require `fetch`, `extraction`, and `compare`
 5. `skipped_disabled` requires `reason_code = disabled`
 6. failed or skipped outcomes must not carry `current_compare_digest_sha256`
-7. dry-run reports must have `persist.wrote_state = false`, `persist.wrote_last_run = false`, and `notifications = []`
+7. dry-run reports must have `persist.wrote_state = false`, `persist.wrote_last_run = false`, and no notification deliveries
 8. `run_report_digest_sha256` is the stable SHA-256 digest of the report body with that field omitted
 
 Failed reports may still carry the earlier stage sections that FFHN completed before the final outcome became a failure. For example, `persist_error` can still include fetch, extraction, compare, and change data from the already-computed run body.
@@ -127,6 +127,8 @@ Fields:
 ### `notifications`
 
 `notifications` records best-effort delivery attempts, not a guarantee that external side effects completed as intended.
+
+The `notifications` field is omitted entirely from serialized JSON when no deliveries were attempted.
 
 Each entry carries:
 

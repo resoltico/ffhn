@@ -10,7 +10,10 @@ use crate::coverage::{
     read_coverage_report, tracked_files,
 };
 use crate::model::{CommandSpec, DynResult};
-use crate::plan::{check_plan, is_semver_check_spec, semver_scratch_dir, with_workspace_stub};
+use crate::plan::{
+    check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_scratch_dir,
+    with_workspace_stub,
+};
 
 const XTASK_NAME: &str = env!("CARGO_PKG_NAME");
 const XTASK_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
@@ -57,9 +60,9 @@ fn run_check(repo_root: &Path) -> DynResult<()> {
 
     for spec in check_plan(repo_root)? {
         if is_semver_check_spec(&spec) {
-            remove_dir_if_exists(&semver_scratch_dir(repo_root))?;
+            remove_semver_artifacts(repo_root)?;
             let result = run_spec(repo_root, &spec);
-            let cleanup = remove_dir_if_exists(&semver_scratch_dir(repo_root));
+            let cleanup = remove_semver_artifacts(repo_root);
             result?;
             cleanup?;
             continue;
@@ -202,6 +205,7 @@ fn run_spec(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
     if spec.force_clang {
         command.env("CC", "clang");
     }
+    command.envs(&spec.env);
 
     let status = command.status()?;
     if status.success() {
@@ -224,6 +228,11 @@ fn remove_dir_if_exists(path: &Path) -> DynResult<()> {
     }
 
     Ok(())
+}
+
+fn remove_semver_artifacts(repo_root: &Path) -> DynResult<()> {
+    remove_dir_if_exists(&semver_scratch_dir(repo_root))?;
+    remove_dir_if_exists(&semver_baseline_target_dir(repo_root))
 }
 
 fn remove_file_if_exists(path: &Path) -> DynResult<()> {

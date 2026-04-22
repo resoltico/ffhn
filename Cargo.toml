@@ -10,6 +10,7 @@ resolver = "3"
 [workspace.package]
 version = "2.0.1"
 edition = "2024"
+rust-version = "1.95"
 description = "Deterministic website monitoring built around FFHN-owned fetch, compare, persistence, and reporting."
 license = "MIT"
 authors = ["Ervins Strauhmanis"]
@@ -22,7 +23,7 @@ clap = { version = "4.6.0", features = ["derive"] }
 encoding_rs = "0.8.35"
 ffhn-core = { path = "crates/ffhn-core", version = "2.0.1" }
 fs2 = "0.4.3"
-htmlcut-core = { version = "4.2.1", git = "https://github.com/resoltico/HTMLCut.git", tag = "v4.2.1", package = "htmlcut-core" }
+htmlcut-core = { version = "4.3.0", git = "https://github.com/resoltico/HTMLCut.git", tag = "v4.3.0", package = "htmlcut-core" }
 predicates = "3.1.4"
 regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -31,7 +32,7 @@ sha2 = "0.11.0"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }
-toml = "0.8.23"
+toml = "1.1.2"
 ureq = { version = "3.3.0", default-features = false, features = ["gzip", "platform-verifier", "rustls"] }
 url = { version = "2.5.8", features = ["serde"] }
 

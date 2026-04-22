@@ -28,25 +28,40 @@ cargo build --release --locked -p ffhn-cli --bin ffhn
 ./target/release/ffhn --help
 ```
 
-Regular builds and normal CLI usage do not need nightly Rust. Nightly is only part of the coverage and fuzzing workflows.
+Maintained builds are pinned to Rust `1.95.0` through [`rust-toolchain.toml`](rust-toolchain.toml). Regular builds and normal CLI usage do not need nightly Rust; nightly is only part of the coverage and fuzzing workflows.
 
 Install a prebuilt release package on macOS or Linux:
 
 ```bash
-VERSION=X.Y.Z
-TARGET=aarch64-apple-darwin # or x86_64-apple-darwin / x86_64-unknown-linux-musl
-curl -LO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-${TARGET}.tar.gz"
-curl -LO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-checksums.txt"
-grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | shasum -a 256 -c
+VERSION="2.0.1"
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64) TARGET="aarch64-apple-darwin" ;;
+  Darwin/x86_64) TARGET="x86_64-apple-darwin" ;;
+  Linux/x86_64) TARGET="x86_64-unknown-linux-musl" ;;
+  *)
+    printf 'unsupported host for packaged FFHN install: %s/%s\n' "$(uname -s)" "$(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+curl -fsSLO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-${TARGET}.tar.gz"
+curl -fsSLO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-checksums.txt"
+if command -v shasum >/dev/null 2>&1; then
+  grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | shasum -a 256 -c
+else
+  grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | sha256sum -c
+fi
 tar -xzf "ffhn-${VERSION}-${TARGET}.tar.gz"
+mkdir -p "$HOME/.local/bin"
 install "ffhn-${VERSION}-${TARGET}/ffhn" "$HOME/.local/bin/ffhn"
+export PATH="$HOME/.local/bin:$PATH"
 ffhn --help
 ```
 
 Install a prebuilt release package on Windows PowerShell:
 
 ```powershell
-$Version = "X.Y.Z"
+$Version = "2.0.1"
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-$Target.zip" -OutFile "ffhn-$Version-$Target.zip"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-checksums.txt" -OutFile "ffhn-$Version-checksums.txt"
@@ -130,10 +145,10 @@ Dry-run uses the same validation, fetch, extraction, and comparison path, but it
 
 Every target lives at `<watch_root>/<target_id>/target.toml`.
 
-- [watchlist/demo/target.toml](watchlist/demo/target.toml): minimal HTTP target
-- [examples/file-target-with-notifications.toml](examples/file-target-with-notifications.toml): file-backed target with `follow_redirects = false`, history retention, and notification hooks
+- [watchlist/demo/target.toml](watchlist/demo/target.toml): directly runnable minimal HTTP target
+- [examples/file-target-with-notifications/README.md](examples/file-target-with-notifications/README.md): file-backed example assets plus a materializer that writes a valid `target.toml` with the included sample file's absolute path
 
-Those checked-in example targets are validated by the test suite against the current `ffhn.target` contract, so they are the canonical public examples in this repository. The full target contract, defaults, and validation rules live in [docs/targets.md](docs/targets.md).
+The checked-in demo target and the materialized file-target example are both verified by the test suite against the current `ffhn.target` contract, so they are the canonical public examples in this repository. The full target contract, defaults, and validation rules live in [docs/targets.md](docs/targets.md).
 
 ## What FFHN Persists
 
@@ -177,6 +192,8 @@ Invalid target documents short-circuit before lock or state access, so FFHN repo
 
 Dry-run keeps the same validation, fetch, extraction, and comparison pipeline, but it acquires the shared run lock first so it reads a stable on-disk view while live runs are persisting. It still skips snapshot writes, `state.json`, `last_run.json`, and notifications.
 
+Live mode turns an explicitly disabled target into `skipped_disabled`. Dry-run is intentionally different: `ffhn run --target <id> --dry-run` still inspects an explicitly named disabled target, while `ffhn run --all` continues to exclude valid disabled targets during discovery.
+
 `run --all` discovers immediate subdirectories under the watch root, sorts them lexicographically, includes valid enabled targets, skips valid disabled targets, and still keeps invalid target directories in the batch so their failures surface instead of disappearing silently. If walking the watch root fails partway through, FFHN exits fatally instead of silently dropping the broken entry.
 
 ## CLI Contract At A Glance
@@ -189,6 +206,8 @@ Dry-run keeps the same validation, fetch, extraction, and comparison pipeline, b
 | `ffhn run --all` | `ffhn.batch_run_report` | watch-root discovery |
 | `ffhn status --target <id>` | `ffhn.status_report` | status inspection; valid targets may create `lock/run.lock` |
 <!-- contract:cli-summary:end -->
+
+Angle-bracket fragments in the catalog above are metavariables that describe the command shape. They are not literal tokens to type.
 
 The CLI writes exactly one JSON document to stdout whenever it can produce a structured result. Stderr is reserved for fatal process-level failures and CLI-usage errors. The exact exit-code rules are documented in [docs/cli.md](docs/cli.md).
 
@@ -236,10 +255,12 @@ The maintained local gate is:
 ./check.sh
 ```
 
+That gate covers formatting, linting, dependency freshness, security auditing for both maintained lockfiles, semver checks, the standalone fuzz-package compile smoke, workspace tests, release-binary smoke, and tracked 100% line plus branch coverage. Manual sanitizer-backed fuzz seed smokes still live in [fuzz/README.md](fuzz/README.md).
+
 Equivalent direct commands remain available through:
 
 ```bash
 cargo xtask check
 cargo xtask coverage
-cargo xtask refresh-semver-baseline
+cargo xtask refresh-semver-baseline --git-ref v2.0.1
 ```

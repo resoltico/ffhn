@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: FUZZING
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
   questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]
@@ -17,6 +17,7 @@ route:
 Automatic through `./check.sh`:
 
 ```bash
+cargo audit --file fuzz/Cargo.lock -D warnings
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 ```
 
@@ -35,7 +36,9 @@ Manual live fuzzing:
 | `state_and_report_json_documents` | `ffhn_core::model::report`, `ffhn_core::model::state` | 3 | schema validation drift |
 | `target_toml_documents` | `ffhn_core::model::target` | 3 | target-contract drift |
 
-## Module Coverage Map
+## Representative Coverage Map
+
+The table below names the main maintained source files each harness exercises; it is representative rather than exhaustive.
 
 | Source module | Covered by |
 | --- | --- |
@@ -43,7 +46,7 @@ Manual live fuzzing:
 | `crates/ffhn-core/src/model/report.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/state.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/target.rs` | `target_toml_documents`, `dry_run_file_targets` |
-| `crates/ffhn-core/src/runtime/run.rs` | `dry_run_file_targets` |
+| `crates/ffhn-core/src/runtime/run/execute.rs` | `dry_run_file_targets` |
 
 ## Maintained Seed-Smoke Commands
 

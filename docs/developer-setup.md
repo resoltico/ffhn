@@ -2,9 +2,9 @@
 afad: "3.5"
 version: "2.0.1"
 domain: SETUP
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
-  keywords: [developer setup, rustup, stable toolchain, nightly llvm-cov, cargo-fuzz, shellcheck, gh cli, clang override]
+  keywords: [developer setup, rustup, Rust 1.95.0, nightly llvm-cov, cargo-fuzz, shellcheck, gh cli, clang override]
   questions: ["how do I set up a fresh machine for ffhn?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn release work?"]
 ---
 
@@ -14,13 +14,16 @@ This page bootstraps a fresh machine into the maintained FFHN contributor state.
 
 ## Required Versus Optional Tools
 
-Required for normal development and `./check.sh`:
+Required for ordinary local development:
 
-1. stable Rust through `rustup`
-2. nightly Rust with `llvm-tools-preview`
-3. Cargo QA tools used by `cargo xtask`
-4. `shellcheck`
-5. a working system C toolchain
+1. Rust `1.95.0` through `rustup`
+2. a working system C toolchain
+
+Required for the maintained local gate (`./check.sh`):
+
+1. nightly Rust with `llvm-tools-preview`
+2. Cargo QA tools used by `cargo xtask`
+3. `shellcheck`
 
 Required for public release work:
 
@@ -41,17 +44,19 @@ xcode-select --install
 Then install Rust and the maintained FFHN toolchains:
 
 ```bash
-curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain 1.95.0
 source "$HOME/.cargo/env"
 rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-rustup component add clippy rustfmt llvm-tools-preview --toolchain stable
+rustup component add clippy rustfmt llvm-tools-preview --toolchain 1.95.0
 ```
 
 Why this shape:
 
-1. stable is the workspace default from [`rust-toolchain.toml`](../rust-toolchain.toml)
+1. Rust `1.95.0` is the workspace default from [`rust-toolchain.toml`](../rust-toolchain.toml)
 2. nightly exists for branch coverage and optional `cargo-fuzz`
 3. FFHN needs `rustup` control over both toolchains and their components
+
+Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`. It is required for the maintained coverage gate and optional manual fuzzing.
 
 ## Install Required Cargo QA Tools
 
@@ -128,10 +133,12 @@ your shell is exporting a stale `CC` or `CXX` value that points at a removed Hom
 Fix the shell config, or override it when installing tools:
 
 ```bash
-CC=clang CXX=clang++ cargo install <tool> --locked
+CC=clang CXX=clang++ cargo install cargo-nextest --locked
 ```
 
 ## Verify The Setup
+
+Verify the maintained local gate toolchain:
 
 ```bash
 source "$HOME/.cargo/env"
@@ -144,8 +151,15 @@ cargo semver-checks --version
 cargo outdated --version
 cargo llvm-cov --version
 shellcheck --version
-gh --version
 ./check.sh
+```
+
+If you plan to do release work from this machine, verify GitHub CLI separately:
+
+```bash
+source "$HOME/.cargo/env"
+gh --version
+gh auth status
 ```
 
 If you also installed `cargo-fuzz`, verify that separately:
