@@ -61,7 +61,7 @@ jobs:
           sudo apt-get install --yes shellcheck
 
       - name: Install Rust QA tools
-        uses: taiki-e/install-action@7a562dfa955aa2e4d5b0fd6ebd57ff9715c07b0b # v2.73.0
+        uses: taiki-e/install-action@5f57d6cb7cd20b14a8a27f522884c4bc8a187458 # v2.75.19
         with:
           tool: cargo-llvm-cov,cargo-nextest,cargo-audit,cargo-deny,cargo-semver-checks,cargo-outdated
 
@@ -101,32 +101,18 @@ jobs:
           rustup default stable
           rustup target add "${{ matrix.target_triple }}"
 
-      - name: Read workspace version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="$(awk -F'"' '/^version = "/ {print $2; exit}' Cargo.toml)"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.target_triple }}
 
-      - name: Resolve artifact names
-        id: artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          source ./scripts/release-targets.sh
-          echo "binary=$(artifact_name_for_target "${{ matrix.target_triple }}")" >> "$GITHUB_OUTPUT"
-
-      - name: Build standalone executable
+      - name: Build standalone package
         shell: bash
         run: ./scripts/build-release-artifact.sh "${{ matrix.target_triple }}"
 
-      - name: Smoke test standalone executable
+      - name: Smoke test standalone package
         shell: bash
-        run: |
-          set -euo pipefail
-          "./dist/${{ steps.artifact.outputs.binary }}" --version | grep "^ffhn ${{ steps.version.outputs.version }}$"
-          "./dist/${{ steps.artifact.outputs.binary }}" --help | grep "status"
+        run: ./scripts/smoke-release-artifact.sh "${{ matrix.target_triple }}"
 
   check:
     name: Check

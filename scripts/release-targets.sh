@@ -70,16 +70,60 @@ binary_suffix_for_target() {
     esac
 }
 
-artifact_name_for_target() {
+binary_name_for_target() {
     local requested_target="$1"
 
-    printf 'ffhn-%s%s\n' "${requested_target}" "$(binary_suffix_for_target "${requested_target}")"
+    printf 'ffhn%s\n' "$(binary_suffix_for_target "${requested_target}")"
 }
 
-checksum_name_for_target() {
+release_archive_extension_for_target() {
     local requested_target="$1"
 
-    printf '%s.sha256\n' "$(artifact_name_for_target "${requested_target}")"
+    case "${requested_target}" in
+        x86_64-pc-windows-msvc)
+            printf 'zip\n'
+            ;;
+        *)
+            printf 'tar.gz\n'
+            ;;
+    esac
+}
+
+release_package_basename_for_target() {
+    local release_version="$1"
+    local requested_target="$2"
+
+    printf 'ffhn-%s-%s\n' "${release_version}" "${requested_target}"
+}
+
+release_package_name_for_target() {
+    local release_version="$1"
+    local requested_target="$2"
+
+    printf '%s.%s\n' \
+        "$(release_package_basename_for_target "${release_version}" "${requested_target}")" \
+        "$(release_archive_extension_for_target "${requested_target}")"
+}
+
+release_source_archive_basename_for_version() {
+    local release_version="$1"
+
+    printf 'ffhn-source-%s\n' "${release_version}"
+}
+
+release_source_archive_names_for_version() {
+    local release_version="$1"
+    local basename
+
+    basename="$(release_source_archive_basename_for_version "${release_version}")"
+    printf '%s.zip\n' "${basename}"
+    printf '%s.tar.gz\n' "${basename}"
+}
+
+release_checksum_manifest_name_for_version() {
+    local release_version="$1"
+
+    printf 'ffhn-%s-checksums.txt\n' "${release_version}"
 }
 
 macos_deployment_target_for_target() {
@@ -99,11 +143,11 @@ release_asset_names_for_version() {
     local release_version="$1"
     local listed_target
 
-    printf 'ffhn-%s.zip\n' "${release_version}"
-    printf 'ffhn-%s.tar.gz\n' "${release_version}"
+    release_source_archive_names_for_version "${release_version}"
 
     while IFS= read -r listed_target; do
-        printf '%s\n' "$(artifact_name_for_target "${listed_target}")"
-        printf '%s\n' "$(checksum_name_for_target "${listed_target}")"
+        printf '%s\n' "$(release_package_name_for_target "${release_version}" "${listed_target}")"
     done < <(release_target_triples)
+
+    printf '%s\n' "$(release_checksum_manifest_name_for_version "${release_version}")"
 }

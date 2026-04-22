@@ -21,24 +21,93 @@ die() {
 }
 
 workspace_version() {
-    awk -F'"' '/^version = "/ {print $2; exit}' "${repo_root}/Cargo.toml"
+    "${script_dir}/workspace-version.sh" "${repo_root}/Cargo.toml"
 }
 
-checksum_file() {
-    local file_path="$1"
-    local asset_basename="$2"
+is_windows_environment() {
+    [[ "${OS:-}" == "Windows_NT" ]] || command -v cygpath >/dev/null 2>&1
+}
 
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "${file_path}" | awk -v name="${asset_basename}" '{print $1 "  " name}'
+native_path() {
+    local path="$1"
+
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "${path}"
         return
     fi
 
-    if command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "${file_path}" | awk -v name="${asset_basename}" '{print $1 "  " name}'
-        return
-    fi
+    printf '%s\n' "${path}"
+}
 
-    die "no SHA-256 checksum tool found (expected sha256sum or shasum)"
+create_zip_with_dotnet() {
+    local source_parent_path="$1"
+    local archive_output_path="$2"
+
+    # shellcheck disable=SC2016
+    env \
+        SOURCE_PARENT_PATH="$(native_path "${source_parent_path}")" \
+        ARCHIVE_OUTPUT_PATH="$(native_path "${archive_output_path}")" \
+        powershell.exe -NoLogo -NoProfile -Command \
+        'Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:SOURCE_PARENT_PATH, $env:ARCHIVE_OUTPUT_PATH)'
+}
+
+create_zip_with_7zip() {
+    local archiver="$1"
+    local source_parent_path="$2"
+    local package_root_name="$3"
+    local archive_output_path="$4"
+
+    (
+        cd "${source_parent_path}"
+        "${archiver}" a -tzip -bd -mx=9 "$(native_path "${archive_output_path}")" "${package_root_name}" >/dev/null
+    )
+}
+
+create_release_archive() {
+    local source_parent_path="$1"
+    local package_root_name="$2"
+    local archive_output_path="$3"
+    local archive_output_extension="$4"
+
+    rm -f "${archive_output_path}"
+
+    case "${archive_output_extension}" in
+        tar.gz)
+            tar -C "${source_parent_path}" -czf "${archive_output_path}" "${package_root_name}"
+            ;;
+        zip)
+            if command -v zip >/dev/null 2>&1; then
+                (
+                    cd "${source_parent_path}"
+                    zip -qr "${archive_output_path}" "${package_root_name}"
+                )
+                return
+            fi
+
+            if is_windows_environment && command -v powershell.exe >/dev/null 2>&1; then
+                create_zip_with_dotnet "${source_parent_path}" "${archive_output_path}"
+                return
+            fi
+
+            local seven_zip_archiver
+            for seven_zip_archiver in 7z 7zz 7za; do
+                if command -v "${seven_zip_archiver}" >/dev/null 2>&1; then
+                    create_zip_with_7zip "${seven_zip_archiver}" "${source_parent_path}" "${package_root_name}" "${archive_output_path}"
+                    return
+                fi
+            done
+
+            if command -v powershell.exe >/dev/null 2>&1; then
+                create_zip_with_dotnet "${source_parent_path}" "${archive_output_path}"
+                return
+            fi
+
+            die "no ZIP archiver found (expected zip, powershell.exe, or 7z)"
+            ;;
+        *)
+            die "unsupported release archive extension: ${archive_output_extension}"
+            ;;
+    esac
 }
 
 script_dir="$(resolve_script_dir)"
@@ -55,17 +124,34 @@ is_supported_release_target "${target_triple}" || die "unsupported release targe
 
 version="$(workspace_version)"
 readonly version
-artifact_name="$(artifact_name_for_target "${target_triple}")"
+artifact_name="$(release_package_name_for_target "${version}" "${target_triple}")"
 readonly artifact_name
 readonly output_dir="${repo_root}/dist"
 readonly artifact_path="${output_dir}/${artifact_name}"
-readonly checksum_path="${artifact_path}.sha256"
 readonly cargo_profile="dist"
 deployment_target="$(macos_deployment_target_for_target "${target_triple}")"
 readonly deployment_target
+package_dir_name="$(release_package_basename_for_target "${version}" "${target_triple}")"
+readonly package_dir_name
+archive_extension="$(release_archive_extension_for_target "${target_triple}")"
+readonly archive_extension
+compiled_binary_name="$(binary_name_for_target "${target_triple}")"
+readonly compiled_binary_name
+compiled_binary_path="${repo_root}/target/${target_triple}/${cargo_profile}/${compiled_binary_name}"
+readonly compiled_binary_path
+staging_root="$(mktemp -d "${TMPDIR:-/tmp}/ffhn-release-${target_triple}.XXXXXX")"
+readonly staging_root
+package_dir="${staging_root}/${package_dir_name}"
+readonly package_dir
+
+cleanup() {
+    rm -rf "${staging_root}"
+}
+
+trap cleanup EXIT
 
 mkdir -p "${output_dir}"
-rm -f "${artifact_path}" "${checksum_path}"
+rm -f "${artifact_path}"
 
 (
     cd "${repo_root}"
@@ -75,12 +161,15 @@ rm -f "${artifact_path}" "${checksum_path}"
     cargo build --profile "${cargo_profile}" --locked -p ffhn-cli --bin ffhn --target "${target_triple}"
 )
 
-cp "${repo_root}/target/${target_triple}/${cargo_profile}/ffhn$(binary_suffix_for_target "${target_triple}")" "${artifact_path}"
-chmod +x "${artifact_path}"
-checksum_file "${artifact_path}" "${artifact_name}" > "${checksum_path}"
+mkdir -p "${package_dir}"
+cp "${compiled_binary_path}" "${package_dir}/${compiled_binary_name}"
+chmod +x "${package_dir}/${compiled_binary_name}"
+cp "${repo_root}/LICENSE" "${package_dir}/LICENSE"
+cp "${repo_root}/README.md" "${package_dir}/README.md"
+create_release_archive "${staging_root}" "${package_dir_name}" "${artifact_path}" "${archive_extension}"
 
 printf 'Built %s for FFHN %s with Cargo profile %s\n' "${artifact_name}" "${version}" "${cargo_profile}"
 if [[ -n "${deployment_target}" ]]; then
     printf 'Pinned macOS deployment target to %s\n' "${deployment_target}"
 fi
-printf 'Wrote %s\n' "${checksum_path}"
+printf 'Wrote %s\n' "${artifact_path}"

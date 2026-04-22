@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "2.0.0"
+version: "2.0.1"
 domain: CLI
 updated: "2026-04-20"
 route:

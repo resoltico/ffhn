@@ -1,7 +1,16 @@
 # Changelog
 
+Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-22
+
+- Reworked FFHN's public release system into explicit source archives, versioned platform packages, and one `ffhn-X.Y.Z-checksums.txt` manifest, replacing the old raw-binary plus per-file `.sha256` release layout.
+- Hardened release automation around packaged-asset smoke tests, draft-first publication, provenance attestations, and tag-version-pinned reruns so release repair stays safe even after `main` has advanced.
+- Added dedicated platform-support documentation and refreshed the README plus maintainer docs to document binary-package install, the maintained asset inventory, and the distinction between FFHN-owned source archives and GitHub's auto-generated `Source code` links.
+- Bumped `htmlcut-core` from `v4.2.0` to `v4.2.1` and refreshed the workspace lockfiles to match.
 - Fixed `cargo xtask refresh-semver-baseline` to accept the documented `--git-ref` argument and rebuild the checked-in `ffhn-core` baseline from the explicit published Git ref instead of the live worktree.
 
 ## [2.0.0] - 2026-04-20
