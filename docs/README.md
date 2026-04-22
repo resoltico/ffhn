@@ -1,10 +1,10 @@
 ---
 afad: "3.5"
-version: "2.0.0"
+version: "2.0.1"
 domain: DOCS
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
-  keywords: [docs index, architecture, cli contract, target schema, reports, operations, quality gates, release protocol, versioning policy]
+  keywords: [docs index, architecture, cli contract, target schema, reports, operations, platform support, quality gates, release protocol, versioning policy]
   questions: ["where is the ffhn documentation index?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is the ffhn release process documented?"]
 ---
 
@@ -21,6 +21,7 @@ Use this page as the routing index for the maintained FFHN documentation set.
 - [developer-setup.md](developer-setup.md): fresh-machine bootstrap, required tools, optional `cargo-fuzz`, and disk-usage guidance
 - [quality-gates.md](quality-gates.md): what `./check.sh` and `cargo xtask` actually enforce
 - [operations.md](operations.md): local maintainer commands, CI workflows, release targets, and publication scripts
+- [platform-support.md](platform-support.md): maintained standalone release target matrix, package contents, and public asset naming
 - [release-protocol.md](release-protocol.md): GitHub CLI driven public release choreography for FFHN
 - [versioning-policy.md](versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
 - [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow and documentation/test expectations

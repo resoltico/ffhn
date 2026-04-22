@@ -26,7 +26,17 @@ repo_root="$(cd -P -- "${script_dir}/.." && pwd)"
 readonly repo_root
 # shellcheck disable=SC1091
 . "${script_dir}/release-targets.sh"
-version="$(awk -F'"' '/^version = "/ {print $2; exit}' "${repo_root}/Cargo.toml")"
+
+release_version() {
+    if [[ -n "${RELEASE_VERSION:-}" ]]; then
+        printf '%s\n' "${RELEASE_VERSION}"
+        return
+    fi
+
+    "${script_dir}/workspace-version.sh" "${repo_root}/Cargo.toml"
+}
+
+version="$(release_version)"
 readonly version
 tag_name="${1:-${RELEASE_TAG:-${GITHUB_REF_NAME:-}}}"
 readonly tag_name

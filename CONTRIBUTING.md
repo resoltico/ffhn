@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.0.0"
+version: "2.0.1"
 domain: CONTRIBUTING
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [contributing, workflow, docs sync, check.sh, fuzz seeds, release hygiene]
   questions: ["how should I contribute to ffhn?", "which docs do I update when ffhn behavior changes?", "what should I run before asking for review?"]
@@ -29,7 +29,7 @@ Update these pages when behavior changes:
 1. CLI behavior, exit codes, or target discovery: [docs/cli.md](docs/cli.md) and [README.md](README.md)
 2. target schema, defaults, notifications, or examples: [docs/targets.md](docs/targets.md), [examples/](examples), and [watchlist/demo/target.toml](watchlist/demo/target.toml)
 3. runtime, persistence, or report semantics: [docs/core.md](docs/core.md), [docs/reports.md](docs/reports.md), and [docs/contracts.md](docs/contracts.md)
-4. maintainer workflow, release logic, or QA tooling: [docs/developer-setup.md](docs/developer-setup.md), [docs/quality-gates.md](docs/quality-gates.md), [docs/operations.md](docs/operations.md), [docs/release-protocol.md](docs/release-protocol.md), and [docs/versioning-policy.md](docs/versioning-policy.md)
+4. maintainer workflow, release logic, or QA tooling: [docs/developer-setup.md](docs/developer-setup.md), [docs/quality-gates.md](docs/quality-gates.md), [docs/operations.md](docs/operations.md), [docs/platform-support.md](docs/platform-support.md), [docs/release-protocol.md](docs/release-protocol.md), and [docs/versioning-policy.md](docs/versioning-policy.md)
 
 If you change production behavior, add a public-facing note under `## [Unreleased]` in `changelog.md`.
 

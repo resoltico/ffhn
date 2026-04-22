@@ -1,10 +1,10 @@
 ---
 afad: "3.5"
-version: "2.0.0"
+version: "2.0.1"
 domain: QUALITY
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke]
+  keywords: [quality gates, check.sh, cargo xtask, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
   questions: ["what does ffhn check.sh run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
@@ -21,7 +21,7 @@ Nightly is installed alongside stable for two reasons:
 1. `cargo +nightly llvm-cov --branch` is required for the maintained branch-coverage gate
 2. manual `cargo-fuzz` runs require nightly sanitizer flags
 
-Neither the CLI nor the release builds require nightly.
+Neither the CLI nor the packaged public release builds require nightly.
 
 ## Maintained Commands
 
@@ -75,6 +75,8 @@ cargo xtask refresh-semver-baseline
 14. `cargo xtask coverage`
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
+
+GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
 
 The semver lane treats the current workspace version as an unreleased major line until a matching local Git tag `vX.Y.Z` exists. That keeps release-branch checks correct after the changelog is dated but before the public tag is pushed.
 

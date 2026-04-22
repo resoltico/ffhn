@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.0.0"
+version: "2.0.1"
 domain: MAINTAINER
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [versioning policy, schema naming, htmlcut interop profile, semver baseline, workspace version]
   questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]
@@ -24,7 +24,7 @@ That version feeds:
 - both published crates
 - `ffhn --version`
 - release tags of the form `vX.Y.Z`
-- release archive names
+- release asset, package, and checksum-manifest names
 
 Do not create parallel version sources in crate manifests, docs, scripts, or workflows.
 

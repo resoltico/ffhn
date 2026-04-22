@@ -2,7 +2,7 @@
 RETRIEVAL_HINTS:
   keywords: [ffhn, deterministic monitoring, ffhn-core, ffhn-cli, htmlcut, watch root, target.toml, snapshots]
   answers: [what is ffhn?, how do I run ffhn?, how does ffhn work?, where are the ffhn docs?, what does ffhn persist?]
-  related: [docs/README.md, docs/cli.md, docs/targets.md, docs/reports.md, docs/contracts.md, CONTRIBUTING.md, fuzz/README.md]
+  related: [docs/README.md, docs/cli.md, docs/targets.md, docs/reports.md, docs/contracts.md, docs/platform-support.md, CONTRIBUTING.md, fuzz/README.md]
 -->
 # ffhn
 
@@ -24,28 +24,59 @@ It fetches or reads a source, extracts the exact slice you care about through HT
 Build from source:
 
 ```bash
-cargo build --release -p ffhn-cli
+cargo build --release --locked -p ffhn-cli --bin ffhn
 ./target/release/ffhn --help
 ```
 
 Regular builds and normal CLI usage do not need nightly Rust. Nightly is only part of the coverage and fuzzing workflows.
 
-Or download a standalone binary from [GitHub Releases](https://github.com/resoltico/ffhn/releases). The maintained release matrix currently covers macOS arm64, macOS x64, Linux x64 musl, and Windows x64.
+Install a prebuilt release package on macOS or Linux:
+
+```bash
+VERSION=X.Y.Z
+TARGET=aarch64-apple-darwin # or x86_64-apple-darwin / x86_64-unknown-linux-musl
+curl -LO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-${TARGET}.tar.gz"
+curl -LO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-checksums.txt"
+grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | shasum -a 256 -c
+tar -xzf "ffhn-${VERSION}-${TARGET}.tar.gz"
+install "ffhn-${VERSION}-${TARGET}/ffhn" "$HOME/.local/bin/ffhn"
+ffhn --help
+```
+
+Install a prebuilt release package on Windows PowerShell:
+
+```powershell
+$Version = "X.Y.Z"
+$Target = "x86_64-pc-windows-msvc"
+Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-$Target.zip" -OutFile "ffhn-$Version-$Target.zip"
+Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-checksums.txt" -OutFile "ffhn-$Version-checksums.txt"
+$Expected = ((Select-String -Path "ffhn-$Version-checksums.txt" -Pattern "  ffhn-$Version-$Target\.zip$").Line -replace ' .*', '').ToLowerInvariant()
+$Actual = (Get-FileHash "ffhn-$Version-$Target.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "checksum mismatch" }
+Expand-Archive "ffhn-$Version-$Target.zip" -DestinationPath .
+New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+Copy-Item "ffhn-$Version-$Target\ffhn*" "$HOME\bin"
+$env:Path = "$HOME\bin;$env:Path"
+ffhn --help
+```
+
+Each prebuilt release package contains the platform binary plus `README.md` and `LICENSE`.
 
 The maintained public release assets are:
 
-- `ffhn-<version>.zip`
-- `ffhn-<version>.tar.gz`
-- `ffhn-aarch64-apple-darwin`
-- `ffhn-aarch64-apple-darwin.sha256`
-- `ffhn-x86_64-apple-darwin`
-- `ffhn-x86_64-apple-darwin.sha256`
-- `ffhn-x86_64-unknown-linux-musl`
-- `ffhn-x86_64-unknown-linux-musl.sha256`
-- `ffhn-x86_64-pc-windows-msvc.exe`
-- `ffhn-x86_64-pc-windows-msvc.exe.sha256`
+- `ffhn-source-X.Y.Z.zip`
+- `ffhn-source-X.Y.Z.tar.gz`
+- `ffhn-X.Y.Z-aarch64-apple-darwin.tar.gz`
+- `ffhn-X.Y.Z-x86_64-apple-darwin.tar.gz`
+- `ffhn-X.Y.Z-x86_64-unknown-linux-musl.tar.gz`
+- `ffhn-X.Y.Z-x86_64-pc-windows-msvc.zip`
+- `ffhn-X.Y.Z-checksums.txt`
 
-Release choreography lives in [docs/release-protocol.md](docs/release-protocol.md). Packaging mechanics live in [docs/operations.md](docs/operations.md).
+The `ffhn-source-...` assets are release-owned source snapshots. They are intentionally named as source archives to distinguish them from runnable binary packages.
+
+GitHub also renders `Source code (zip)` and `Source code (tar.gz)` links on release pages. Those are GitHub-provided convenience downloads, not part of FFHN's maintained public asset inventory.
+
+Release choreography lives in [docs/release-protocol.md](docs/release-protocol.md). Packaging mechanics live in [docs/operations.md](docs/operations.md). Target policy lives in [docs/platform-support.md](docs/platform-support.md).
 
 If you are working directly from the repository without installing the binary, replace `ffhn` in the examples below with `cargo run -p ffhn-cli --`.
 
@@ -191,6 +222,7 @@ The most important pages are:
 - [docs/targets.md](docs/targets.md): `ffhn.target` schema, defaults, validation, storage, and notifications
 - [docs/reports.md](docs/reports.md): `ffhn.state`, run reports, batch reports, status reports, and reason codes
 - [docs/quality-gates.md](docs/quality-gates.md): what `./check.sh` and `cargo xtask` actually enforce
+- [docs/platform-support.md](docs/platform-support.md): maintained standalone target matrix, package contents, and asset naming
 - [docs/release-protocol.md](docs/release-protocol.md): maintained public-release procedure through GitHub CLI
 - [docs/versioning-policy.md](docs/versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow, test expectations, and docs hygiene
