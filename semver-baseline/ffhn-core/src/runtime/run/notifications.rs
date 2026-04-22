@@ -14,12 +14,32 @@ pub(super) fn dispatch_notifications(
     report: &RunReport,
 ) -> Vec<RunNotificationDelivery> {
     let event = notification_event(report.run_outcome);
-    let payload = stable_json(report).expect("validated run reports serialize to stable JSON");
-
-    target
+    let hooks = target
         .notifications
         .iter()
         .filter(|hook| hook.on.contains(&event))
+        .collect::<Vec<_>>();
+    let payload = match stable_json(report) {
+        Ok(payload) => payload,
+        Err(error) => {
+            return hooks
+                .into_iter()
+                .map(|hook| {
+                    notification_failure(
+                        &hook.name,
+                        event,
+                        Instant::now(),
+                        false,
+                        None,
+                        format!("failed to serialize notification payload: {error}"),
+                    )
+                })
+                .collect();
+        }
+    };
+
+    hooks
+        .into_iter()
         .map(|hook| deliver_notification(hook, event, target, report, &payload))
         .collect()
 }
@@ -128,21 +148,71 @@ pub(super) fn deliver_notification(
     payload: &str,
 ) -> RunNotificationDelivery {
     let started = Instant::now();
+    let Some(run_outcome) = serde_variant_name(report.run_outcome) else {
+        return notification_failure(
+            &hook.name,
+            event,
+            started,
+            false,
+            None,
+            "failed to serialize FFHN_RUN_OUTCOME",
+        );
+    };
+    let Some(reason_code) = serde_variant_name(report.reason_code) else {
+        return notification_failure(
+            &hook.name,
+            event,
+            started,
+            false,
+            None,
+            "failed to serialize FFHN_REASON_CODE",
+        );
+    };
+    let Some(run_mode) = serde_variant_name(report.run_mode) else {
+        return notification_failure(
+            &hook.name,
+            event,
+            started,
+            false,
+            None,
+            "failed to serialize FFHN_RUN_MODE",
+        );
+    };
+    let Some(notification_event) = serde_variant_name(event) else {
+        return notification_failure(
+            &hook.name,
+            event,
+            started,
+            false,
+            None,
+            "failed to serialize FFHN_NOTIFICATION_EVENT",
+        );
+    };
+    let failure_class = match report.failure_class {
+        Some(failure_class) => match serde_variant_name(failure_class) {
+            Some(failure_class) => failure_class,
+            None => {
+                return notification_failure(
+                    &hook.name,
+                    event,
+                    started,
+                    false,
+                    None,
+                    "failed to serialize FFHN_FAILURE_CLASS",
+                );
+            }
+        },
+        None => String::new(),
+    };
     let mut child = match Command::new(&hook.shell)
         .arg("-c")
         .arg(&hook.command)
         .env("FFHN_TARGET_ID", &target.target_id)
-        .env("FFHN_RUN_OUTCOME", serde_variant_name(report.run_outcome))
-        .env("FFHN_REASON_CODE", serde_variant_name(report.reason_code))
-        .env("FFHN_RUN_MODE", serde_variant_name(report.run_mode))
-        .env(
-            "FFHN_FAILURE_CLASS",
-            report
-                .failure_class
-                .map(serde_variant_name)
-                .unwrap_or_default(),
-        )
-        .env("FFHN_NOTIFICATION_EVENT", serde_variant_name(event))
+        .env("FFHN_RUN_OUTCOME", run_outcome)
+        .env("FFHN_REASON_CODE", reason_code)
+        .env("FFHN_RUN_MODE", run_mode)
+        .env("FFHN_FAILURE_CLASS", failure_class)
+        .env("FFHN_NOTIFICATION_EVENT", notification_event)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -199,10 +269,9 @@ pub(super) fn write_child_notification_payload_or_failure(
     )
 }
 
-fn serde_variant_name<T: serde::Serialize>(value: T) -> String {
-    let serialized = serde_json::to_value(value).expect("enum serialization");
-    serialized
+fn serde_variant_name<T: serde::Serialize>(value: T) -> Option<String> {
+    serde_json::to_value(value)
+        .ok()?
         .as_str()
-        .expect("string enum serialization")
-        .to_owned()
+        .map(ToOwned::to_owned)
 }
