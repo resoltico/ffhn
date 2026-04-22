@@ -44,15 +44,9 @@ fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
     let started = Instant::now();
     let fetch = &target.fetch;
     let agent = build_agent(fetch);
+    let source_url = validated_http_source_url(target)?;
 
-    let mut request = agent.get(
-        target
-            .target
-            .source_url
-            .as_ref()
-            .expect("validated http source url")
-            .as_str(),
-    );
+    let mut request = agent.get(source_url.as_str());
     request = request.header("Accept", &fetch.accept);
     request = request.header("User-Agent", &fetch.user_agent);
 
@@ -80,14 +74,7 @@ fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
     };
 
     let duration_ms = started.elapsed().as_millis() as u64;
-    let final_url = parse_final_url_or_source(
-        &response.get_uri().to_string(),
-        target
-            .target
-            .source_url
-            .as_ref()
-            .expect("validated http source url"),
-    );
+    let final_url = parse_final_url_or_source(&response.get_uri().to_string(), source_url);
     let http_status = response.status().as_u16();
     let content_type = header_value(&response, "content-type");
 
@@ -184,13 +171,7 @@ fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
 fn fetch_file_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailure> {
     let started = Instant::now();
     let fetch = &target.fetch;
-    let path = Path::new(
-        target
-            .target
-            .file_path
-            .as_deref()
-            .expect("validated file path"),
-    );
+    let path = validated_file_path(target)?;
 
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -241,8 +222,7 @@ fn fetch_file_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
     };
 
     let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let final_url = Url::from_file_path(&canonical_path)
-        .expect("validated absolute file paths map to file URLs");
+    let final_url = validated_file_url(&canonical_path, started.elapsed().as_millis() as u64)?;
 
     Ok(FetchSuccess {
         final_url: final_url.clone(),
@@ -256,6 +236,49 @@ fn fetch_file_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailu
             duration_ms: started.elapsed().as_millis() as u64,
         },
     })
+}
+
+fn config_invalid_failure(engine: FetchEngine, duration_ms: u64) -> FetchFailure {
+    FetchFailure {
+        reason_code: ReasonCode::ConfigInvalid,
+        report: RunFetchSection {
+            engine,
+            final_url: None,
+            http_status: None,
+            content_type: None,
+            bytes_read: None,
+            duration_ms,
+        },
+    }
+}
+
+fn validated_http_source_url(target: &TargetDocument) -> Result<&Url, FetchFailure> {
+    let source_url = target
+        .target
+        .source_url
+        .as_ref()
+        .ok_or_else(|| config_invalid_failure(target.fetch.engine, 0))?;
+    if !matches!(source_url.scheme(), "http" | "https") {
+        return Err(config_invalid_failure(target.fetch.engine, 0));
+    }
+    Ok(source_url)
+}
+
+fn validated_file_path(target: &TargetDocument) -> Result<&Path, FetchFailure> {
+    let path = target
+        .target
+        .file_path
+        .as_deref()
+        .map(Path::new)
+        .ok_or_else(|| config_invalid_failure(target.fetch.engine, 0))?;
+    if !path.is_absolute() {
+        return Err(config_invalid_failure(target.fetch.engine, 0));
+    }
+    Ok(path)
+}
+
+fn validated_file_url(path: &Path, duration_ms: u64) -> Result<Url, FetchFailure> {
+    Url::from_file_path(path).map_err(|_| config_invalid_failure(FetchEngine::File, duration_ms))
 }
 
 fn build_agent(fetch: &FetchConfig) -> ureq::Agent {
@@ -387,428 +410,4 @@ fn charset_from_content_type(content_type: Option<&str>) -> Option<&'static Enco
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-    use std::io::{self, Cursor, Write};
-    use std::net::TcpListener;
-    use std::thread;
-
-    use crate::{
-        CompareBasis, CompareConfig, FetchEngine, HttpMethod, OutputKind, SelectionConfig,
-        SelectionKind, SelectionMatch, TargetDocument, TargetSource, WhitespaceMode,
-    };
-
-    struct BrokenReader;
-
-    impl Read for BrokenReader {
-        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("boom"))
-        }
-    }
-
-    struct TestResponse {
-        status_line: &'static str,
-        headers: Vec<(&'static str, String)>,
-        body: Vec<u8>,
-        delay_before_response_ms: u64,
-    }
-
-    fn serve_once(response: TestResponse) -> (Url, thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
-        let address = listener.local_addr().expect("server addr");
-        let url = Url::parse(&format!("http://{address}")).expect("server url");
-        let handle = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept connection");
-            let mut request = [0u8; 2048];
-            let _ = stream.read(&mut request);
-            if response.delay_before_response_ms > 0 {
-                thread::sleep(Duration::from_millis(response.delay_before_response_ms));
-            }
-
-            let mut raw = format!("HTTP/1.1 {}\r\n", response.status_line).into_bytes();
-            for (name, value) in response.headers {
-                raw.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
-            }
-            raw.extend_from_slice(b"\r\n");
-            raw.extend_from_slice(&response.body);
-            let _ = stream.write_all(&raw);
-        });
-
-        (url, handle)
-    }
-
-    fn target_for(url: Url) -> TargetDocument {
-        TargetDocument {
-            schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
-            schema_version: crate::TARGET_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
-            display_name: "Demo".to_owned(),
-            enabled: true,
-            target: TargetSource {
-                kind: crate::model::TargetKind::Http,
-                source_url: Some(url),
-                file_path: None,
-            },
-            fetch: FetchConfig {
-                engine: FetchEngine::Http,
-                method: HttpMethod::GET,
-                timeout_ms: 1_000,
-                max_bytes: 1_024,
-                user_agent: "ffhn/2.0.0".to_owned(),
-                follow_redirects: true,
-                accept: "text/html,application/xhtml+xml".to_owned(),
-                headers: BTreeMap::new(),
-                extensions: None,
-            },
-            selection: SelectionConfig {
-                kind: SelectionKind::CssSelector,
-                r#match: SelectionMatch::Single,
-                index: None,
-                output: OutputKind::OuterHtml,
-                whitespace: WhitespaceMode::Normalize,
-                rewrite_urls: false,
-                selector: Some("main".to_owned()),
-                start: None,
-                end: None,
-                mode: None,
-                include_start: None,
-                include_end: None,
-                flags: Vec::new(),
-            },
-            compare: CompareConfig {
-                basis: CompareBasis::CanonicalTextSha256,
-                canonicalization: Vec::new(),
-            },
-            storage: Default::default(),
-            notifications: Vec::new(),
-            extensions: None,
-        }
-    }
-
-    fn file_target_for(path: &Path) -> TargetDocument {
-        TargetDocument {
-            schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
-            schema_version: crate::TARGET_SCHEMA_VERSION,
-            target_id: "demo_file".to_owned(),
-            display_name: "Demo File".to_owned(),
-            enabled: true,
-            target: TargetSource {
-                kind: crate::model::TargetKind::File,
-                source_url: None,
-                file_path: Some(path.to_string_lossy().into_owned()),
-            },
-            fetch: FetchConfig {
-                engine: FetchEngine::File,
-                method: HttpMethod::GET,
-                timeout_ms: 1_000,
-                max_bytes: 1_024,
-                user_agent: String::new(),
-                follow_redirects: false,
-                accept: String::new(),
-                headers: BTreeMap::new(),
-                extensions: None,
-            },
-            selection: SelectionConfig {
-                kind: SelectionKind::CssSelector,
-                r#match: SelectionMatch::Single,
-                index: None,
-                output: OutputKind::OuterHtml,
-                whitespace: WhitespaceMode::Normalize,
-                rewrite_urls: false,
-                selector: Some("main".to_owned()),
-                start: None,
-                end: None,
-                mode: None,
-                include_start: None,
-                include_end: None,
-                flags: Vec::new(),
-            },
-            compare: CompareConfig {
-                basis: CompareBasis::CanonicalTextSha256,
-                canonicalization: Vec::new(),
-            },
-            storage: Default::default(),
-            notifications: Vec::new(),
-            extensions: None,
-        }
-    }
-
-    #[test]
-    fn fetch_target_reads_successful_html_and_normalizes_line_endings() {
-        let body = b"<html><main>Hello\r\nWorld</main></html>".to_vec();
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "text/html; charset=utf-8".to_owned()),
-                ("Content-Length", body.len().to_string()),
-            ],
-            body,
-            delay_before_response_ms: 0,
-        });
-
-        let mut target = target_for(url.clone());
-        target
-            .fetch
-            .headers
-            .insert("X-Test".to_owned(), "demo".to_owned());
-
-        let result = fetch_target(&target).expect("successful fetch");
-        handle.join().expect("server join");
-
-        assert_eq!(result.final_url.as_str(), url.as_str());
-        assert_eq!(result.html, "<html><main>Hello\nWorld</main></html>");
-        assert_eq!(result.report.http_status, Some(200));
-        assert_eq!(
-            result.report.content_type.as_deref(),
-            Some("text/html; charset=utf-8")
-        );
-        assert_eq!(result.report.bytes_read, Some(38));
-    }
-
-    #[test]
-    fn fetch_target_preserves_browser_engine_in_reports_while_using_http_transport() {
-        let body = b"<html><main>Hello</main></html>".to_vec();
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "text/html; charset=utf-8".to_owned()),
-                ("Content-Length", body.len().to_string()),
-            ],
-            body,
-            delay_before_response_ms: 0,
-        });
-
-        let mut target = target_for(url.clone());
-        target.fetch.engine = FetchEngine::Browser;
-
-        let result = fetch_target(&target).expect("successful browser-engine fetch");
-        handle.join().expect("server join");
-
-        assert_eq!(result.final_url.as_str(), url.as_str());
-        assert_eq!(result.report.engine, FetchEngine::Browser);
-        assert_eq!(result.report.http_status, Some(200));
-    }
-
-    #[test]
-    fn fetch_target_rejects_http_error_unsupported_type_and_oversized_responses() {
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "500 Internal Server Error",
-            headers: vec![("Content-Type", "text/html".to_owned())],
-            body: b"boom".to_vec(),
-            delay_before_response_ms: 0,
-        });
-        let failure = fetch_target(&target_for(url)).expect_err("http error");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchHttpServerError);
-        assert_eq!(failure.report.http_status, Some(500));
-
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "application/json".to_owned()),
-                ("Content-Length", "2".to_owned()),
-            ],
-            body: b"{}".to_vec(),
-            delay_before_response_ms: 0,
-        });
-        let failure = fetch_target(&target_for(url)).expect_err("unsupported content type");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchUnsupportedContentType);
-
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "text/html".to_owned()),
-                ("Content-Length", "2048".to_owned()),
-            ],
-            body: b"<main>ignored</main>".to_vec(),
-            delay_before_response_ms: 0,
-        });
-        let failure = fetch_target(&target_for(url)).expect_err("too large by content-length");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchTooLarge);
-
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![("Content-Type", "text/html".to_owned())],
-            body: b"<main>this body is too large</main>".to_vec(),
-            delay_before_response_ms: 0,
-        });
-        let mut target = target_for(url);
-        target.fetch.max_bytes = 8;
-        let failure = fetch_target(&target).expect_err("too large while streaming");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchTooLarge);
-    }
-
-    #[test]
-    fn fetch_target_rejects_decode_network_and_timeout_failures() {
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "text/html; charset=unknown".to_owned()),
-                ("Content-Length", "4".to_owned()),
-            ],
-            body: b"demo".to_vec(),
-            delay_before_response_ms: 0,
-        });
-        let failure = fetch_target(&target_for(url)).expect_err("decode error");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchDecodeError);
-        assert_eq!(failure.report.bytes_read, Some(4));
-
-        let closed_listener = TcpListener::bind("127.0.0.1:0").expect("bind closed listener");
-        let closed_url = Url::parse(&format!(
-            "http://{}",
-            closed_listener.local_addr().expect("closed addr")
-        ))
-        .expect("closed url");
-        drop(closed_listener);
-        let failure = fetch_target(&target_for(closed_url)).expect_err("network error");
-        assert_eq!(failure.reason_code, ReasonCode::FetchNetworkError);
-        assert!(failure.report.http_status.is_none());
-
-        let (url, handle) = serve_once(TestResponse {
-            status_line: "200 OK",
-            headers: vec![
-                ("Content-Type", "text/html; charset=utf-8".to_owned()),
-                ("Content-Length", "17".to_owned()),
-            ],
-            body: b"<main>slow</main>".to_vec(),
-            delay_before_response_ms: 200,
-        });
-        let mut target = target_for(url);
-        target.fetch.timeout_ms = 50;
-        let failure = fetch_target(&target).expect_err("timeout");
-        handle.join().expect("server join");
-        assert_eq!(failure.reason_code, ReasonCode::FetchTimeout);
-    }
-
-    #[test]
-    fn helper_functions_cover_charset_size_and_error_mapping_edges() {
-        let agent = build_agent(&target_for(Url::parse("https://example.com").expect("url")).fetch);
-        assert!(matches!(
-            agent.config().tls_config().root_certs(),
-            RootCerts::PlatformVerifier
-        ));
-        assert_eq!(agent.config().max_redirects(), 10);
-
-        let mut target = target_for(Url::parse("https://example.com").expect("url"));
-        target.fetch.follow_redirects = false;
-        let agent = build_agent(&target.fetch);
-        assert_eq!(agent.config().max_redirects(), 0);
-
-        assert!(supported_content_type(None));
-        assert!(supported_content_type(Some("text/html")));
-        assert!(supported_content_type(Some(
-            "application/xhtml+xml; charset=utf-8"
-        )));
-        assert!(!supported_content_type(Some("application/json")));
-
-        assert_eq!(
-            read_limited_bytes(Cursor::new(b"demo"), 10).expect("cursor"),
-            b"demo"
-        );
-        assert_eq!(
-            read_limited_bytes(Cursor::new(b"toolong"), 3).expect_err("too large"),
-            ReasonCode::FetchTooLarge
-        );
-        assert_eq!(
-            read_limited_bytes(BrokenReader, 10).expect_err("io error"),
-            ReasonCode::FetchNetworkError
-        );
-
-        assert_eq!(
-            decode_body("demo".as_bytes(), None).expect("default utf8"),
-            "demo"
-        );
-        assert_eq!(
-            decode_body(&[0x80], Some("text/html; charset=utf-8")).expect_err("invalid utf8"),
-            ReasonCode::FetchDecodeError
-        );
-        assert_eq!(
-            decode_body(b"demo", Some("text/html; charset=unknown")).expect_err("unknown charset"),
-            ReasonCode::FetchDecodeError
-        );
-
-        assert_eq!(
-            charset_from_content_type(None).expect("default charset"),
-            UTF_8
-        );
-        assert_eq!(
-            charset_from_content_type(Some("text/html; charset=utf-8")).expect("utf8"),
-            UTF_8
-        );
-        assert!(charset_from_content_type(Some("text/html; charset=unknown")).is_none());
-        assert_eq!(
-            charset_from_content_type(Some("text/html; boundary=demo")).expect("defaulted utf8"),
-            UTF_8
-        );
-
-        assert_eq!(
-            map_ureq_error(&ureq::Error::Timeout(ureq::Timeout::Global)),
-            ReasonCode::FetchTimeout
-        );
-        assert_eq!(
-            map_ureq_error(&ureq::Error::BodyExceedsLimit(5)),
-            ReasonCode::FetchTooLarge
-        );
-        assert_eq!(
-            map_ureq_error(&ureq::Error::StatusCode(500)),
-            ReasonCode::FetchHttpServerError
-        );
-        assert_eq!(
-            map_http_status_reason(404),
-            ReasonCode::FetchHttpClientError
-        );
-        assert_eq!(
-            map_ureq_error(&ureq::Error::ConnectionFailed),
-            ReasonCode::FetchNetworkError
-        );
-        assert_eq!(
-            map_ureq_error(&ureq::Error::Other(Box::new(io::Error::other("other")))),
-            ReasonCode::FetchNetworkError
-        );
-        assert_eq!(
-            parse_final_url_or_source(
-                "not a url",
-                &Url::parse("https://example.com/fallback").expect("fallback url")
-            )
-            .as_str(),
-            "https://example.com/fallback"
-        );
-    }
-
-    #[test]
-    fn fetch_target_covers_file_source_success_and_failure_modes() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let source_path = temp.path().join("source.html");
-        std::fs::write(&source_path, "<html><main>Hello</main></html>").expect("write source");
-
-        let success = fetch_target(&file_target_for(&source_path)).expect("file success");
-        assert_eq!(success.report.engine, FetchEngine::File);
-        assert!(success.final_url.as_str().starts_with("file://"));
-        assert_eq!(success.report.bytes_read, Some(31));
-
-        let missing_path = temp.path().join("missing.html");
-        let missing = fetch_target(&file_target_for(&missing_path)).expect_err("missing file");
-        assert_eq!(missing.reason_code, ReasonCode::FetchSourceError);
-        assert!(missing.report.bytes_read.is_none());
-
-        let oversized_path = temp.path().join("oversized.html");
-        std::fs::write(&oversized_path, "<main>too large</main>").expect("write oversized");
-        let mut oversized_target = file_target_for(&oversized_path);
-        oversized_target.fetch.max_bytes = 8;
-        let oversized = fetch_target(&oversized_target).expect_err("oversized file");
-        assert_eq!(oversized.reason_code, ReasonCode::FetchTooLarge);
-        assert_eq!(oversized.report.bytes_read, Some(22));
-
-        let invalid_utf8_path = temp.path().join("invalid.bin");
-        std::fs::write(&invalid_utf8_path, [0xff, 0xfe, 0xfd]).expect("write invalid utf8");
-        let invalid_utf8 =
-            fetch_target(&file_target_for(&invalid_utf8_path)).expect_err("decode failure");
-        assert_eq!(invalid_utf8.reason_code, ReasonCode::FetchDecodeError);
-        assert_eq!(invalid_utf8.report.bytes_read, Some(3));
-    }
-}
+mod tests;

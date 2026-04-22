@@ -2,6 +2,7 @@
 name = "ffhn-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -39,7 +40,7 @@ serde_json = "1.0.149"
 sha2 = "0.11.0"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
-toml = "0.8.23"
+toml = "1.1.2"
 
 [workspace.dependencies.clap]
 features = ["derive"]
@@ -47,13 +48,13 @@ version = "4.6.0"
 
 [workspace.dependencies.ffhn-core]
 path = "crates/ffhn-core"
-version = "2.0.1"
+version = "2.1.0"
 
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
 package = "htmlcut-core"
-tag = "v4.2.1"
-version = "4.2.1"
+tag = "v4.3.0"
+version = "4.3.0"
 
 [workspace.dependencies.serde]
 features = ["derive"]
@@ -85,4 +86,5 @@ edition = "2024"
 homepage = "https://github.com/resoltico/ffhn"
 license = "MIT"
 repository = "https://github.com/resoltico/ffhn"
-version = "2.0.1"
+rust-version = "1.95"
+version = "2.1.0"

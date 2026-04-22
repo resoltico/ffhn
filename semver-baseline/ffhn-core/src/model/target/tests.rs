@@ -1,5 +1,7 @@
 use super::*;
+use crate::NotificationEvent;
 use crate::{TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION};
+use std::collections::BTreeMap;
 use url::Url;
 
 fn valid_target() -> TargetDocument {
