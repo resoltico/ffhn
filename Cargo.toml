@@ -8,7 +8,7 @@ exclude = ["semver-baseline/ffhn-core"]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.1"
+version = "2.1.0"
 edition = "2024"
 rust-version = "1.95"
 description = "Deterministic website monitoring built around FFHN-owned fetch, compare, persistence, and reporting."
@@ -21,7 +21,7 @@ homepage = "https://github.com/resoltico/ffhn"
 assert_cmd = "2.2.0"
 clap = { version = "4.6.0", features = ["derive"] }
 encoding_rs = "0.8.35"
-ffhn-core = { path = "crates/ffhn-core", version = "2.0.1" }
+ffhn-core = { path = "crates/ffhn-core", version = "2.1.0" }
 fs2 = "0.4.3"
 htmlcut-core = { version = "4.3.0", git = "https://github.com/resoltico/HTMLCut.git", tag = "v4.3.0", package = "htmlcut-core" }
 predicates = "3.1.4"

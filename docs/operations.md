@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "2.0.1"
+version: "2.1.0"
 domain: OPERATIONS
 updated: "2026-04-22"
 route:
@@ -38,7 +38,7 @@ Targeted maintainer commands:
 
 ```bash
 cargo xtask coverage
-cargo xtask refresh-semver-baseline --git-ref v2.0.1
+cargo xtask refresh-semver-baseline --git-ref v2.1.0
 ```
 
 ## CI Workflows
