@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Clarified the post-release semver-baseline refresh protocol so protected repositories land that housekeeping change through a short follow-up PR instead of relying on a direct push to `main`.
+
 ## [2.0.1] - 2026-04-22
 
 - Reworked FFHN's public release system into explicit source archives, versioned platform packages, and one `ffhn-X.Y.Z-checksums.txt` manifest, replacing the old raw-binary plus per-file `.sha256` release layout.

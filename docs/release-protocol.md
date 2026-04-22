@@ -426,11 +426,28 @@ git pull
 cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 git add semver-baseline/ffhn-core
 git commit -m "chore: refresh ffhn-core semver baseline"
-git push
 ```
 
 That command repackages the published Git ref into `semver-baseline/ffhn-core`, so the baseline
 cannot silently drift to unreleased local worktree state.
+
+Treat that baseline refresh as an ordinary post-release change, not as an exception to branch
+protection. If `main` is protected against direct pushes, move the commit onto a short-lived
+follow-up branch and land it through the normal PR path:
+
+```bash
+git switch -c chore/refresh-semver-baseline-vX.Y.Z
+git push -u origin chore/refresh-semver-baseline-vX.Y.Z
+gh pr create \
+  --title "chore: refresh ffhn-core semver baseline" \
+  --body "Refresh the checked-in ffhn-core semver baseline to vX.Y.Z after the public release."
+gh pr merge --merge --delete-branch
+git checkout main
+git pull --ff-only
+```
+
+Only bypass that PR flow if the repository explicitly allows trusted maintainers to push this
+post-release housekeeping commit directly to `main`.
 
 ## 12. Reconcile the Primary Checkout
 
