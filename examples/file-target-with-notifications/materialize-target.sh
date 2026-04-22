@@ -1,3 +1,20 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  printf 'usage: %s /path/to/watch-root/release_notes/target.toml\n' "$0" >&2
+  exit 2
+fi
+
+destination=$1
+destination_dir=$(dirname "$destination")
+example_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+release_notes_path="${example_dir}/release-notes.html"
+escaped_release_notes_path=$(printf '%s' "$release_notes_path" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+mkdir -p "$destination_dir"
+
+cat >"$destination" <<EOF
 schema_name = "ffhn.target"
 schema_version = 1
 target_id = "release_notes"
@@ -6,7 +23,7 @@ enabled = true
 
 [target]
 kind = "file"
-file_path = "/absolute/path/to/release-notes.html"
+file_path = "${escaped_release_notes_path}"
 
 [fetch]
 engine = "file"
@@ -39,3 +56,4 @@ on = ["changed", "failed_transient", "failed_permanent"]
 shell = "/bin/sh"
 command = "cat >> /tmp/ffhn-release-notes-report.jsonl"
 timeout_ms = 1000
+EOF

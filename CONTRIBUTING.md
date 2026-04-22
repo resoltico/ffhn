@@ -47,7 +47,7 @@ That includes:
 
 Keep fuzz seeds intentionally small and representative. The automatic gate only compile-smokes the fuzz package; live seed-smoke commands are documented in [fuzz/README.md](fuzz/README.md).
 
-`watchlist/demo` is maintained as starter target configuration, not as a checked-in runtime snapshot. Generated files such as `state.json`, `last_run.json`, `lock/`, and `snapshots/` are local runtime artifacts.
+`watchlist/demo` is maintained as starter target configuration, not as a checked-in runtime snapshot. The file-target example under [examples/file-target-with-notifications](examples/file-target-with-notifications) is maintained as materialized example assets because file targets require an absolute `file_path`. Generated files such as `state.json`, `last_run.json`, `lock/`, and `snapshots/` are local runtime artifacts.
 
 ## Manual Fuzzing
 

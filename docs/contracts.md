@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: CONTRACTS
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, snapshot layout]
   questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch-root layout?"]
@@ -76,7 +76,7 @@ The durable artifact meanings are:
 
 - `target.toml`: `ffhn.target`
 - `state.json`: `ffhn.state`
-- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote
+- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails
 - `lock/run.lock`: the shared/exclusive lock anchor, created lazily for valid live `run`, valid dry-run `run`, and valid `status` execution
 - `snapshots/current/canonical.txt`: compare-time canonical text
 - `snapshots/current/outer.html`: `selected_match.outer_html`
@@ -93,7 +93,7 @@ FFHN derives each history directory key from:
 1. the snapshot capture timestamp with ASCII-alphanumeric characters compacted together
 2. the first 12 hex characters of the canonical-text SHA-256 digest
 
-The exact formatting is intentionally an implementation detail, but the directory is stable enough to be referenced from `ffhn.state`.
+The exact formatting is intentionally an implementation detail, but the derived directory name becomes part of the relative history paths persisted in `ffhn.state`.
 
 ## State And Snapshot Invariants
 

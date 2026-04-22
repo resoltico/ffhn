@@ -11,8 +11,10 @@ use super::super::state::{
     StateLoad, prior_compare_digest, state_phase_or_default, status_from_loaded_state,
     status_from_state,
 };
+use super::super::storage::now_utc;
+use super::execute::RunOptions;
 use super::notifications::dispatch_notifications;
-use super::{RunOptions, failure_run_outcome, now_utc};
+use super::outcome::failure_run_outcome;
 
 #[derive(Clone, Debug)]
 pub(super) struct PersistFailureContext {

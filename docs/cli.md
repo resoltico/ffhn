@@ -2,7 +2,7 @@
 afad: "3.5"
 version: "2.0.1"
 domain: CLI
-updated: "2026-04-20"
+updated: "2026-04-22"
 route:
   keywords: [cli, run command, status command, watch-root discovery, exit codes, stdout json]
   questions: ["what does ffhn run emit?", "how does ffhn --all discover targets?", "which exit codes does the ffhn CLI use?"]
@@ -47,6 +47,8 @@ Hard limitations:
 3. `--all` only discovers immediate subdirectories of the watch root.
 <!-- contract:cli-catalog:end -->
 
+Angle-bracket fragments in the catalog above are metavariables that describe the command shape. They are not literal tokens to type.
+
 ## Watch-Root Discovery Rules
 
 `run --all` walks the immediate subdirectories of the watch root, sorts them lexicographically, and then decides whether to include each directory in the batch request list.
@@ -61,6 +63,8 @@ One directory is excluded when:
 1. its `target.toml` validates and `enabled = false`
 
 This means `run --all` still surfaces invalid target directories as batch failures instead of silently dropping them.
+
+Live explicit runs on disabled targets return `skipped_disabled`. Dry-run is intentionally different: `run --target <id> --dry-run` still validates, fetches, extracts, and compares an explicitly named disabled target, while `run --all` continues to exclude valid disabled directories before batch execution starts.
 
 If watch-root traversal hits a filesystem error after discovery starts, FFHN exits fatally instead of silently skipping the broken entry.
 
@@ -80,7 +84,7 @@ Stderr is reserved for fatal process-level failures and CLI-usage errors, such a
 
 | Condition | Exit code |
 | --- | ---: |
-| successful run, dry-run, batch, or status | `0` |
+| successful or `skipped_disabled` single-target runs, dry-runs, batches with no failed/fatal entries, or status | `0` |
 | structured `failed_transient`, `failed_permanent`, or batch with any failed/fatal entries | `1` |
 | CLI misuse such as parse errors or invalid `--jobs` | `2` |
 | fatal process-level error before structured document emission | `3` |

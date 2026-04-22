@@ -12,18 +12,29 @@ pub(crate) type BranchCoverageByFile = BTreeMap<PathBuf, BTreeMap<BranchSpan, Br
 
 pub(crate) const TRACKED_RELATIVE_PATHS: &[&str] = &[
     "crates/ffhn-core/src/canonical.rs",
-    "crates/ffhn-core/src/contract.rs",
+    "crates/ffhn-core/src/contract/catalog.rs",
+    "crates/ffhn-core/src/contract/types.rs",
     "crates/ffhn-core/src/fetch.rs",
     "crates/ffhn-core/src/model/extraction.rs",
     "crates/ffhn-core/src/model/report.rs",
+    "crates/ffhn-core/src/model/report/batch.rs",
+    "crates/ffhn-core/src/model/report/checks.rs",
+    "crates/ffhn-core/src/model/report/status.rs",
     "crates/ffhn-core/src/model/state.rs",
-    "crates/ffhn-core/src/model/target.rs",
+    "crates/ffhn-core/src/model/target/defaults.rs",
+    "crates/ffhn-core/src/model/target/types.rs",
+    "crates/ffhn-core/src/model/target/validation.rs",
     "crates/ffhn-core/src/model/validate.rs",
     "crates/ffhn-core/src/model/vocab.rs",
     "crates/ffhn-core/src/runtime/interop.rs",
     "crates/ffhn-core/src/runtime/lock.rs",
-    "crates/ffhn-core/src/runtime/persist.rs",
-    "crates/ffhn-core/src/runtime/run.rs",
+    "crates/ffhn-core/src/runtime/persist/snapshot_store.rs",
+    "crates/ffhn-core/src/runtime/persist/state_update.rs",
+    "crates/ffhn-core/src/runtime/persist/successful.rs",
+    "crates/ffhn-core/src/runtime/run/batch.rs",
+    "crates/ffhn-core/src/runtime/run/execute.rs",
+    "crates/ffhn-core/src/runtime/run/failures.rs",
+    "crates/ffhn-core/src/runtime/run/outcome.rs",
     "crates/ffhn-core/src/runtime/state.rs",
     "crates/ffhn-core/src/runtime/status.rs",
     "crates/ffhn-core/src/runtime/storage.rs",
@@ -33,7 +44,7 @@ pub(crate) const TRACKED_RELATIVE_PATHS: &[&str] = &[
     "xtask/src/model.rs",
     "xtask/src/plan.rs",
     "xtask/src/coverage.rs",
-    "xtask/src/repo_contract.rs",
+    "xtask/src/repo_contract/mod.rs",
 ];
 pub(crate) const COVERAGE_TOOLCHAIN: &str = "+nightly";
 
@@ -44,6 +55,8 @@ pub(crate) struct CommandSpec {
     pub program: PathBuf,
     /// Arguments to pass.
     pub args: Vec<String>,
+    /// Environment overrides to apply for the command.
+    pub env: BTreeMap<String, String>,
     /// Whether stdout should be suppressed.
     pub quiet_stdout: bool,
     /// Whether clang should be forced.
@@ -65,9 +78,24 @@ impl CommandSpec {
         Self {
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
+            env: BTreeMap::new(),
             quiet_stdout,
             force_clang,
         }
+    }
+
+    /// Attaches environment overrides to the command specification.
+    pub(crate) fn with_envs<I, K, V>(mut self, envs: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.env = envs
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
     }
 }
 

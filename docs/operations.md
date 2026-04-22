@@ -38,17 +38,19 @@ Targeted maintainer commands:
 
 ```bash
 cargo xtask coverage
-cargo xtask refresh-semver-baseline
+cargo xtask refresh-semver-baseline --git-ref v2.0.1
 ```
 
 ## CI Workflows
 
-`/.github/workflows/ci.yml` runs two lanes:
+`/.github/workflows/ci.yml` uses one helper job, two work lanes, and one aggregate required-check job:
 
-1. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
-2. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
+1. `release-target-matrix`: computes the standalone release-target matrix
+2. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
+3. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
+4. `check`: aggregate success job used for branch protection
 
-`/.github/workflows/release.yml` runs five stages:
+`/.github/workflows/release.yml` uses one helper job, two build jobs, and one publication job. The effective publication flow is:
 
 1. compute the standalone target matrix
 2. build source archives

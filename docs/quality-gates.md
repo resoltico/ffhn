@@ -14,9 +14,9 @@ FFHN uses `cargo xtask` as the maintained gate surface. `./check.sh` is the cano
 
 ## Toolchains
 
-FFHN keeps stable Rust as the default workspace toolchain.
+FFHN keeps Rust `1.95.0` pinned as the default workspace toolchain.
 
-Nightly is installed alongside stable for two reasons:
+Nightly is installed alongside Rust `1.95.0` for two reasons:
 
 1. `cargo +nightly llvm-cov --branch` is required for the maintained branch-coverage gate
 2. manual `cargo-fuzz` runs require nightly sanitizer flags
@@ -52,7 +52,7 @@ cargo xtask coverage
 Semver baseline refresh:
 
 ```bash
-cargo xtask refresh-semver-baseline
+cargo xtask refresh-semver-baseline --git-ref v2.0.1
 ```
 
 ## What `cargo xtask check` Actually Enforces
@@ -65,20 +65,23 @@ cargo xtask refresh-semver-baseline
 4. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
 5. `cargo outdated --workspace --root-deps-only --exit-code 1`
 6. `cargo audit -D warnings`
-7. `cargo deny check advisories bans licenses sources`
-8. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core`
-9. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
-10. `cargo nextest run --workspace --all-targets --all-features --locked`
-11. `cargo test --workspace --doc --all-features --locked`
-12. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
-13. `target/dist/ffhn --version`
-14. `cargo xtask coverage`
+7. `cargo audit --file fuzz/Cargo.lock -D warnings`
+8. `cargo deny check advisories bans licenses sources`
+9. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with an isolated `CARGO_TARGET_DIR`
+10. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
+11. `cargo nextest run --workspace --all-targets --all-features --locked`
+12. `cargo test --workspace --doc --all-features --locked`
+13. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
+14. `target/dist/ffhn --version`
+15. `cargo xtask coverage`
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
 
 GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
+Those workflows install the same pinned Rust `1.95.0` toolchain rather than following the moving `stable` channel.
 
 The semver lane treats the current workspace version as an unreleased major line until a matching local Git tag `vX.Y.Z` exists. That keeps release-branch checks correct after the changelog is dated but before the public tag is pushed.
+It also forces semver-checks scratch output into `target/semver-checks`, so the checked-in `semver-baseline/` tree stays disposable input rather than growing its own nested Cargo caches.
 
 ## Coverage Policy
 
@@ -101,16 +104,19 @@ The `xtask` test suite also enforces maintainer-facing repository contracts that
 4. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
 5. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
 6. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
+7. the README, platform-support docs, and release protocol must stay aligned with the canonical release-target and release-asset inventory emitted by `scripts/release-targets.sh`
+8. every documented `cargo xtask refresh-semver-baseline` invocation in public Markdown must include the required `--git-ref` argument
 
 The `ffhn-cli` test suite complements that repository lint by asserting that live help output and CLI write-failure text render from the same core-owned operation, limit, and document contract instead of carrying separate hard-coded labels.
 
 ## Fuzzing Policy
 
-The automatic gate only compile-smokes the standalone fuzz package.
+The automatic gate security-audits the standalone fuzz lockfile and compile-smokes the standalone fuzz package.
 
 Automatic:
 
 ```bash
+cargo audit --file fuzz/Cargo.lock -D warnings
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 ```
 
@@ -122,5 +128,6 @@ Manual sanitizer-backed seed smokes live in [../fuzz/README.md](../fuzz/README.m
 
 1. `target/llvm-cov-target` is recreated for coverage and then cleaned again
 2. `target/semver-checks` is removed before and after semver-checks
+3. any stale `semver-baseline/ffhn-core/target` tree left by older semver runs is removed before and after the semver lane
 
 Persistent disk growth should therefore come mostly from normal Cargo build caches rather than stale gate-only artifacts.

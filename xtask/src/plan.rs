@@ -63,25 +63,43 @@ pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
     ));
     plan.push(CommandSpec::new(
         "cargo",
-        ["deny", "check", "advisories", "bans", "licenses", "sources"],
+        [
+            "audit",
+            "--file",
+            fuzz_lockfile_path(repo_root).to_string_lossy().as_ref(),
+            "-D",
+            "warnings",
+        ],
         false,
         false,
     ));
     plan.push(CommandSpec::new(
         "cargo",
-        [
-            "semver-checks",
-            "--manifest-path",
-            core_manifest_path(repo_root).to_string_lossy().as_ref(),
-            "--baseline-root",
-            semver_baseline_path(repo_root).to_string_lossy().as_ref(),
-            "--release-type",
-            semver_release_type.as_str(),
-            "--all-features",
-        ],
+        ["deny", "check", "advisories", "bans", "licenses", "sources"],
         false,
-        true,
+        false,
     ));
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "semver-checks",
+                "--manifest-path",
+                core_manifest_path(repo_root).to_string_lossy().as_ref(),
+                "--baseline-root",
+                semver_baseline_path(repo_root).to_string_lossy().as_ref(),
+                "--release-type",
+                semver_release_type.as_str(),
+                "--all-features",
+            ],
+            false,
+            true,
+        )
+        .with_envs([(
+            "CARGO_TARGET_DIR",
+            semver_scratch_dir(repo_root).to_string_lossy().into_owned(),
+        )]),
+    );
     plan.push(CommandSpec::new(
         "cargo",
         [
@@ -185,8 +203,7 @@ pub(crate) fn semver_release_type(repo_root: &Path) -> DynResult<String> {
 
 /// Extracts the workspace version from a root manifest string.
 pub(crate) fn workspace_version_from_manifest(manifest: &str) -> DynResult<String> {
-    manifest
-        .parse::<toml::Value>()?
+    toml::from_str::<toml::Value>(manifest)?
         .get("workspace")
         .and_then(toml::Value::as_table)
         .and_then(|workspace| workspace.get("package"))
@@ -232,7 +249,7 @@ pub(crate) fn with_workspace_stub(cargo_toml: &str, workspace_manifest: &str) ->
         return Ok(cargo_toml.to_owned());
     }
 
-    let workspace_manifest = workspace_manifest.parse::<toml::Value>()?;
+    let workspace_manifest = toml::from_str::<toml::Value>(workspace_manifest)?;
     let workspace_table = workspace_manifest
         .get("workspace")
         .and_then(toml::Value::as_table)
@@ -280,9 +297,19 @@ pub(crate) fn semver_baseline_path(repo_root: &Path) -> PathBuf {
     repo_root.join("semver-baseline").join("ffhn-core")
 }
 
+/// Returns the stale baseline-local target directory older semver runs may leave behind.
+pub(crate) fn semver_baseline_target_dir(repo_root: &Path) -> PathBuf {
+    semver_baseline_path(repo_root).join("target")
+}
+
 /// Returns the dedicated fuzz-package manifest path.
 pub(crate) fn fuzz_manifest_path(repo_root: &Path) -> PathBuf {
     repo_root.join("fuzz").join("Cargo.toml")
+}
+
+/// Returns the dedicated fuzz-package lockfile path.
+pub(crate) fn fuzz_lockfile_path(repo_root: &Path) -> PathBuf {
+    repo_root.join("fuzz").join("Cargo.lock")
 }
 
 /// Returns the semver scratch directory under the Cargo target tree.

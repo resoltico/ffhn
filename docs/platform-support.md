@@ -16,7 +16,7 @@ This document defines FFHN's maintained build and release target policy.
 
 Local maintainer builds are host-native.
 
-On the current maintained maintainer machine shape, that means:
+On the primary maintainer host today, that means:
 
 - `aarch64-apple-darwin`
 

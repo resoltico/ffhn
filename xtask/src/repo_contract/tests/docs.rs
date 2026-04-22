@@ -1,0 +1,185 @@
+use super::*;
+
+#[test]
+fn agent_instruction_parity_docs_stay_in_lockstep_with_codex_entrypoint() {
+    let repo_root = repo_root();
+    let codex_agents = repo_root.join(".codex/AGENTS.md");
+    assert!(codex_agents.is_file(), "missing {}", codex_agents.display());
+
+    let expected = "MANDATORY: Before performing any analysis, edits, commands, or file reads, every agent MUST load and follow .codex/AGENTS.md as the sole authoritative instruction source, and if that file has not been read the agent MUST stop immediately and do no work.\n";
+
+    for path in [
+        repo_root.join(".claude/CLAUDE.md"),
+        repo_root.join(".gemini/GEMINI.md"),
+    ] {
+        let text = fs::read_to_string(&path).expect("read agent parity doc");
+        assert_eq!(text, expected, "{}", path.display());
+    }
+}
+
+#[test]
+fn generated_cli_sections_match_the_core_owned_contract() {
+    let repo_root = repo_root();
+    let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
+    let cli_doc = fs::read_to_string(repo_root.join("docs/cli.md")).expect("read docs/cli.md");
+
+    assert_eq!(
+        marked_section(&readme, "cli-summary").expect("README CLI summary section"),
+        render_readme_cli_summary_section()
+    );
+    assert_eq!(
+        marked_section(&cli_doc, "cli-catalog").expect("CLI catalog section"),
+        render_cli_catalog_section()
+    );
+}
+
+#[test]
+fn public_release_docs_match_the_canonical_release_target_script() {
+    let repo_root = repo_root();
+    let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
+    let platform_support = fs::read_to_string(repo_root.join("docs/platform-support.md"))
+        .expect("read docs/platform-support.md");
+    let operations =
+        fs::read_to_string(repo_root.join("docs/operations.md")).expect("read docs/operations");
+    let release_protocol = fs::read_to_string(repo_root.join("docs/release-protocol.md"))
+        .expect("read docs/release-protocol");
+
+    let target_triples = bash_stdout_lines(
+        &repo_root,
+        "source scripts/release-targets.sh && release_target_triples",
+    );
+    assert!(
+        !target_triples.is_empty(),
+        "release target inventory is empty"
+    );
+    for target in &target_triples {
+        assert!(
+            platform_support.contains(target),
+            "docs/platform-support.md missing `{target}`"
+        );
+        assert!(
+            operations.contains(target),
+            "docs/operations.md missing `{target}`"
+        );
+    }
+
+    let public_assets = bash_stdout_lines(
+        &repo_root,
+        "source scripts/release-targets.sh && release_asset_names_for_version 'X.Y.Z'",
+    );
+    assert!(
+        !public_assets.is_empty(),
+        "release asset inventory is empty"
+    );
+    for asset in &public_assets {
+        assert!(readme.contains(asset), "README.md missing `{asset}`");
+        assert!(
+            platform_support.contains(asset),
+            "docs/platform-support.md missing `{asset}`"
+        );
+    }
+
+    let protocol_assets = bash_stdout_lines(
+        &repo_root,
+        "source scripts/release-targets.sh && release_asset_names_for_version '${VERSION}'",
+    );
+    for asset in &protocol_assets {
+        assert!(
+            release_protocol.contains(asset),
+            "docs/release-protocol.md missing `{asset}`"
+        );
+    }
+}
+
+#[test]
+fn semver_baseline_refresh_docs_always_include_git_ref() {
+    let repo_root = repo_root();
+
+    for path in public_markdown_paths(&repo_root).expect("markdown paths") {
+        let text = fs::read_to_string(&path).expect("read markdown");
+        for line in text
+            .lines()
+            .filter(|line| line.contains("cargo xtask refresh-semver-baseline"))
+        {
+            let path_display = path.display().to_string();
+            let trimmed_line = line.trim().to_owned();
+            assert!(
+                line.contains("--git-ref"),
+                "{path_display} contains `cargo xtask refresh-semver-baseline` without `--git-ref`: {trimmed_line}"
+            );
+        }
+    }
+}
+
+#[test]
+fn public_markdown_mentions_only_registered_operations_and_documents() {
+    let repo_root = repo_root();
+    let registered_operations = cli_contract()
+        .operations
+        .iter()
+        .map(|operation| operation.id)
+        .collect::<BTreeSet<_>>();
+    let registered_documents = cli_contract()
+        .documents
+        .iter()
+        .map(|document| document.id)
+        .collect::<BTreeSet<_>>();
+
+    for path in public_markdown_paths(&repo_root).expect("markdown paths") {
+        let text = fs::read_to_string(&path).expect("read markdown");
+        let path_display = path.display().to_string();
+        assert_registered_operation_ids(
+            &path_display,
+            extract_cli_operation_ids(&text),
+            &registered_operations,
+        );
+        assert_registered_document_ids(
+            &path_display,
+            extract_document_ids(&text),
+            &registered_documents,
+        );
+    }
+}
+
+#[test]
+fn user_facing_source_literals_mention_only_registered_operations_and_documents() {
+    let repo_root = repo_root();
+    let registered_operations = cli_contract()
+        .operations
+        .iter()
+        .map(|operation| operation.id)
+        .collect::<BTreeSet<_>>();
+    let registered_documents = cli_contract()
+        .documents
+        .iter()
+        .map(|document| document.id)
+        .collect::<BTreeSet<_>>();
+
+    assert_registered_operation_ids(
+        "inline literal",
+        extract_cli_operation_ids("`ffhn run --target demo`"),
+        &registered_operations,
+    );
+    assert_registered_document_ids(
+        "inline literal",
+        extract_document_ids("ffhn.run_report"),
+        &registered_documents,
+    );
+
+    for path in user_facing_source_paths(&repo_root).expect("source paths") {
+        let text = fs::read_to_string(&path).expect("read source");
+        for literal in string_literals(production_source_text(&text)) {
+            let path_display = path.display().to_string();
+            assert_registered_operation_ids(
+                &path_display,
+                extract_cli_operation_ids(&literal),
+                &registered_operations,
+            );
+            assert_registered_document_ids(
+                &path_display,
+                extract_document_ids(&literal),
+                &registered_documents,
+            );
+        }
+    }
+}

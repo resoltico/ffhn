@@ -5,7 +5,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pinned the maintained Rust toolchain to `1.95.0`, declared `rust-version = "1.95"` across the workspace and standalone fuzz package, and aligned GitHub Actions plus maintainer docs with that exact toolchain instead of the moving `stable` channel.
+- Bumped `htmlcut-core` from `v4.2.1` to `v4.3.0`, moved the maintained `toml` dependency to the current `1.1.x` line, and refreshed the maintained lockfiles accordingly.
+- Clarified the release protocol so substantive unpublished work must land on `main` before cutting a narrow `release/X.Y.Z` branch, instead of getting bundled into the release-only version bump PR.
 - Clarified the post-release semver-baseline refresh protocol so protected repositories land that housekeeping change through a short follow-up PR instead of relying on a direct push to `main`.
+- Audited and corrected the public documentation and examples so the README, maintainer docs, report/target docs, and file-target example all match the live code and release scripts more literally.
+- Hardened the repo-contract gate so release-target documentation stays aligned with `scripts/release-targets.sh`, checked-in public examples stay runnable, and every documented `cargo xtask refresh-semver-baseline` command includes `--git-ref`.
+- Broke up the remaining `xtask`, CLI-adapter, runtime-run, target-contract, fetch, and report-contract god-files into smaller modules so maintenance, coverage, and contract checks stay easier to audit end to end.
+- Extended the strict tracked-coverage inventory to the new report-contract submodules and kept the workspace at 100% tracked line and branch coverage after the refactor.
+- Patched both maintained lockfiles to `rustls-webpki 0.103.13` for `RUSTSEC-2026-0104`, taught `cargo xtask check` to audit the standalone `fuzz/Cargo.lock`, and isolated semver-checks scratch output so stale baseline-local `target/` trees are cleaned automatically.
+- Hardened internal fetch and notification delivery helpers so malformed direct targets and serialization edge cases return structured failures instead of panicking.
+- Split the remaining oversized `runtime::state`, `runtime::persist`, `runtime::status`, and report-contract test modules into focused submodules so production files stay smaller and test ownership is easier to navigate.
 
 ## [2.0.1] - 2026-04-22
 
