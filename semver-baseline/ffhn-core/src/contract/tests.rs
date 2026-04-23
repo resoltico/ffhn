@@ -55,7 +55,7 @@ fn cli_contract_lookups_cover_present_and_missing_ids() {
         cli_hard_limit(CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID)
             .expect("watch-root discovery limit")
             .display_label,
-        "Immediate Watch-Root Discovery"
+        "Immediate Watch Root Discovery"
     );
     assert!(cli_hard_limit("bogus-limit").is_none());
 }
