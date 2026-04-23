@@ -1,11 +1,11 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: DOCS
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
-  keywords: [docs index, architecture, cli contract, target schema, reports, operations, platform support, quality gates, release protocol, versioning policy]
-  questions: ["where is the ffhn documentation index?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is the ffhn release process documented?"]
+  keywords: [docs index, architecture, cli contract, target schema, reports, process errors, operations, platform support, quality gates, release protocol, versioning policy]
+  questions: ["where is the ffhn documentation index?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is ffhn's structured process-error detail documented?", "where is the ffhn release process documented?"]
 ---
 
 # FFHN Docs
@@ -16,7 +16,7 @@ Use this page as the routing index for the maintained FFHN documentation set.
 - [cli.md](cli.md): `ffhn run` and `ffhn status`, stdout/stderr behavior, `--all` discovery rules, and exit codes
 - [targets.md](targets.md): `ffhn.target` shape, validation rules, defaults, target-id rules, storage, and notifications
 - [core.md](core.md): `ffhn-core` runtime flow, live versus dry-run behavior, locking, and batch execution semantics
-- [reports.md](reports.md): `ffhn.state`, `ffhn.run_report`, `ffhn.batch_run_report`, `ffhn.status_report`, and reason-code semantics
+- [reports.md](reports.md): `ffhn.state`, `ffhn.extraction_record`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, `ffhn.status_report`, reason-code semantics, and structured process-error detail
 - [contracts.md](contracts.md): frozen schema inventory, durable filesystem layout, and the FFHN versus HTMLCut boundary
 - [developer-setup.md](developer-setup.md): fresh-machine bootstrap, required tools, optional `cargo-fuzz`, and disk-usage guidance
 - [quality-gates.md](quality-gates.md): what `./check.sh` and `cargo xtask` actually enforce
@@ -25,7 +25,7 @@ Use this page as the routing index for the maintained FFHN documentation set.
 - [release-protocol.md](release-protocol.md): GitHub CLI driven public release choreography for FFHN
 - [versioning-policy.md](versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
 - [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow and documentation/test expectations
-- [../examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md): runnable file-target example materialization flow and included sample HTML
+- [../examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md): deterministic local file-target quick start, materialization flow, and included sample HTML
 - [../fuzz/README.md](../fuzz/README.md): manual fuzz inventory and the maintained seed-smoke commands
 
 The changelog stays intentionally separate from this index. Use [../changelog.md](../changelog.md) for release history, not for current-state reference behavior.

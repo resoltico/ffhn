@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: SETUP
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [developer setup, rustup, Rust 1.95.0, nightly llvm-cov, cargo-fuzz, shellcheck, gh cli, clang override]
   questions: ["how do I set up a fresh machine for ffhn?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn release work?"]

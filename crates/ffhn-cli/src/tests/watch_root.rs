@@ -1,14 +1,20 @@
 use super::*;
 
 #[test]
-fn discover_watch_root_targets_covers_missing_disabled_invalid_and_non_utf_dirs() {
+fn discover_watch_root_targets_requires_a_real_watch_root_and_ignores_non_targets() {
     let temp = tempdir().expect("tempdir");
     let missing = temp.path().join("missing");
-    assert!(
-        discover_watch_root_targets(&missing)
-            .expect("missing watch root")
-            .is_empty()
-    );
+    let missing_error = discover_watch_root_targets(&missing).expect_err("missing watch root");
+    assert!(matches!(missing_error, ffhn_core::CoreError::Io { path, .. } if path == missing));
+
+    let not_directory = temp.path().join("not-a-directory");
+    fs::write(&not_directory, "file").expect("write non-directory watch root");
+    let not_directory_error =
+        discover_watch_root_targets(&not_directory).expect_err("non-directory watch root");
+    assert!(matches!(
+        not_directory_error,
+        ffhn_core::CoreError::Io { path, .. } if path == not_directory
+    ));
 
     let watch_root = temp.path().join("watchlist");
     write_named_http_target(&watch_root, "demo", "demo", "https://example.com", true);
@@ -20,6 +26,7 @@ fn discover_watch_root_targets_covers_missing_disabled_invalid_and_non_utf_dirs(
         false,
     );
     write_named_http_target(&watch_root, "invalid", "other", "https://example.com", true);
+    fs::create_dir_all(watch_root.join("notes")).expect("create unrelated directory");
 
     assert_eq!(
         discover_watch_root_targets(&watch_root).expect("discover targets"),

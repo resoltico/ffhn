@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: CLI
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [cli, run command, status command, watch-root discovery, exit codes, stdout json]
   questions: ["what does ffhn run emit?", "how does ffhn --all discover targets?", "which exit codes does the ffhn CLI use?"]
@@ -55,12 +55,13 @@ Angle-bracket fragments in the catalog above are metavariables that describe the
 
 One directory is included when:
 
-1. its `target.toml` validates and `enabled = true`
-2. its `target.toml` does not validate at all
+1. it contains a `target.toml` path, that target validates, and `enabled = true`
+2. it contains a `target.toml` path, but that target does not validate
 
 One directory is excluded when:
 
-1. its `target.toml` validates and `enabled = false`
+1. it does not contain a `target.toml` path at all
+2. its `target.toml` validates and `enabled = false`
 
 This means `run --all` still surfaces invalid target directories as batch failures instead of silently dropping them.
 
@@ -68,24 +69,28 @@ Live explicit runs on disabled targets return `skipped_disabled`. Dry-run is int
 
 If watch-root traversal hits a filesystem error after discovery starts, FFHN exits fatally instead of silently skipping the broken entry.
 
-If the watch root does not exist, `run --all` emits an empty `ffhn.batch_run_report`.
+If the watch root does not exist or is not a directory, `run --all` exits fatally instead of emitting an empty batch report.
 
 ## Stdout And Stderr
 
 On every structured success or structured run failure, the CLI writes exactly one JSON document to stdout and nothing else.
 
+That includes live runs whose content outcome was otherwise successful but whose final `last_run.json` write failed. In that case stdout still carries the `ffhn.run_report`, and the CLI exits `1` because `persist.error` is populated.
+
+That also includes notification delivery failures. The run report stays structurally successful when the monitored content path succeeded, but `notifications[].delivered = false` still makes the CLI exit `1`.
+
 Stderr is reserved for fatal process-level failures and CLI-usage errors, such as:
 
 1. argument parse failures
-2. filesystem errors before a structured report can be emitted
+2. filesystem errors before a structured report can be emitted, such as unreadable `target.toml` paths or a missing watch root
 3. JSON-rendering failures while writing the final document
 
 ## Exit Codes
 
 | Condition | Exit code |
 | --- | ---: |
-| successful or `skipped_disabled` single-target runs, dry-runs, batches with no failed/fatal entries, or status | `0` |
-| structured `failed_transient`, `failed_permanent`, or batch with any failed/fatal entries | `1` |
+| successful or `skipped_disabled` single-target runs, dry-runs, batches with no failed/fatal/persist/notification-delivery failures, or status | `0` |
+| structured `failed_transient`, `failed_permanent`, live run report with `persist.error`, any run report with failed notification delivery, or batch with any failed/persist-error/fatal/notification-delivery-failed entries | `1` |
 | CLI misuse such as parse errors or invalid `--jobs` | `2` |
 | fatal process-level error before structured document emission | `3` |
 

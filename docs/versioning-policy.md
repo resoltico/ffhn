@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: MAINTAINER
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [versioning policy, schema naming, htmlcut interop profile, semver baseline, workspace version]
   questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]
@@ -37,11 +37,14 @@ FFHN has two different compatibility models.
 These are the normal FFHN surfaces:
 
 - `ffhn.target`
+- `ffhn.extraction_record`
 - `ffhn.state`
 - `ffhn.run_report`
+- `ffhn.notification_payload`
 - `ffhn.batch_run_report`
 - `ffhn.status_report`
 - the core-owned CLI command and document contract
+- stable embedded field vocabularies and named subobjects inside those documents, such as `reason_code`, notification-event values, and the shared structured process-error detail
 - the stable embeddable `ffhn-core` API outside frozen upstream interop profiles
 
 These surfaces may change aggressively when architecture quality requires it. FFHN does not carry backwards-compatibility shims, aliases, or migration layers for generic surfaces.
@@ -79,8 +82,10 @@ FFHN schema families use stable document names plus explicit integer schema vers
 Examples:
 
 - `ffhn.target`
+- `ffhn.extraction_record`
 - `ffhn.state`
 - `ffhn.run_report`
+- `ffhn.notification_payload`
 - `ffhn.batch_run_report`
 - `ffhn.status_report`
 

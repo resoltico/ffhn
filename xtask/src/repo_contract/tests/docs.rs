@@ -34,6 +34,38 @@ fn generated_cli_sections_match_the_core_owned_contract() {
 }
 
 #[test]
+fn public_markdown_links_and_repo_file_mentions_resolve() {
+    let repo_root = repo_root();
+
+    for path in public_markdown_paths(&repo_root).expect("markdown paths") {
+        let text = fs::read_to_string(&path).expect("read markdown");
+        let path_display = path.display().to_string();
+
+        for target in markdown_link_targets(&text) {
+            if target.starts_with('#')
+                || target.starts_with("http://")
+                || target.starts_with("https://")
+                || target.starts_with("mailto:")
+            {
+                continue;
+            }
+
+            assert!(
+                resolve_repo_path_exists(&repo_root, &path, &target),
+                "{path_display} links to missing local path `{target}`"
+            );
+        }
+
+        for mention in repo_file_mentions(&text) {
+            assert!(
+                resolve_repo_path_exists(&repo_root, &path, &mention),
+                "{path_display} mentions missing repo file `{mention}`"
+            );
+        }
+    }
+}
+
+#[test]
 fn public_release_docs_match_the_canonical_release_target_script() {
     let repo_root = repo_root();
     let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
@@ -89,6 +121,53 @@ fn public_release_docs_match_the_canonical_release_target_script() {
             "docs/release-protocol.md missing `{asset}`"
         );
     }
+}
+
+#[test]
+fn release_protocol_documents_verified_release_closeout_invariants() {
+    let repo_root = repo_root();
+    let release_protocol = fs::read_to_string(repo_root.join("docs/release-protocol.md"))
+        .expect("read docs/release-protocol");
+
+    assert!(
+        release_protocol.contains("required conversation resolution before merge"),
+        "docs/release-protocol.md must document required conversation resolution"
+    );
+    assert!(
+        release_protocol.contains(
+            "gh api \"repos/$REPO/pulls/$PR_NUMBER/files\" --paginate --jq '.[].filename'"
+        ),
+        "docs/release-protocol.md must document the large-PR file-list fallback"
+    );
+    assert!(
+        release_protocol
+            .contains("gh api \"repos/$REPO/pulls/<N>/files\" --paginate --jq '.[].filename'"),
+        "docs/release-protocol.md must document the Dependabot large-PR file-list fallback"
+    );
+    assert!(
+        release_protocol.contains("release-prep/${VERSION}"),
+        "docs/release-protocol.md must document dirty release-candidate capture via release-prep/"
+    );
+    assert!(
+        release_protocol.contains("git -C \"$RELEASE_WORKTREE\" checkout --detach"),
+        "docs/release-protocol.md must document detaching a disposable release worktree before reclaiming main"
+    );
+    assert!(
+        release_protocol.contains("git fetch origin --prune --tags"),
+        "docs/release-protocol.md must use explicit fetch steps during release sync"
+    );
+    assert!(
+        release_protocol.contains("git merge --ff-only origin/main"),
+        "docs/release-protocol.md must use explicit fast-forward merges during release sync"
+    );
+    assert!(
+        !release_protocol.contains("git pull --ff-only"),
+        "docs/release-protocol.md must not rely on implicit git pull --ff-only"
+    );
+    assert!(
+        release_protocol.contains("required `Check` status"),
+        "docs/release-protocol.md must name the aggregate required status correctly"
+    );
 }
 
 #[test]

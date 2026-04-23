@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: TARGETS
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]
@@ -29,7 +29,7 @@ Optional sections are `[storage]`, `[[notifications]]`, top-level `[extensions]`
 `enabled` has three user-facing effects:
 
 1. live explicit runs return `skipped_disabled`
-2. `run --all` excludes the target from discovery when the document is otherwise valid
+2. `run --all` excludes the target from discovery when the directory has a `target.toml` marker and that document is otherwise valid
 3. explicit dry-runs still inspect the target instead of short-circuiting
 
 The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md) are repo-contract-tested against the current schema, so they are the canonical example entrypoints in this repository.
@@ -198,6 +198,10 @@ The canonicalization pipeline is an ordered list of:
 4. `strip_regex`
 5. `lowercase`
 
+`compare.canonicalization` may also be empty. In that case FFHN hashes the LF-normalized extraction output directly without any additional caller-configured transforms.
+
+FFHN always normalizes extraction output line endings to LF before compare-time hashing, and the final canonical text is LF-normalized again after the configured pipeline completes. `normalize_newlines` therefore remains a stable explicit vocabulary value, but it only makes that otherwise implicit LF-normalization step visible inside the configured pipeline.
+
 `strip_regex` additionally requires:
 
 1. `pattern`
@@ -265,7 +269,9 @@ Supported `on` events match the run-outcome vocabulary:
 5. `failed_permanent`
 6. `skipped_disabled`
 
-FFHN sends the validated pre-notification run report to the hook on stdin and also sets these environment variables:
+`skipped_disabled` deliveries only arise from live explicit runs on disabled targets. `run --all` excludes valid disabled targets before batch execution, and dry-run never delivers notifications.
+
+FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the hook on stdin and also sets these environment variables:
 
 1. `FFHN_TARGET_ID`
 2. `FFHN_RUN_OUTCOME`
@@ -274,4 +280,6 @@ FFHN sends the validated pre-notification run report to the hook on stdin and al
 5. `FFHN_FAILURE_CLASS` (empty string for non-failure outcomes)
 6. `FFHN_NOTIFICATION_EVENT`
 
-That stdin payload is the run report before notification delivery results are appended, so the serialized payload omits `notifications` entirely and `persist.wrote_last_run` is still `false`.
+That stdin payload wraps the run report snapshot FFHN had before delivery results were appended, so `run_report.notifications` is empty and `run_report.persist.wrote_last_run` is still `false`. If an earlier live persist substep already failed, `run_report.persist.error` may already be populated inside the stdin payload.
+
+Hook failures do not rewrite the run outcome, but they are still operationally significant: FFHN records them in `run_report.notifications`, captures stderr text when it can, and makes the CLI exit with code `1`.

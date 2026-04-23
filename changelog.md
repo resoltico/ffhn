@@ -5,6 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Bumped `htmlcut-core` from `v4.3.0` to `v4.4.0` and refreshed the maintained lockfiles before the public `3.0.0` release.
+- Hardened the Windows standalone release ZIP path by normalizing temporary roots through the real runner temp directory, preferring bash-native ZIP extraction before PowerShell fallback, and making the PowerShell ZIP packager emit forward-slash archive members after explicitly loading both compression assemblies.
+- Tightened the maintained release protocol around large-PR diff inspection, required conversation resolution, explicit fetch-plus-fast-forward sync, dirty-checkout capture via `release-prep/`, and worktree branch handoff during closeout; the repo-contract tests now enforce those release-doc invariants.
+- Hardened watch-root and target loading so `run --all` now fails fast on a missing/non-directory watch root, ignores unrelated directories without a `target.toml` marker, and surfaces explicit target-load filesystem faults as fatal instead of misclassifying them as `config_invalid`.
+- Reworked successful snapshot persistence into a rollback-safe transaction so a later `state.json` write failure no longer poisons the previously valid baseline or deletes still-referenced history artifacts.
+- Tightened notification delivery reporting by capturing hook stderr when available and making failed deliveries surface as CLI exit-code failures even when the monitored content outcome itself stayed successful.
+- Made `run_finished_at` consistent by stamping the final emitted run body after notification delivery but before the last `last_run.json` write attempt, and updated the public docs to match that contract exactly.
+- Switched the README quick start to the deterministic checked-in file-target example, expanded the example README, and tightened the report plus target docs around extraction records, snapshot references, compare-time LF normalization, and notification edge cases.
+- Documented the shared structured process-error detail used by `persist.error` and batch `fatal_error`, and clarified in the maintainer policy docs that embedded report vocabularies and named subobjects are part of FFHN's public contract surface too.
+- Broke up two remaining codebase god-files by splitting fetch-source handling into dedicated HTTP and file modules and moving the `ffhn.run_report` contract into its own report submodule.
+- Added the standalone fuzz manifest to the maintained dependency-freshness gate, updated the fuzz maintainer docs to match the split target modules, and kept the maintained quality-gate docs aligned with the real `cargo xtask check` plan.
+- Strengthened repository contract tests so public Markdown local links and maintained repo-file path references stay valid, and added a CLI integration test that exercises the documented local quick-start flow end to end.
+- Tightened the documentation summaries and maintainer guidance so `ffhn.extraction_record` and `ffhn.notification_payload` are enumerated consistently as FFHN-owned contracts, and re-verified the documented README/example/source-build and host release-package flows against the live repo.
+- Bumped the unreleased workspace line to `3.0.0` because FFHN's public run, batch, and notification-hook contracts now expose new structured persistence and fatal-error detail instead of the previous narrower shapes.
+- Reworked live persistence reporting so FFHN now preserves structured `persist.error` detail across all live persist failures, fails the CLI on successful runs whose final `last_run.json` write fails, and counts live persist issues explicitly in batch reports.
+- Replaced batch's old chunk-barrier scheduling with a real bounded worker queue, changed per-target `fatal_error` entries from free-form strings into structured error objects, and made batch panic surfaces preserve the underlying panic message.
+- Added the frozen `ffhn.notification_payload` hook-stdin contract, documented it as a pre-delivery snapshot, and extended tests plus fuzzing so run reports, batch reports, and notification payloads all stay aligned.
+
 ## [2.1.0] - 2026-04-22
 
 - Pinned the maintained Rust toolchain to `1.95.0`, declared `rust-version = "1.95"` across the workspace and standalone fuzz package, and aligned GitHub Actions plus maintainer docs with that exact toolchain instead of the moving `stable` channel.

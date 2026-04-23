@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: OPERATIONS
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [operations, check.sh, release scripts, ci workflow, dist profile, github release, supported targets, release packages, checksum manifest]
   questions: ["how do I operate ffhn locally?", "how do the ffhn release scripts work?", "which standalone targets does ffhn publish?", "which FFHN release assets are published?"]
@@ -38,7 +38,7 @@ Targeted maintainer commands:
 
 ```bash
 cargo xtask coverage
-cargo xtask refresh-semver-baseline --git-ref v2.1.0
+cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 ```
 
 ## CI Workflows

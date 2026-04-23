@@ -4,7 +4,17 @@ use crate::{
     STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION,
 };
 
+pub(super) use super::checks::{validate_notification_delivery, validate_run_change_section};
+
 pub(super) const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+pub(super) fn valid_process_error() -> ProcessErrorDetail {
+    ProcessErrorDetail {
+        kind: ProcessErrorKind::Io,
+        message: "permission denied".to_owned(),
+        path: Some("/tmp/watch/demo/last_run.json".to_owned()),
+    }
+}
 
 pub(super) fn valid_run_report() -> RunReport {
     RunReport {
@@ -73,6 +83,7 @@ pub(super) fn valid_run_report() -> RunReport {
             duration_ms: 2,
             wrote_state: true,
             wrote_last_run: true,
+            error: None,
         },
         notifications: Vec::new(),
         extensions: None,
@@ -100,7 +111,7 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
             BatchRunEntry {
                 target_id: "fatal_target".to_owned(),
                 run_report: None,
-                fatal_error: Some("filesystem error".to_owned()),
+                fatal_error: Some(valid_process_error()),
             },
         ],
         outcome_counts: BatchOutcomeCounts {
@@ -110,6 +121,7 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
             failed_transient: 0,
             failed_permanent: 0,
             skipped_disabled: 0,
+            persist_error: 0,
             fatal_error: 1,
         },
         extensions: None,
@@ -118,5 +130,6 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
 
 mod batch;
 mod helpers;
+mod notification;
 mod run;
 mod status;

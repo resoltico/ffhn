@@ -17,7 +17,7 @@ fn public_target_examples_validate_against_the_current_target_contract() {
 
 #[test]
 fn public_target_example_helper_covers_non_watchlist_file_targets() {
-    let workspace_version = "2.1.0";
+    let workspace_version = workspace_version(&repo_root()).expect("workspace version");
     let path = Path::new("/tmp/examples/release_notes.toml");
     let document = r#"
 schema_name = "ffhn.target"
@@ -48,7 +48,7 @@ basis = "canonical_text_sha256"
 canonicalization = []
 "#;
     let target: TargetDocument = toml::from_str(document).expect("parse file-target example");
-    assert_public_target_example_contract(path, &target, workspace_version);
+    assert_public_target_example_contract(path, &target, &workspace_version);
 }
 
 #[test]

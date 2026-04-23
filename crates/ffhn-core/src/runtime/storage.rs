@@ -9,6 +9,11 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use crate::CoreError;
 use crate::stable_json::stable_json;
 
+#[cfg(test)]
+use std::cell::RefCell;
+#[cfg(test)]
+use std::io;
+
 pub(crate) fn now_utc() -> Result<String, CoreError> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
@@ -44,6 +49,9 @@ pub(crate) fn write_exact_text(path: PathBuf, text: &str) -> Result<(), CoreErro
 }
 
 fn write_exact_bytes(path: PathBuf, bytes: &[u8]) -> Result<(), CoreError> {
+    #[cfg(test)]
+    inject_write_error(&path)?;
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| CoreError::io(parent, error))?;
     }
@@ -57,6 +65,56 @@ fn write_exact_bytes(path: PathBuf, bytes: &[u8]) -> Result<(), CoreError> {
     temp.persist(&path)
         .map_err(|error| CoreError::io(&path, error.error))?;
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static WRITE_ERROR_OVERRIDE: RefCell<Option<(String, io::ErrorKind)>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn inject_write_error(path: &Path) -> Result<(), CoreError> {
+    WRITE_ERROR_OVERRIDE.with(|override_state| {
+        let borrowed = override_state.borrow();
+        let Some((file_name, kind)) = borrowed.as_ref() else {
+            return Ok(());
+        };
+        if path.file_name().and_then(|name| name.to_str()) == Some(file_name.as_str()) {
+            return Err(CoreError::io(path, io::Error::from(*kind)));
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn with_write_error_injected<T>(
+    file_name: &str,
+    kind: io::ErrorKind,
+    action: impl FnOnce() -> T,
+) -> T {
+    WRITE_ERROR_OVERRIDE.with(|override_state| {
+        struct ResetWriteOverride<'a> {
+            cell: &'a RefCell<Option<(String, io::ErrorKind)>>,
+            previous: Option<(String, io::ErrorKind)>,
+        }
+
+        impl Drop for ResetWriteOverride<'_> {
+            fn drop(&mut self) {
+                self.cell.borrow_mut().clone_from(&self.previous);
+            }
+        }
+
+        let previous = override_state
+            .borrow_mut()
+            .replace((file_name.to_owned(), kind));
+        let guard = ResetWriteOverride {
+            cell: override_state,
+            previous,
+        };
+        let result = action();
+        drop(guard);
+        result
+    })
 }
 
 #[cfg(test)]

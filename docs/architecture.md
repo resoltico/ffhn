@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: ARCHITECTURE
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [architecture, ffhn-core, ffhn-cli, xtask, fuzz package, htmlcut boundary, watch root]
   questions: ["what are the ffhn repository boundaries?", "what does ffhn-core own versus ffhn-cli?", "how does ffhn interact with htmlcut?"]
@@ -36,16 +36,16 @@ watchlist/
 3. mapping FFHN selection config into `htmlcut-v1`
 4. compare-time canonicalization and digest decisions
 5. live state persistence, current snapshots, and retained history snapshots
-6. `ffhn.state`, `ffhn.run_report`, `ffhn.batch_run_report`, and `ffhn.status_report`
-7. best-effort notification hook delivery
+6. `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, and `ffhn.status_report`
+7. notification hook delivery, hook-stdin payload generation, and delivery-result capture
 
 `ffhn-cli` is a thin process adapter. It owns:
 
 1. rendering the core-owned CLI operation contract into argument parsing and help text
-2. watch-root discovery for `run --all`
+2. watch-root discovery for `run --all`, including the `target.toml` marker rule
 3. choosing single-target versus batch execution
 4. emitting exactly one JSON document on stdout
-5. mapping outcomes into process exit codes
+5. mapping outcomes plus notification-delivery failures into process exit codes
 
 `xtask` owns maintainer automation:
 
@@ -101,8 +101,11 @@ Batch execution is part of the core, not the CLI. `run_batch`:
 
 1. accepts an explicit unique target list and run mode
 2. requires a positive `max_concurrency`
-3. runs targets in chunks of `max_concurrency`
+3. runs targets through a bounded worker queue whose width is `max_concurrency`
 4. preserves the requested target order in the final `ffhn.batch_run_report`
 5. records per-target fatal errors separately when a structured `ffhn.run_report` could not be emitted
+6. stores those fatal errors as structured FFHN-owned error objects instead of free-form strings
+
+The CLI layers additional process semantics on top of that batch report: notification-delivery failures still produce exit code `1`, even though they do not change `run_outcome` or `outcome_counts`.
 
 The CLI does not implement its own monitoring semantics for multi-target runs. It renders the core batch report.

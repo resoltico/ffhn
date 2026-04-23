@@ -17,6 +17,8 @@ pub struct BatchOutcomeCounts {
     pub failed_permanent: usize,
     /// Disabled skips.
     pub skipped_disabled: usize,
+    /// Live runs that emitted a run report but still failed a persist step.
+    pub persist_error: usize,
     /// Fatal process-level per-target failures.
     pub fatal_error: usize,
 }
@@ -32,7 +34,7 @@ pub struct BatchRunEntry {
     pub run_report: Option<RunReport>,
     /// Fatal process-level error when FFHN could not emit a run report.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fatal_error: Option<String>,
+    pub fatal_error: Option<ProcessErrorDetail>,
 }
 
 /// Aggregate batch report emitted by multi-target runs.
@@ -84,6 +86,7 @@ impl BatchRunReport {
             failed_transient: 0,
             failed_permanent: 0,
             skipped_disabled: 0,
+            persist_error: 0,
             fatal_error: 0,
         };
         for entry in &self.entries {
@@ -104,9 +107,14 @@ impl BatchRunReport {
                         RunOutcome::FailedPermanent => counts.failed_permanent += 1,
                         RunOutcome::SkippedDisabled => counts.skipped_disabled += 1,
                     }
+                    if report.reason_code == ReasonCode::PersistError
+                        || report.persist.error.is_some()
+                    {
+                        counts.persist_error += 1;
+                    }
                 }
                 (None, Some(error)) => {
-                    require_non_empty("batch.fatal_error", error)?;
+                    error.validate()?;
                     counts.fatal_error += 1;
                 }
                 _ => {

@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: CONTRIBUTING
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [contributing, workflow, docs sync, check.sh, fuzz seeds, release hygiene]
   questions: ["how should I contribute to ffhn?", "which docs do I update when ffhn behavior changes?", "what should I run before asking for review?"]
@@ -28,12 +28,14 @@ Update these pages when behavior changes:
 
 1. CLI behavior, exit codes, or target discovery: [docs/cli.md](docs/cli.md) and [README.md](README.md)
 2. target schema, defaults, notifications, or examples: [docs/targets.md](docs/targets.md), [examples/](examples), and [watchlist/demo/target.toml](watchlist/demo/target.toml)
-3. runtime, persistence, or report semantics: [docs/core.md](docs/core.md), [docs/reports.md](docs/reports.md), and [docs/contracts.md](docs/contracts.md)
+3. runtime, persistence, or FFHN-owned contract semantics such as `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, or `ffhn.status_report`: [docs/core.md](docs/core.md), [docs/reports.md](docs/reports.md), and [docs/contracts.md](docs/contracts.md)
 4. maintainer workflow, release logic, or QA tooling: [docs/developer-setup.md](docs/developer-setup.md), [docs/quality-gates.md](docs/quality-gates.md), [docs/operations.md](docs/operations.md), [docs/platform-support.md](docs/platform-support.md), [docs/release-protocol.md](docs/release-protocol.md), and [docs/versioning-policy.md](docs/versioning-policy.md)
 
 If you change production behavior, add a public-facing note under `## [Unreleased]` in `changelog.md`.
 
-AFAD-managed Markdown frontmatter versions are validated against the canonical protocol metadata in [.codex/PROTOCOL_AFAD.md](.codex/PROTOCOL_AFAD.md). The checked-in target examples, the generated CLI catalog sections in [README.md](README.md) and [docs/cli.md](docs/cli.md), and the internal agent-parity entrypoints in [.claude/CLAUDE.md](.claude/CLAUDE.md) and [.gemini/GEMINI.md](.gemini/GEMINI.md) are also validated by the automated test suite. Treat those files as maintained contract surfaces, not prose-only references.
+Whenever you touch a runnable Markdown snippet or example README, execute that documented flow in a disposable temp directory instead of only editing the prose.
+
+AFAD-managed Markdown frontmatter versions are validated against the canonical protocol metadata in [.codex/PROTOCOL_AFAD.md](.codex/PROTOCOL_AFAD.md). Public Markdown local links and maintained repo-file path mentions, the checked-in target examples, the generated CLI catalog sections in [README.md](README.md) and [docs/cli.md](docs/cli.md), and the internal agent-parity entrypoints in [.claude/CLAUDE.md](.claude/CLAUDE.md) and [.gemini/GEMINI.md](.gemini/GEMINI.md) are also validated by the automated test suite. Treat those files as maintained contract surfaces, not prose-only references.
 
 ## Fixture And Seed Expectations
 
@@ -42,7 +44,7 @@ Update checked-in fixtures and examples when the public contract changes.
 That includes:
 
 1. target examples when `ffhn.target` rules or defaults change
-2. persisted sample data when report or state semantics change
+2. persisted sample data when `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, or `ffhn.status_report` semantics change
 3. fuzz seeds when target documents, state documents, or report documents change shape
 
 Keep fuzz seeds intentionally small and representative. The automatic gate only compile-smokes the fuzz package; live seed-smoke commands are documented in [fuzz/README.md](fuzz/README.md).
@@ -54,7 +56,7 @@ Keep fuzz seeds intentionally small and representative. The automatic gate only 
 Manual sanitizer-backed fuzz runs are optional but useful when you change:
 
 1. `ffhn.target` validation
-2. `ffhn.state`, `ffhn.run_report`, `ffhn.batch_run_report`, or `ffhn.status_report`
+2. `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, or `ffhn.status_report`
 3. file-target or dry-run extraction behavior
 
 Those manual runs require `cargo-fuzz` and nightly. They are not part of `./check.sh`.

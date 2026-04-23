@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: QUALITY
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [quality gates, check.sh, cargo xtask, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
   questions: ["what does ffhn check.sh run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
@@ -52,7 +52,7 @@ cargo xtask coverage
 Semver baseline refresh:
 
 ```bash
-cargo xtask refresh-semver-baseline --git-ref v2.1.0
+cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 ```
 
 ## What `cargo xtask check` Actually Enforces
@@ -64,16 +64,17 @@ cargo xtask refresh-semver-baseline --git-ref v2.1.0
 3. `cargo fmt --check`
 4. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
 5. `cargo outdated --workspace --root-deps-only --exit-code 1`
-6. `cargo audit -D warnings`
-7. `cargo audit --file fuzz/Cargo.lock -D warnings`
-8. `cargo deny check advisories bans licenses sources`
-9. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with an isolated `CARGO_TARGET_DIR`
-10. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
-11. `cargo nextest run --workspace --all-targets --all-features --locked`
-12. `cargo test --workspace --doc --all-features --locked`
-13. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
-14. `target/dist/ffhn --version`
-15. `cargo xtask coverage`
+6. `cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1`
+7. `cargo audit -D warnings`
+8. `cargo audit --file fuzz/Cargo.lock -D warnings`
+9. `cargo deny check advisories bans licenses sources`
+10. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with an isolated `CARGO_TARGET_DIR`
+11. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
+12. `cargo nextest run --workspace --all-targets --all-features --locked`
+13. `cargo test --workspace --doc --all-features --locked`
+14. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
+15. `target/dist/ffhn --version`
+16. `cargo xtask coverage`
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
 
@@ -94,28 +95,30 @@ The coverage gate:
 5. requires 100% executable-line coverage and 100% branch coverage for the tracked set
 6. cleans the llvm-cov workspace again after scoring
 
-The tracked-file list currently includes the maintained core runtime/model files, the core-owned CLI contract metadata, `crates/ffhn-cli/src/args.rs`, `crates/ffhn-cli/src/execute.rs`, and the `xtask` planning/coverage/model plus repo-contract helpers.
+The tracked-file list currently includes the maintained core runtime/model files, including the split report and notification-contract modules, the core-owned CLI contract metadata, `crates/ffhn-cli/src/args.rs`, `crates/ffhn-cli/src/execute.rs`, and the `xtask` planning/coverage/model plus repo-contract helpers.
 
 The `xtask` test suite also enforces maintainer-facing repository contracts that are easy to let drift silently:
 
 1. AFAD-managed Markdown frontmatter must use the current workspace version and the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`
-2. checked-in public target examples must still validate against the current `ffhn.target` contract
-3. `.claude/CLAUDE.md` and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to `.codex/AGENTS.md`
-4. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
-5. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
-6. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
-7. the README, platform-support docs, and release protocol must stay aligned with the canonical release-target and release-asset inventory emitted by `scripts/release-targets.sh`
-8. every documented `cargo xtask refresh-semver-baseline` invocation in public Markdown must include the required `--git-ref` argument
+2. public Markdown local links and maintained repo-file path mentions must still resolve
+3. checked-in public target examples must still validate against the current `ffhn.target` contract
+4. `.claude/CLAUDE.md` and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to `.codex/AGENTS.md`
+5. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
+6. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
+7. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
+8. the README, platform-support docs, and release protocol must stay aligned with the canonical release-target and release-asset inventory emitted by `scripts/release-targets.sh`
+9. every documented `cargo xtask refresh-semver-baseline` invocation in public Markdown must include the required `--git-ref` argument
 
 The `ffhn-cli` test suite complements that repository lint by asserting that live help output and CLI write-failure text render from the same core-owned operation, limit, and document contract instead of carrying separate hard-coded labels.
 
 ## Fuzzing Policy
 
-The automatic gate security-audits the standalone fuzz lockfile and compile-smokes the standalone fuzz package.
+The automatic gate freshness-checks the standalone fuzz manifest, security-audits the standalone fuzz lockfile, and compile-smokes the standalone fuzz package.
 
 Automatic:
 
 ```bash
+cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1
 cargo audit --file fuzz/Cargo.lock -D warnings
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 ```
