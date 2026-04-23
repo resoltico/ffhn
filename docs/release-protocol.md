@@ -191,8 +191,15 @@ gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
 ```
 
 3. If `Check` is still absent, push one more commit to the release branch to force a `pull_request` synchronize event. Prefer a real corrective follow-up commit when the protocol or release docs genuinely need refinement; use an empty retrigger commit only as the last resort.
+4. If the synchronize event still does not produce `Check`, dispatch the `CI` workflow manually against the release branch and wait for the resulting `Check` status:
 
-Never merge a release PR whose required `Check` status never materialized on GitHub.
+```bash
+gh workflow run ci.yml --ref "$RELEASE_BRANCH"
+gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+gh pr checks "$PR_NUMBER"
+```
+
+`CI` intentionally exposes `workflow_dispatch` for this maintainer recovery path. If `Check` still never materializes after the manual dispatch, stop and investigate repository or GitHub-side drift instead of merging blind.
 
 ## 4. Merge handoff
 

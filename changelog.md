@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored the root README into a storefront-style overview, moved deeper onboarding into `docs/getting-started.md`, added `docs/run-reports.md` plus `examples/README.md`, and re-audited the maintained Markdown set so examples, metadata, and release docs match the shipped code and assets more literally.
 - Standardized user-facing "watch root" terminology, documented `validate_target` plus the top-level help/version contract more literally, and tightened the CLI so root help prints the single-source version banner while `--version` remains top-level-only instead of masking invalid subcommand usage.
 - Hardened packaged-artifact smoke and the release protocol against the bannered `ffhn --version` output by verifying both the version and package-description lines, and added maintained tests for the shared workspace package-field helper.
-- Clarified the release protocol's missing-CI recovery path so a mergeable release PR with no delivered `Check` must be retriggered through PR reopen and then, if needed, a follow-up branch commit rather than being merged blind.
+- Clarified the release protocol's missing-CI recovery path so a mergeable release PR with no delivered `Check` must be retriggered through PR reopen, a follow-up branch commit, and finally a maintainer-triggered `gh workflow run ci.yml --ref release/X.Y.Z` path backed by a newly dispatchable CI workflow, rather than being merged blind.
 
 ## [3.0.0] - 2026-04-23
 
