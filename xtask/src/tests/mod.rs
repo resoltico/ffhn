@@ -48,6 +48,31 @@ fn write_semver_fixture(repo_root: &Path, workspace_version: &str, lib_body: &st
     fs::write(src_dir.join("lib.rs"), lib_body).expect("write lib.rs");
 }
 
+fn workspace_package_field(repo_root: &Path, field: &str) -> Option<String> {
+    let manifest = fs::read_to_string(repo_root.join("Cargo.toml")).ok()?;
+    let mut in_workspace_package = false;
+
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_workspace_package = trimmed == "[workspace.package]";
+            continue;
+        }
+
+        if !in_workspace_package {
+            continue;
+        }
+
+        if let Some(value) = trimmed.strip_prefix(&format!("{field} = \""))
+            && let Some(value) = value.strip_suffix('"')
+        {
+            return Some(value.to_owned());
+        }
+    }
+
+    None
+}
+
 fn run_git(repo_root: &Path, args: &[&str]) {
     let status = Command::new("git")
         .current_dir(repo_root)

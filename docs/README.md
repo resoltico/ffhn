@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: DOCS
 updated: "2026-04-23"
 route:
@@ -12,11 +12,13 @@ route:
 
 Use this page as the routing index for the maintained FFHN documentation set.
 
+- [getting-started.md](getting-started.md): source build, release-package install, and the quickest verified sample flow
 - [architecture.md](architecture.md): repo boundaries, crate responsibilities, runtime ownership, and how FFHN relates to HTMLCut
 - [cli.md](cli.md): `ffhn run` and `ffhn status`, stdout/stderr behavior, `--all` discovery rules, and exit codes
 - [targets.md](targets.md): `ffhn.target` shape, validation rules, defaults, target-id rules, storage, and notifications
 - [core.md](core.md): `ffhn-core` runtime flow, live versus dry-run behavior, locking, and batch execution semantics
-- [reports.md](reports.md): `ffhn.state`, `ffhn.extraction_record`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, `ffhn.status_report`, reason-code semantics, and structured process-error detail
+- [reports.md](reports.md): `ffhn.state`, `ffhn.extraction_record`, `ffhn.notification_payload`, `ffhn.status_report`, and snapshot artifact semantics
+- [run-reports.md](run-reports.md): `ffhn.run_report`, `ffhn.batch_run_report`, reason-code semantics, notification-delivery reporting, and the shared structured process-error detail
 - [contracts.md](contracts.md): frozen schema inventory, durable filesystem layout, and the FFHN versus HTMLCut boundary
 - [developer-setup.md](developer-setup.md): fresh-machine bootstrap, required tools, optional `cargo-fuzz`, and disk-usage guidance
 - [quality-gates.md](quality-gates.md): what `./check.sh` and `cargo xtask` actually enforce
@@ -25,7 +27,7 @@ Use this page as the routing index for the maintained FFHN documentation set.
 - [release-protocol.md](release-protocol.md): GitHub CLI driven public release choreography for FFHN
 - [versioning-policy.md](versioning-policy.md): version-source, contract, frozen-interop, and semver-baseline policy
 - [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow and documentation/test expectations
-- [../examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md): deterministic local file-target quick start, materialization flow, and included sample HTML
+- [../examples/README.md](../examples/README.md): index of checked-in runnable examples
 - [../fuzz/README.md](../fuzz/README.md): manual fuzz inventory and the maintained seed-smoke commands
 
 The changelog stays intentionally separate from this index. Use [../changelog.md](../changelog.md) for release history, not for current-state reference behavior.

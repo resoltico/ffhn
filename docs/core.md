@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: CORE
 updated: "2026-04-23"
 route:
@@ -17,6 +17,18 @@ route:
 3. `run_once`
 4. `run_once_dry_run`
 5. `run_batch`
+
+## Validation Behavior
+
+`validate_target` is the lowest-level public contract check.
+
+It:
+
+1. reads one `target.toml`
+2. validates the frozen `ffhn.target` schema and all section-specific rules
+3. verifies that `target_id` matches the containing directory name
+
+It returns `CoreError` instead of a structured report when FFHN could not read the target directory, decode valid TOML, or satisfy the target-contract invariants.
 
 ## Execution Semantics
 
@@ -48,6 +60,7 @@ The main differences are in locking and side effects.
 9. attempt the final `last_run.json` write after notification delivery results are known
 
 An explicitly disabled live target short-circuits to `skipped_disabled` instead of fetching or extracting.
+That short-circuit is still a live path: FFHN persists the skipped outcome, may deliver `skipped_disabled` notification hooks, and still attempts the final `last_run.json` write.
 
 Live successful outcomes are:
 

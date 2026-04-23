@@ -32,7 +32,7 @@ pub enum Command {
 /// Run-command arguments for one or more targets.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RunCommand {
-    /// Watch-root directory containing per-target subdirectories.
+    /// Watch root directory containing per-target subdirectories.
     pub watch_root: PathBuf,
     /// One or more target ids under the watch root.
     pub targets: Vec<String>,
@@ -47,7 +47,7 @@ pub struct RunCommand {
 /// Status-command arguments.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StatusCommand {
-    /// Watch-root directory containing per-target subdirectories.
+    /// Watch root directory containing per-target subdirectories.
     pub watch_root: PathBuf,
     /// Target id under the watch root.
     pub target: String,

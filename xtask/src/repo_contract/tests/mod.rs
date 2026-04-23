@@ -28,17 +28,6 @@ fn command_catalog_rows() -> Vec<(String, String, String)> {
         .collect()
 }
 
-fn render_readme_cli_summary_section() -> String {
-    let mut rendered = String::from("| Command | Stdout document | Notes |\n| --- | --- | --- |\n");
-    for (usage, output_document_id, summary) in command_catalog_rows() {
-        let _ = writeln!(
-            rendered,
-            "| `{usage}` | `{output_document_id}` | {summary} |"
-        );
-    }
-    rendered.trim_end().to_owned()
-}
-
 fn render_cli_catalog_section() -> String {
     let run = cli_operation(CLI_OPERATION_RUN_ID).expect("run operation");
 

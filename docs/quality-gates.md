@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: QUALITY
 updated: "2026-04-23"
 route:
@@ -99,7 +99,7 @@ The tracked-file list currently includes the maintained core runtime/model files
 
 The `xtask` test suite also enforces maintainer-facing repository contracts that are easy to let drift silently:
 
-1. AFAD-managed Markdown frontmatter must use the current workspace version and the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`
+1. every public Markdown file must carry AFAD frontmatter using the current workspace version and the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`
 2. public Markdown local links and maintained repo-file path mentions must still resolve
 3. checked-in public target examples must still validate against the current `ffhn.target` contract
 4. `.claude/CLAUDE.md` and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to `.codex/AGENTS.md`

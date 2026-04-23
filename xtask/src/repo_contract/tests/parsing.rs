@@ -7,21 +7,14 @@ fn public_markdown_afad_frontmatter_stays_on_the_workspace_version() {
     let workspace_version = workspace_version(&repo_root).expect("workspace version");
     let paths = public_markdown_paths(&repo_root).expect("markdown paths");
 
-    let mut validated = 0usize;
     for path in paths {
-        let Some(frontmatter) = afad_frontmatter(&path).expect("frontmatter parse") else {
-            continue;
-        };
-        validated += 1;
         let path_display = path.display().to_string();
+        let frontmatter = afad_frontmatter(&path)
+            .expect("frontmatter parse")
+            .unwrap_or_else(|| panic!("{path_display} is missing AFAD frontmatter"));
         assert_eq!(frontmatter.afad, protocol_afad_version, "{path_display}");
         assert_eq!(frontmatter.version, workspace_version, "{}", path.display());
     }
-
-    assert!(
-        validated > 0,
-        "expected at least one AFAD-managed markdown file"
-    );
 }
 
 #[test]

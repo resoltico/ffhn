@@ -1,0 +1,7 @@
+# Exclude internal directories from `git archive` source packages.
+# These contain CI infrastructure and AI agent configs that have no value
+# for anyone building from a source archive.
+.claude/  export-ignore
+.codex/   export-ignore
+.gemini/  export-ignore
+.github/  export-ignore

@@ -11,9 +11,9 @@ use ffhn_core::{
     run_batch, run_once, run_once_dry_run, status, validate_target,
 };
 
-use crate::args::{Command, RunCommand, build_cli_command, parse_cli};
+use crate::args::{Command, RunCommand, parse_cli};
 use crate::error::write_cli_error;
-use crate::metadata::version_banner;
+use crate::help::try_handle_top_level_request;
 use crate::render::render_json_document;
 use crate::{EXIT_CODE_FATAL, EXIT_CODE_RUN_FAILED, EXIT_CODE_USAGE};
 
@@ -24,16 +24,9 @@ pub fn run(
     stderr: &mut impl Write,
 ) -> i32 {
     let raw_args: Vec<String> = args.into_iter().collect();
-    if raw_args.len() <= 1 {
-        let mut command = build_cli_command();
-        let _ = command.write_long_help(stdout);
-        let _ = writeln!(stdout);
-        return 0;
-    }
-
-    if raw_args_requests_version(&raw_args) && !raw_args_requests_help(&raw_args) {
-        let _ = writeln!(stdout, "{}", version_banner());
-        return 0;
+    match try_handle_top_level_request(&raw_args, stdout) {
+        Ok(true) | Err(_) => return 0,
+        Ok(false) => {}
     }
 
     let cli = match parse_cli(raw_args) {
@@ -231,22 +224,6 @@ where
         }
     }
     Ok(directories)
-}
-
-fn raw_args_requests_version(raw_args: &[String]) -> bool {
-    raw_option_tokens(raw_args).any(|arg| matches!(arg, "--version" | "-V"))
-}
-
-fn raw_args_requests_help(raw_args: &[String]) -> bool {
-    raw_option_tokens(raw_args).any(|arg| matches!(arg, "--help" | "-h"))
-}
-
-fn raw_option_tokens(raw_args: &[String]) -> impl Iterator<Item = &str> {
-    raw_args
-        .iter()
-        .skip(1)
-        .take_while(|arg| arg.as_str() != "--")
-        .map(String::as_str)
 }
 
 fn run_report_requires_failed_exit(report: &ffhn_core::RunReport) -> bool {

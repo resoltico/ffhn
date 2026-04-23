@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: OPERATIONS
 updated: "2026-04-23"
 route:
@@ -53,9 +53,9 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 `/.github/workflows/release.yml` uses one helper job, two build jobs, and one publication job. The effective publication flow is:
 
 1. compute the standalone target matrix
-2. build source archives
-3. build standalone packages
-4. build one checksum manifest for the full asset inventory
+2. build source archives and generate GitHub build provenance attestations for them
+3. build standalone packages, smoke them, and generate one attestation per package
+4. build one checksum manifest for the full asset inventory and attest it too
 5. publish and verify the GitHub release idempotently from the maintained default branch
 
 ## Supported Standalone Release Targets
@@ -86,8 +86,10 @@ Each standalone package contains:
 1. the platform `ffhn` binary
 2. `README.md`
 3. `LICENSE`
+4. `changelog.md`
 
 Local package builds land under `dist/` through [`scripts/build-release-artifact.sh`](../scripts/build-release-artifact.sh). The checksum manifest is assembled by [`scripts/build-release-checksums.sh`](../scripts/build-release-checksums.sh).
+GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest. Those attestations are workflow metadata, not additional FFHN-owned release assets.
 
 ## Release Scripts
 
@@ -100,7 +102,8 @@ The maintained release scripts are:
 5. [`qa-gate.sh`](../scripts/qa-gate.sh): wrapper around `./check.sh`
 6. [`release-targets.sh`](../scripts/release-targets.sh): target inventory and asset-name helpers used by CI and scripts
 7. [`verify-github-release.sh`](../scripts/verify-github-release.sh): assert the published release is non-draft, non-prerelease, and asset-complete
-8. [`workspace-version.sh`](../scripts/workspace-version.sh): robustly extract `[workspace.package] version` from `Cargo.toml`
+8. [`workspace-package-field.sh`](../scripts/workspace-package-field.sh): robustly extract one string field from `[workspace.package]` in `Cargo.toml`
+9. [`workspace-version.sh`](../scripts/workspace-version.sh): compatibility wrapper around `workspace-package-field.sh version`
 
 ## Release Preconditions
 

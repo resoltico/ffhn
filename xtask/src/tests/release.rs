@@ -7,6 +7,8 @@ fn release_shell_helpers_resolve_repo_root_and_workspace_version() {
         .expect("workspace root");
     let scripts_dir = repo_root.join("scripts");
     let version = workspace_version(repo_root).expect("workspace version");
+    let description =
+        workspace_package_field(repo_root, "description").expect("workspace description");
     let script = format!(
         r#"set -euo pipefail
 script_dir="{scripts_dir}"
@@ -22,10 +24,14 @@ resolved_root="$(ffhn_repo_root_from_script_dir "$script_dir")"
 
 resolved_version="$(ffhn_workspace_version "$script_dir" "$repo_root")"
 [[ "$resolved_version" == "{version}" ]]
+
+resolved_description="$(ffhn_workspace_description "$script_dir" "$repo_root")"
+[[ "$resolved_description" == "{description}" ]]
 "#,
         scripts_dir = scripts_dir.display(),
         repo_root = repo_root.display(),
         version = version,
+        description = description,
     );
 
     let output = Command::new("bash")
@@ -38,6 +44,46 @@ resolved_version="$(ffhn_workspace_version "$script_dir" "$repo_root")"
     assert!(
         output.status.success(),
         "release shell helper smoke failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn release_shell_helpers_extract_arbitrary_workspace_package_fields() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let scripts_dir = repo_root.join("scripts");
+    let version = workspace_version(repo_root).expect("workspace version");
+    let description =
+        workspace_package_field(repo_root, "description").expect("workspace description");
+    let script = format!(
+        r#"set -euo pipefail
+script_dir="{scripts_dir}"
+
+version="$("$script_dir/workspace-package-field.sh" version "{repo_root}/Cargo.toml")"
+[[ "$version" == "{version}" ]]
+
+description="$("$script_dir/workspace-package-field.sh" description "{repo_root}/Cargo.toml")"
+[[ "$description" == "{description}" ]]
+"#,
+        scripts_dir = scripts_dir.display(),
+        repo_root = repo_root.display(),
+        version = version,
+        description = description,
+    );
+
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .current_dir(repo_root)
+        .output()
+        .expect("run workspace-package-field smoke");
+
+    assert!(
+        output.status.success(),
+        "workspace-package-field smoke failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: PLATFORM
 updated: "2026-04-23"
 route:
@@ -48,6 +48,7 @@ Each standalone package contains:
 - the platform binary
 - `README.md`
 - `LICENSE`
+- `changelog.md`
 
 ## Deployment Floors
 
@@ -85,6 +86,7 @@ GitHub release builds currently run on:
 - `windows-2022` for `x86_64-pc-windows-msvc`
 
 GitHub CI also runs release-target smoke on that same target matrix before the aggregate required check reports success.
+GitHub release automation also emits build provenance attestations for the source archives, standalone packages, and checksum manifest; those attestations are workflow metadata rather than additional FFHN-owned release assets.
 
 GitHub also renders auto-generated `Source code (zip)` and `Source code (tar.gz)` links on release pages. Those links are GitHub-provided convenience downloads and are not part of FFHN's maintained asset inventory.
 

@@ -178,6 +178,7 @@ main() {
     chmod +x "${package_dir}/${compiled_binary_name}"
     cp "${repo_root}/LICENSE" "${package_dir}/LICENSE"
     cp "${repo_root}/README.md" "${package_dir}/README.md"
+    cp "${repo_root}/changelog.md" "${package_dir}/changelog.md"
     create_release_archive "${staging_root}" "${package_dir_name}" "${artifact_path}" "${archive_extension}"
 
     printf 'Built %s for FFHN %s with Cargo profile %s\n' "${artifact_name}" "${version}" "${cargo_profile}"
