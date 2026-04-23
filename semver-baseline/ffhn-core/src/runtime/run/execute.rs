@@ -21,8 +21,8 @@ use super::super::state::{
     load_state, prior_compare_digest, prior_valid_state, state_phase_or_default,
     status_from_loaded_state, status_from_state,
 };
-use super::super::status::validate_target;
 use super::super::storage::now_utc;
+use super::super::target_load::load_target_document;
 use super::change::build_change_section;
 use super::failures::{
     finish_disabled_target_report, finish_fetch_failure_report, finish_live_state_failure_report,
@@ -61,9 +61,9 @@ pub(crate) fn run_once_with_options(
     let run_started_at = now_utc()?;
     let started = Instant::now();
 
-    let target = match validate_target(paths) {
-        Ok(target) => target,
-        Err(_) => {
+    let target = match load_target_document(paths)? {
+        Some(target) => target,
+        None => {
             let report = invalid_target_run_report(paths, &run_started_at, options.mode, started)?;
             return finalize_run_report(report);
         }
@@ -234,7 +234,7 @@ pub(crate) fn run_once_with_options(
             },
         ) {
             Ok(result) => result,
-            Err(_) => {
+            Err(error) => {
                 return finish_persist_failure_report(
                     paths,
                     &target,
@@ -247,6 +247,7 @@ pub(crate) fn run_once_with_options(
                         compare: Some(compare_section.clone()),
                         change: Some(change_section.clone()),
                         persist_duration_ms: persist_started.elapsed().as_millis() as u64,
+                        error: crate::ProcessErrorDetail::from(&error),
                     },
                 );
             }
@@ -264,7 +265,7 @@ pub(crate) fn run_once_with_options(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at,
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome,
             reason_code: crate::ReasonCode::Ok,
@@ -290,6 +291,7 @@ pub(crate) fn run_once_with_options(
                 duration_ms: persist_started.elapsed().as_millis() as u64,
                 wrote_state: options.mode == RunMode::Live && persist_result.is_some(),
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,

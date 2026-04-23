@@ -1,9 +1,10 @@
 use std::time::Instant;
 
 use crate::{
-    CompareBasis, CoreError, FailureClass, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
-    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection, RunMode,
-    RunOutcome, RunPersistSection, RunReport, StateDocument, TargetPaths, TargetStatus,
+    CompareBasis, CoreError, FailureClass, ProcessErrorDetail, RUN_REPORT_SCHEMA_NAME,
+    RUN_REPORT_SCHEMA_VERSION, RunChangeSection, RunCompareSection, RunExtractionSection,
+    RunFetchSection, RunMode, RunOutcome, RunPersistSection, RunReport, StateDocument, TargetPaths,
+    TargetStatus,
 };
 
 use super::super::persist::{persist_state_only, write_last_run};
@@ -24,6 +25,7 @@ pub(super) struct PersistFailureContext {
     pub(super) compare: Option<RunCompareSection>,
     pub(super) change: Option<RunChangeSection>,
     pub(super) persist_duration_ms: u64,
+    pub(super) error: ProcessErrorDetail,
 }
 
 pub(super) fn invalid_target_run_report(
@@ -39,7 +41,7 @@ pub(super) fn invalid_target_run_report(
         run_report_digest_sha256: String::new(),
         target_id: paths.target_id().to_owned(),
         run_started_at: run_started_at.to_owned(),
-        run_finished_at: now_utc()?,
+        run_finished_at: String::new(),
         run_mode,
         run_outcome: RunOutcome::FailedPermanent,
         reason_code: crate::ReasonCode::ConfigInvalid,
@@ -58,13 +60,19 @@ pub(super) fn invalid_target_run_report(
             duration_ms: started.elapsed().as_millis() as u64,
             wrote_state: false,
             wrote_last_run: false,
+            error: None,
         },
         notifications: Vec::new(),
         extensions: None,
     })
 }
 
-pub(super) fn finalize_run_report(report: RunReport) -> Result<RunReport, CoreError> {
+pub(super) fn finalize_run_report(mut report: RunReport) -> Result<RunReport, CoreError> {
+    report.run_finished_at = now_utc()?;
+    seal_run_report(report)
+}
+
+pub(super) fn seal_run_report(report: RunReport) -> Result<RunReport, CoreError> {
     let report = report.with_digest()?;
     report.validate()?;
     Ok(report)
@@ -83,7 +91,7 @@ pub(super) fn finalize_failed_run(
     let (wrote_state, state_after_run) = if options.mode == RunMode::Live {
         match persist_failed_state(paths, target, state, reason_code, run_started_at) {
             Ok(result) => result,
-            Err(_) => {
+            Err(error) => {
                 return finish_persist_failure_report(
                     paths,
                     target,
@@ -96,6 +104,7 @@ pub(super) fn finalize_failed_run(
                         compare: None,
                         change: None,
                         persist_duration_ms: persist_started.elapsed().as_millis() as u64,
+                        error: ProcessErrorDetail::from(&error),
                     },
                 );
             }
@@ -112,7 +121,7 @@ pub(super) fn finalize_failed_run(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome: failure_run_outcome(reason_code),
             reason_code,
@@ -138,6 +147,7 @@ pub(super) fn finalize_failed_run(
                 duration_ms: persist_started.elapsed().as_millis() as u64,
                 wrote_state,
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,
@@ -161,7 +171,7 @@ pub(super) fn finish_persist_failure_report(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: context.run_mode,
             run_outcome: RunOutcome::FailedTransient,
             reason_code: crate::ReasonCode::PersistError,
@@ -180,6 +190,7 @@ pub(super) fn finish_persist_failure_report(
                 duration_ms: context.persist_duration_ms,
                 wrote_state: false,
                 wrote_last_run: false,
+                error: Some(context.error),
             },
             notifications: Vec::new(),
             extensions: None,
@@ -253,11 +264,14 @@ pub(super) fn finish_report(
         report = finalize_run_report(report)?;
         let mut persisted_report = report.clone();
         persisted_report.persist.wrote_last_run = true;
-        persisted_report = finalize_run_report(persisted_report)?;
-        if write_last_run(paths, &persisted_report).is_ok() {
-            return Ok(persisted_report);
+        persisted_report = seal_run_report(persisted_report)?;
+        match write_last_run(paths, &persisted_report) {
+            Ok(()) => return Ok(persisted_report),
+            Err(error) => {
+                report.persist.error = Some(ProcessErrorDetail::from(&error));
+                return seal_run_report(report);
+            }
         }
-        return Ok(report);
     }
 
     Ok(report)

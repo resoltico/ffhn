@@ -10,7 +10,6 @@ use super::super::state::{
     StateLoad, prior_compare_digest, state_phase_or_default, status_from_loaded_state,
     status_from_state,
 };
-use super::super::storage::now_utc;
 use super::execute::RunOptions;
 use super::outcome::failure_run_outcome;
 use super::reporting::{
@@ -49,7 +48,7 @@ pub(super) fn finish_lock_unavailable_report(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome: RunOutcome::FailedTransient,
             reason_code: ReasonCode::LockUnavailable,
@@ -68,6 +67,7 @@ pub(super) fn finish_lock_unavailable_report(
                 duration_ms: 0,
                 wrote_state: false,
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,
@@ -92,7 +92,7 @@ pub(super) fn finish_live_state_failure_report(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome: RunOutcome::FailedPermanent,
             reason_code,
@@ -111,6 +111,7 @@ pub(super) fn finish_live_state_failure_report(
                 duration_ms: 0,
                 wrote_state: false,
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,
@@ -129,7 +130,7 @@ pub(super) fn finish_disabled_target_report(
     let (wrote_state, state_after_run) =
         match persist_disabled_state(paths, target, state, run_started_at) {
             Ok(result) => result,
-            Err(_) => {
+            Err(error) => {
                 return finish_persist_failure_report(
                     paths,
                     target,
@@ -142,6 +143,7 @@ pub(super) fn finish_disabled_target_report(
                         compare: None,
                         change: None,
                         persist_duration_ms: persist_started.elapsed().as_millis() as u64,
+                        error: crate::ProcessErrorDetail::from(&error),
                     },
                 );
             }
@@ -155,7 +157,7 @@ pub(super) fn finish_disabled_target_report(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome: RunOutcome::SkippedDisabled,
             reason_code: ReasonCode::Disabled,
@@ -177,6 +179,7 @@ pub(super) fn finish_disabled_target_report(
                 duration_ms: persist_started.elapsed().as_millis() as u64,
                 wrote_state,
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,
@@ -197,7 +200,7 @@ pub(super) fn finish_fetch_failure_report(
     let (wrote_state, state_after_run) = if options.mode == RunMode::Live {
         match persist_failed_state(paths, target, state, reason_code, run_started_at) {
             Ok(result) => result,
-            Err(_) => {
+            Err(error) => {
                 return finish_persist_failure_report(
                     paths,
                     target,
@@ -210,6 +213,7 @@ pub(super) fn finish_fetch_failure_report(
                         compare: None,
                         change: None,
                         persist_duration_ms: persist_started.elapsed().as_millis() as u64,
+                        error: crate::ProcessErrorDetail::from(&error),
                     },
                 );
             }
@@ -226,7 +230,7 @@ pub(super) fn finish_fetch_failure_report(
             run_report_digest_sha256: String::new(),
             target_id: target.target_id.clone(),
             run_started_at: run_started_at.to_owned(),
-            run_finished_at: now_utc()?,
+            run_finished_at: String::new(),
             run_mode: options.mode,
             run_outcome: failure_run_outcome(reason_code),
             reason_code,
@@ -252,6 +256,7 @@ pub(super) fn finish_fetch_failure_report(
                 duration_ms: persist_started.elapsed().as_millis() as u64,
                 wrote_state,
                 wrote_last_run: false,
+                error: None,
             },
             notifications: Vec::new(),
             extensions: None,

@@ -1,13 +1,18 @@
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::stable_json::stable_json;
 use crate::{
-    NotificationEvent, NotificationHook, RunNotificationDelivery, RunOutcome, RunReport,
+    NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION, NotificationEvent,
+    NotificationHook, NotificationPayload, RunNotificationDelivery, RunOutcome, RunReport,
     TargetDocument,
 };
+
+use super::super::storage::now_utc;
+
+const NOTIFICATION_STDERR_CAPTURE_LIMIT: usize = 16 * 1024;
 
 pub(super) fn dispatch_notifications(
     target: &TargetDocument,
@@ -19,28 +24,10 @@ pub(super) fn dispatch_notifications(
         .iter()
         .filter(|hook| hook.on.contains(&event))
         .collect::<Vec<_>>();
-    let payload = match stable_json(report) {
-        Ok(payload) => payload,
-        Err(error) => {
-            return hooks
-                .into_iter()
-                .map(|hook| {
-                    notification_failure(
-                        &hook.name,
-                        event,
-                        Instant::now(),
-                        false,
-                        None,
-                        format!("failed to serialize notification payload: {error}"),
-                    )
-                })
-                .collect();
-        }
-    };
 
     hooks
         .into_iter()
-        .map(|hook| deliver_notification(hook, event, target, report, &payload))
+        .map(|hook| deliver_notification(hook, event, target, report))
         .collect()
 }
 
@@ -145,9 +132,21 @@ pub(super) fn deliver_notification(
     event: NotificationEvent,
     target: &TargetDocument,
     report: &RunReport,
-    payload: &str,
 ) -> RunNotificationDelivery {
     let started = Instant::now();
+    let payload = match serialize_notification_payload(hook, event, report) {
+        Ok(payload) => payload,
+        Err(error) => {
+            return notification_failure(
+                &hook.name,
+                event,
+                started,
+                false,
+                None,
+                format!("failed to serialize notification payload: {error}"),
+            );
+        }
+    };
     let Some(run_outcome) = serde_variant_name(report.run_outcome) else {
         return notification_failure(
             &hook.name,
@@ -215,17 +214,39 @@ pub(super) fn deliver_notification(
         .env("FFHN_NOTIFICATION_EVENT", notification_event)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(child) => child,
         Err(error) => return notification_failure(&hook.name, event, started, false, None, error),
     };
 
-    write_child_notification_payload_or_failure(&hook.name, event, started, &mut child, payload)
-        .unwrap_or_else(|| {
-            wait_for_notification_process(&mut child, &hook.name, event, started, hook.timeout_ms)
-        })
+    let stderr_capture = spawn_notification_stderr_capture(&mut child);
+    match write_child_notification_payload_or_failure(
+        &hook.name, event, started, &mut child, &payload,
+    ) {
+        Some(mut delivery) => {
+            append_notification_stderr(
+                &mut delivery,
+                join_notification_stderr_capture(stderr_capture),
+            );
+            delivery
+        }
+        None => {
+            let mut delivery = wait_for_notification_process(
+                &mut child,
+                &hook.name,
+                event,
+                started,
+                hook.timeout_ms,
+            );
+            append_notification_stderr(
+                &mut delivery,
+                join_notification_stderr_capture(stderr_capture),
+            );
+            delivery
+        }
+    }
 }
 
 fn notification_failure(
@@ -252,6 +273,69 @@ fn abort_child_process(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+fn spawn_notification_stderr_capture(
+    child: &mut std::process::Child,
+) -> Option<thread::JoinHandle<io::Result<String>>> {
+    child.stderr.take().map(|mut stderr| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let mut truncated = false;
+            loop {
+                let read = stderr.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                let remaining = NOTIFICATION_STDERR_CAPTURE_LIMIT.saturating_sub(bytes.len());
+                if remaining > 0 {
+                    let to_copy = remaining.min(read);
+                    bytes.extend_from_slice(&buffer[..to_copy]);
+                    if to_copy < read {
+                        truncated = true;
+                    }
+                } else {
+                    truncated = true;
+                }
+            }
+
+            let mut stderr_text = String::from_utf8_lossy(&bytes).trim().to_owned();
+            if truncated {
+                if !stderr_text.is_empty() {
+                    stderr_text.push(' ');
+                }
+                stderr_text.push_str("[truncated]");
+            }
+            Ok(stderr_text)
+        })
+    })
+}
+
+fn join_notification_stderr_capture(
+    stderr_capture: Option<thread::JoinHandle<io::Result<String>>>,
+) -> Option<String> {
+    let stderr_capture = stderr_capture?;
+    match stderr_capture.join() {
+        Ok(Ok(stderr_text)) if !stderr_text.is_empty() => Some(stderr_text),
+        _ => None,
+    }
+}
+
+fn append_notification_stderr(delivery: &mut RunNotificationDelivery, stderr_text: Option<String>) {
+    let Some(stderr_text) = stderr_text else {
+        return;
+    };
+    if delivery.delivered {
+        return;
+    }
+    match delivery.error.as_mut() {
+        Some(error) => {
+            error.push_str("; stderr: ");
+            error.push_str(&stderr_text);
+        }
+        None => delivery.error = Some(format!("stderr: {stderr_text}")),
+    }
+}
+
 pub(super) fn write_child_notification_payload_or_failure(
     hook_name: &str,
     event: NotificationEvent,
@@ -274,4 +358,22 @@ fn serde_variant_name<T: serde::Serialize>(value: T) -> Option<String> {
         .ok()?
         .as_str()
         .map(ToOwned::to_owned)
+}
+
+fn serialize_notification_payload(
+    hook: &NotificationHook,
+    event: NotificationEvent,
+    report: &RunReport,
+) -> Result<String, crate::CoreError> {
+    let payload = NotificationPayload {
+        schema_name: NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+        schema_version: NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+        hook_name: hook.name.clone(),
+        event,
+        delivery_started_at: now_utc()?,
+        run_report: report.clone(),
+        extensions: None,
+    };
+    payload.validate()?;
+    stable_json(&payload)
 }

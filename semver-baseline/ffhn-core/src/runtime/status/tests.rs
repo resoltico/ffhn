@@ -1,10 +1,10 @@
 use super::super::storage::{write_exact_text, write_json, write_text};
 use super::*;
 use crate::{
-    CompareBasis, CompareConfig, EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION,
-    ExtractionRecord, FetchConfig, FetchEngine, HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind,
-    ReasonCode, RunOutcome, SelectionConfig, SelectionKind, SelectionMatch, SnapshotReference,
-    SnapshotSlot, TargetSource, WhitespaceMode,
+    CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RunOutcome, SelectionConfig,
+    SelectionKind, SelectionMatch, SnapshotReference, SnapshotSlot, TargetSource, WhitespaceMode,
 };
 use serde_json::json;
 #[cfg(unix)]
@@ -252,4 +252,14 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         assert_eq!(report.target_status, TargetStatus::Invalid);
         assert_eq!(report.state_phase, None);
     }
+}
+
+#[test]
+fn status_surfaces_target_load_io_failures_as_fatal_core_errors() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    std::fs::create_dir_all(paths.target_file()).expect("target file directory");
+
+    let error = status(&paths).expect_err("target load io error");
+    assert!(matches!(error, CoreError::Io { .. }));
 }

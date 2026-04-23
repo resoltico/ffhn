@@ -112,6 +112,12 @@ fn notification_helpers_cover_payload_failures_wait_paths_and_panics() {
 
     let panic = join_batch_handle(thread::spawn(|| panic!("boom")));
     assert!(panic.is_err());
+    assert!(
+        panic
+            .expect_err("panic")
+            .to_string()
+            .contains("batch worker panicked: boom")
+    );
 }
 
 #[test]
@@ -130,6 +136,7 @@ fn finish_report_and_notifications_cover_failure_paths() {
     let report = finish_report(&paths, Some(&target), live_success_report("demo"))
         .expect("finish report with blocked last_run");
     assert!(!report.persist.wrote_last_run);
+    assert!(report.persist.error.is_some());
 
     let no_target = finish_report(&paths, None, live_success_report("demo"))
         .expect("finish report without target");
@@ -147,7 +154,6 @@ fn finish_report_and_notifications_cover_failure_paths() {
         NotificationEvent::Changed,
         &target,
         &live_success_report("demo"),
-        "{\"demo\":true}",
     );
     assert!(delivered.delivered);
 
@@ -156,16 +162,21 @@ fn finish_report_and_notifications_cover_failure_paths() {
             name: "fail".to_owned(),
             on: vec![NotificationEvent::Changed],
             shell: "/bin/sh".to_owned(),
-            command: "exit 7".to_owned(),
+            command: "echo hook-broke >&2; exit 7".to_owned(),
             timeout_ms: 500,
         },
         NotificationEvent::Changed,
         &target,
         &live_success_report("demo"),
-        "{\"demo\":true}",
     );
     assert_eq!(exited.exit_code, Some(7));
     assert!(!exited.delivered);
+    assert!(
+        exited
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("hook-broke"))
+    );
 
     let timed_out = deliver_notification(
         &NotificationHook {
@@ -178,7 +189,6 @@ fn finish_report_and_notifications_cover_failure_paths() {
         NotificationEvent::Changed,
         &target,
         &live_success_report("demo"),
-        "{\"demo\":true}",
     );
     assert!(timed_out.timed_out);
 
@@ -193,7 +203,6 @@ fn finish_report_and_notifications_cover_failure_paths() {
         NotificationEvent::Changed,
         &target,
         &live_success_report("demo"),
-        "{\"demo\":true}",
     );
     assert!(!payload_failure.delivered);
     assert!(payload_failure.error.is_some());
@@ -209,9 +218,63 @@ fn finish_report_and_notifications_cover_failure_paths() {
         NotificationEvent::Changed,
         &target,
         &live_success_report("demo"),
-        "{\"demo\":true}",
     );
     assert!(spawn_error.error.is_some());
+}
+
+#[test]
+fn deliver_notification_allows_predelivery_persist_error_reports() {
+    let temp = tempdir().expect("tempdir");
+    let payload_path = temp.path().join("payload.json");
+    let env_path = temp.path().join("env.txt");
+    let target = target_document(
+        "demo",
+        true,
+        Url::parse("https://example.com").expect("url"),
+        "main",
+        SelectionMatch::Single,
+    );
+    let mut report = live_success_report("demo");
+    report.run_outcome = RunOutcome::FailedTransient;
+    report.reason_code = ReasonCode::PersistError;
+    report.failure_class = Some(crate::FailureClass::Transient);
+    report.current_compare_digest_sha256 = None;
+    report.persist.wrote_state = false;
+    report.persist.error = Some(crate::ProcessErrorDetail {
+        kind: crate::ProcessErrorKind::Io,
+        message: "permission denied".to_owned(),
+        path: Some("/tmp/watch/demo/state.json".to_owned()),
+    });
+    report = report.with_digest().expect("persist error digest");
+
+    let command = format!(
+        "cat > '{}'; printf '%s\\n%s\\n%s\\n' \
+\"$FFHN_RUN_OUTCOME\" \"$FFHN_REASON_CODE\" \"$FFHN_NOTIFICATION_EVENT\" > '{}'",
+        payload_path.display(),
+        env_path.display(),
+    );
+    let delivered = deliver_notification(
+        &NotificationHook {
+            name: "capture".to_owned(),
+            on: vec![NotificationEvent::FailedTransient],
+            shell: "/bin/sh".to_owned(),
+            command,
+            timeout_ms: 500,
+        },
+        NotificationEvent::FailedTransient,
+        &target,
+        &report,
+    );
+    assert!(delivered.delivered);
+    let payload: crate::NotificationPayload =
+        serde_json::from_str(&std::fs::read_to_string(&payload_path).expect("payload"))
+            .expect("notification payload");
+    payload.validate().expect("valid persist-error payload");
+    assert!(payload.run_report.persist.error.is_some());
+    assert_eq!(
+        std::fs::read_to_string(&env_path).expect("env"),
+        "failed_transient\npersist_error\nfailed_transient\n"
+    );
 }
 
 #[test]
@@ -245,13 +308,17 @@ fn deliver_notification_passes_documented_env_vars_and_stdin_payload() {
         NotificationEvent::Changed,
         &target,
         &report,
-        "{\"demo\":true}",
     );
     assert!(delivered.delivered);
-    assert_eq!(
-        std::fs::read_to_string(&payload_path).expect("payload"),
-        "{\"demo\":true}"
-    );
+    let payload: crate::NotificationPayload =
+        serde_json::from_str(&std::fs::read_to_string(&payload_path).expect("payload"))
+            .expect("notification payload");
+    payload.validate().expect("valid notification payload");
+    assert_eq!(payload.hook_name, "capture");
+    assert_eq!(payload.event, NotificationEvent::Changed);
+    assert_eq!(payload.run_report.target_id, "demo");
+    assert!(!payload.run_report.persist.wrote_last_run);
+    assert!(payload.run_report.notifications.is_empty());
     assert_eq!(
         std::fs::read_to_string(&env_path).expect("env"),
         "demo\nchanged\nok\nlive\n\nchanged\n"

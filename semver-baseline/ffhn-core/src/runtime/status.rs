@@ -6,6 +6,7 @@ use crate::{
 use super::lock::lock_shared;
 use super::state::{StateLoad, load_state, snapshot_digest_summary};
 use super::storage::read_toml;
+use super::target_load::load_target_document;
 
 pub(crate) fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError> {
     let target = read_toml::<TargetDocument>(&paths.target_file())?;
@@ -13,12 +14,12 @@ pub(crate) fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, Cor
 }
 
 pub(crate) fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
-    match validate_target(paths) {
-        Ok(target) => {
+    match load_target_document(paths)? {
+        Some(target) => {
             let _lock = lock_shared(paths)?;
             status_for_valid_target(&target, load_state(paths))
         }
-        Err(_) => {
+        None => {
             let report = invalid_target_status_report(paths);
             report.validate()?;
             Ok(report)
