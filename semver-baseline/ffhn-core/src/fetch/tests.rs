@@ -1,11 +1,13 @@
 use super::*;
 use std::collections::BTreeMap;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::net::TcpListener;
+use std::path::Path;
 use std::thread;
+use std::time::Duration;
 
 use crate::{
-    CompareBasis, CompareConfig, FetchEngine, HttpMethod, OutputKind, SelectionConfig,
+    CompareBasis, CompareConfig, FetchConfig, FetchEngine, HttpMethod, OutputKind, SelectionConfig,
     SelectionKind, SelectionMatch, TargetDocument, TargetSource, WhitespaceMode,
 };
 

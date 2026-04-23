@@ -1,6 +1,7 @@
 use super::super::state::SnapshotArtifacts;
-use super::super::state::StateLoad;
-use super::super::storage::{read_text, write_exact_text};
+use super::super::state::{StateLoad, load_state};
+use super::super::storage::{read_text, with_write_error_injected, write_exact_text};
+use super::snapshot_store::unique_snapshot_work_dir;
 use super::*;
 use crate::stable_json::{sha256_hex, stable_json};
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
     TargetSource, WhitespaceMode,
 };
 use serde_json::json;
+use std::io;
 use tempfile::tempdir;
 use url::Url;
 
@@ -127,6 +129,32 @@ fn prior_state_with(
         },
         current,
     }))
+}
+
+fn write_snapshot(paths: &TargetPaths, snapshot: &SnapshotArtifacts) {
+    write_exact_text(
+        paths
+            .target_dir()
+            .join(&snapshot.reference.canonical_text_path),
+        &snapshot.canonical_text,
+    )
+    .expect("write snapshot canonical");
+    write_exact_text(
+        paths.target_dir().join(&snapshot.reference.outer_html_path),
+        &snapshot.outer_html,
+    )
+    .expect("write snapshot outer");
+    write_exact_text(
+        paths
+            .target_dir()
+            .join(&snapshot.reference.extraction_record_path),
+        &snapshot.extraction_json,
+    )
+    .expect("write snapshot extraction");
+}
+
+fn write_state(paths: &TargetPaths, state: &StateDocument) {
+    super::super::storage::write_json(paths.state_file(), state).expect("write state");
 }
 
 #[test]
@@ -329,8 +357,7 @@ fn persist_successful_run_changed_without_prior_current_keeps_history_empty() {
 fn persist_successful_run_surfaces_current_snapshot_write_errors_for_initialized_and_changed() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
-    write_exact_text(paths.current_snapshot_dir(), "blocked current snapshot dir")
-        .expect("block current snapshot dir");
+    write_exact_text(paths.snapshots_dir(), "blocked snapshots dir").expect("block snapshots dir");
 
     let initialized_error = persist_successful_run(
         &paths,
@@ -372,6 +399,46 @@ fn persist_successful_run_surfaces_current_snapshot_write_errors_for_initialized
 }
 
 #[test]
+fn unique_snapshot_work_dir_skips_existing_candidates() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let prefix = "current-stage";
+
+    let first_candidate = unique_snapshot_work_dir(&paths, prefix);
+    let file_name = first_candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("candidate name");
+    let base_suffix = file_name
+        .rsplit('-')
+        .next()
+        .expect("candidate suffix")
+        .parse::<usize>()
+        .expect("numeric suffix");
+
+    for suffix in (base_suffix + 1)..=(base_suffix + 128) {
+        let blocked = paths
+            .snapshots_dir()
+            .join(format!(".{prefix}-{}-{suffix}", std::process::id()));
+        std::fs::create_dir_all(&blocked).expect("block snapshot work dir");
+    }
+
+    let skipped_candidate = unique_snapshot_work_dir(&paths, prefix);
+    let skipped_name = skipped_candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("skipped candidate name");
+    let skipped_suffix = skipped_name
+        .rsplit('-')
+        .next()
+        .expect("skipped suffix")
+        .parse::<usize>()
+        .expect("numeric skipped suffix");
+
+    assert!(skipped_suffix > base_suffix + 128);
+}
+
+#[test]
 fn persist_successful_run_rejects_failed_outcomes() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
@@ -395,6 +462,118 @@ fn persist_successful_run_rejects_failed_outcomes() {
             .to_string()
             .contains("persist_successful_run only supports successful outcomes")
     );
+}
+
+#[test]
+fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write_fails() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let mut target = target();
+    target.storage.history_limit = 2;
+
+    let current = snapshot(
+        SnapshotSlot::Current,
+        "current",
+        "before",
+        "<main>Before</main>",
+    );
+    let older = snapshot(
+        SnapshotSlot::History,
+        "history/older",
+        "older",
+        "<main>Older</main>",
+    );
+    let oldest = snapshot(
+        SnapshotSlot::History,
+        "history/oldest",
+        "oldest",
+        "<main>Oldest</main>",
+    );
+    write_snapshot(&paths, &current);
+    write_snapshot(&paths, &older);
+    write_snapshot(&paths, &oldest);
+    write_state(
+        &paths,
+        &StateDocument {
+            schema_name: STATE_SCHEMA_NAME.to_owned(),
+            schema_version: STATE_SCHEMA_VERSION,
+            target_id: "demo".to_owned(),
+            state_phase: StatePhase::HasBaseline,
+            last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
+            last_run_outcome: Some(RunOutcome::Initialized),
+            last_reason_code: Some(ReasonCode::Ok),
+            current_snapshot: Some(current.reference.clone()),
+            snapshot_history: vec![older.reference.clone(), oldest.reference.clone()],
+            extensions: None,
+        },
+    );
+
+    let error = with_write_error_injected("state.json", io::ErrorKind::PermissionDenied, || {
+        persist_successful_run(
+            &paths,
+            SuccessfulPersistInput {
+                target: &target,
+                prior_state: &prior_state_with(
+                    Some(current.clone()),
+                    vec![older.clone(), oldest.clone()],
+                ),
+                run_started_at: "2026-04-05T12:00:00Z",
+                run_outcome: RunOutcome::Changed,
+                canonical_text: "after",
+                outer_html: "<main>After</main>",
+                extraction_record: &extraction_record(&sha256_hex("<main>After</main>".as_bytes())),
+            },
+        )
+    })
+    .expect_err("state write should fail");
+    assert!(matches!(error, CoreError::Io { .. }));
+
+    assert_eq!(
+        read_text(&paths.current_snapshot_dir().join("canonical.txt")).expect("current canonical"),
+        "before"
+    );
+    assert!(
+        paths
+            .target_dir()
+            .join(&older.reference.canonical_text_path)
+            .exists()
+    );
+    assert!(
+        paths
+            .target_dir()
+            .join(&oldest.reference.canonical_text_path)
+            .exists()
+    );
+
+    let loaded = load_state(&paths);
+    assert!(matches!(loaded, StateLoad::Valid(_)));
+    let persisted_state = read_text(&paths.state_file()).expect("state text");
+    assert!(persisted_state.contains("\"last_reason_code\":\"ok\""));
+}
+
+#[test]
+fn persist_successful_run_removes_staged_current_on_initialized_state_write_failure() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+
+    let error = with_write_error_injected("state.json", io::ErrorKind::PermissionDenied, || {
+        persist_successful_run(
+            &paths,
+            SuccessfulPersistInput {
+                target: &target(),
+                prior_state: &StateLoad::Missing,
+                run_started_at: "2026-04-05T12:30:00Z",
+                run_outcome: RunOutcome::Initialized,
+                canonical_text: "fresh",
+                outer_html: "<main>Fresh</main>",
+                extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
+            },
+        )
+    })
+    .expect_err("initialized state write should fail");
+    assert!(matches!(error, CoreError::Io { .. }));
+    assert!(!paths.current_snapshot_dir().exists());
+    assert!(matches!(load_state(&paths), StateLoad::Missing));
 }
 
 #[test]
@@ -435,6 +614,7 @@ fn write_last_run_persists_report_json() {
             duration_ms: 1,
             wrote_state: true,
             wrote_last_run: false,
+            error: None,
         },
         notifications: Vec::new(),
         extensions: None,

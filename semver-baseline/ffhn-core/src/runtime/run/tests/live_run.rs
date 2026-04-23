@@ -87,6 +87,16 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
 }
 
 #[test]
+fn run_once_surfaces_target_load_io_failures_as_fatal_core_errors() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    std::fs::create_dir_all(paths.target_file()).expect("target file directory");
+
+    let error = run_once(&paths).expect_err("target load io error");
+    assert!(matches!(error, CoreError::Io { .. }));
+}
+
+#[test]
 fn live_run_holds_the_exclusive_lock_until_the_run_finishes() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
@@ -161,6 +171,7 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert!(disabled_report.fetch.is_none());
     assert!(!disabled_report.persist.wrote_state);
     assert!(disabled_report.persist.wrote_last_run);
+    assert!(disabled_report.persist.error.is_some());
     assert!(disabled_paths.last_run_file().is_file());
 
     let fetch_temp = tempdir().expect("fetch tempdir");
@@ -194,6 +205,8 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert!(fetch_report.fetch.is_some());
     assert!(fetch_report.extraction.is_none());
     assert!(!fetch_report.persist.wrote_state);
+    assert!(fetch_report.persist.wrote_last_run);
+    assert!(fetch_report.persist.error.is_some());
 
     let extraction_temp = tempdir().expect("extraction tempdir");
     let extraction_paths = TargetPaths::new(extraction_temp.path(), "demo");
@@ -226,6 +239,8 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert!(extraction_report.fetch.is_some());
     assert!(extraction_report.extraction.is_none());
     assert!(!extraction_report.persist.wrote_state);
+    assert!(extraction_report.persist.wrote_last_run);
+    assert!(extraction_report.persist.error.is_some());
 
     let success_temp = tempdir().expect("success tempdir");
     let success_paths = TargetPaths::new(success_temp.path(), "demo");
@@ -250,7 +265,63 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert_eq!(success_report.current_compare_digest_sha256, None);
     assert!(!success_report.persist.wrote_state);
     assert!(success_report.persist.wrote_last_run);
+    assert!(success_report.persist.error.is_some());
     assert!(success_paths.last_run_file().is_file());
+}
+
+#[test]
+fn run_once_reports_fetch_duration_after_the_body_read_finishes() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let (url, handle) = serve_once_with_delay(
+        TestResponse {
+            status_line: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: "<html><body><main>Hello</main></body></html>",
+        },
+        150,
+    );
+    write_target(
+        &paths,
+        &target_document("demo", true, url, "main", SelectionMatch::Single),
+    );
+
+    let report = run_once(&paths).expect("timed fetch run");
+    handle.join().expect("server join");
+
+    assert!(report.fetch.expect("fetch").duration_ms >= 150);
+}
+
+#[test]
+fn run_once_stamps_run_finished_at_after_notification_delivery() {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let (url, handle) = serve_once(TestResponse {
+        status_line: "200 OK",
+        content_type: "text/html; charset=utf-8",
+        body: "<html><body><main>Hello</main></body></html>",
+    });
+    let mut target = target_document("demo", true, url, "main", SelectionMatch::Single);
+    target.notifications = vec![NotificationHook {
+        name: "delay".to_owned(),
+        on: vec![NotificationEvent::Initialized],
+        shell: "/bin/sh".to_owned(),
+        command: "sleep 0.2".to_owned(),
+        timeout_ms: 1_000,
+    }];
+    write_target(&paths, &target);
+
+    let report = run_once(&paths).expect("run with delayed notification");
+    handle.join().expect("server join");
+
+    let started = OffsetDateTime::parse(&report.run_started_at, &Rfc3339).expect("started");
+    let finished = OffsetDateTime::parse(&report.run_finished_at, &Rfc3339).expect("finished");
+    assert!(finished > started);
+    assert_eq!(report.notifications.len(), 1);
+    assert!(report.notifications[0].duration_ms >= 150);
+    assert!((finished - started).whole_milliseconds() >= 150);
 }
 
 #[test]

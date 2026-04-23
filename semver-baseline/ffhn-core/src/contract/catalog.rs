@@ -1,6 +1,7 @@
 use crate::{
-    BATCH_RUN_REPORT_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_NAME, RUN_REPORT_SCHEMA_NAME, RunMode,
-    STATE_SCHEMA_NAME, STATUS_REPORT_SCHEMA_NAME, TARGET_SCHEMA_NAME,
+    BATCH_RUN_REPORT_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_NAME,
+    RUN_REPORT_SCHEMA_NAME, RunMode, STATE_SCHEMA_NAME, STATUS_REPORT_SCHEMA_NAME,
+    TARGET_SCHEMA_NAME,
 };
 
 use super::types::{
@@ -247,6 +248,10 @@ const DOCUMENTS: &[UserFacingDocumentContract] = &[
     UserFacingDocumentContract {
         id: RUN_REPORT_SCHEMA_NAME,
         display_label: "Run Report",
+    },
+    UserFacingDocumentContract {
+        id: NOTIFICATION_PAYLOAD_SCHEMA_NAME,
+        display_label: "Notification Payload",
     },
     UserFacingDocumentContract {
         id: BATCH_RUN_REPORT_SCHEMA_NAME,

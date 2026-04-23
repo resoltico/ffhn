@@ -15,14 +15,16 @@ type Extensions = Option<BTreeMap<String, Value>>;
 pub use extraction::{ExtractionRecord, SnapshotReference};
 pub(crate) use report::validate_batch_request_contract;
 pub use report::{
-    ArtifactStatus, BatchOutcomeCounts, BatchRunEntry, BatchRunReport, RunChangeRegion,
-    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection,
-    RunNotificationDelivery, RunPersistSection, RunReport, SnapshotDigestSummary, StatusReport,
+    ArtifactStatus, BatchOutcomeCounts, BatchRunEntry, BatchRunReport, NotificationPayload,
+    ProcessErrorDetail, ProcessErrorKind, RunChangeRegion, RunChangeSection, RunCompareSection,
+    RunExtractionSection, RunFetchSection, RunNotificationDelivery, RunPersistSection, RunReport,
+    SnapshotDigestSummary, StatusReport,
 };
 pub use schema::{
     BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE, RUN_REPORT_SCHEMA_NAME,
-    RUN_REPORT_SCHEMA_VERSION, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE, NOTIFICATION_PAYLOAD_SCHEMA_NAME,
+    NOTIFICATION_PAYLOAD_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
+    STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
     STATUS_REPORT_SCHEMA_VERSION, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
 };
 pub use state::StateDocument;
