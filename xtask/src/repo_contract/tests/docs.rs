@@ -141,6 +141,10 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
     let repo_root = repo_root();
     let release_protocol = fs::read_to_string(repo_root.join("docs/release-protocol.md"))
         .expect("read docs/release-protocol");
+    let operations =
+        fs::read_to_string(repo_root.join("docs/operations.md")).expect("read docs/operations");
+    let ci_workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
 
     assert!(
         release_protocol.contains("required conversation resolution before merge"),
@@ -180,6 +184,26 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
     assert!(
         release_protocol.contains("required `Check` status"),
         "docs/release-protocol.md must name the aggregate required status correctly"
+    );
+    assert!(
+        release_protocol.contains("gh workflow run ci.yml --ref \"$RELEASE_BRANCH\""),
+        "docs/release-protocol.md must document the CI workflow_dispatch recovery path"
+    );
+    assert!(
+        release_protocol.contains("app/dependabot"),
+        "docs/release-protocol.md must document GitHub's Dependabot app identity"
+    );
+    assert!(
+        release_protocol.contains("failed or cancelled sibling run"),
+        "docs/release-protocol.md must document cancelled sibling release runs"
+    );
+    assert!(
+        operations.contains("workflow_dispatch"),
+        "docs/operations.md must mention the CI workflow_dispatch recovery path"
+    );
+    assert!(
+        ci_workflow.contains("workflow_dispatch:"),
+        ".github/workflows/ci.yml must expose workflow_dispatch for maintainer recovery"
     );
 }
 
