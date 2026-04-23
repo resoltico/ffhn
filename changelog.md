@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-04-23
+
 - Bumped `htmlcut-core` from `v4.3.0` to `v4.4.0` and refreshed the maintained lockfiles before the public `3.0.0` release.
 - Hardened the Windows standalone release ZIP path by normalizing temporary roots through the real runner temp directory, preferring bash-native ZIP extraction before PowerShell fallback, and making the PowerShell ZIP packager emit forward-slash archive members after explicitly loading both compression assemblies.
 - Tightened the maintained release protocol around large-PR diff inspection, required conversation resolution, explicit fetch-plus-fast-forward sync, dirty-checkout capture via `release-prep/`, and worktree branch handoff during closeout; the repo-contract tests now enforce those release-doc invariants.
