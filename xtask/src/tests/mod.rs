@@ -59,6 +59,7 @@ fn run_git(repo_root: &Path, args: &[&str]) {
 
 mod coverage;
 mod plan;
+mod release;
 mod semver;
 
 fn seed_tracked_files(repo_root: &Path) -> BTreeMap<PathBuf, String> {

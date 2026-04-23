@@ -87,6 +87,22 @@ fn check_plan_includes_all_strict_gates() {
             "--exit-code",
             "1"
         ]));
+    assert!(plan.iter().any(|spec| {
+        spec.args
+            == [
+                "outdated".to_owned(),
+                "--manifest-path".to_owned(),
+                repo_root
+                    .path()
+                    .join("fuzz")
+                    .join("Cargo.toml")
+                    .to_string_lossy()
+                    .into_owned(),
+                "--root-deps-only".to_owned(),
+                "--exit-code".to_owned(),
+                "1".to_owned(),
+            ]
+    }));
     assert!(
         plan.iter()
             .any(|spec| spec.args == ["audit", "-D", "warnings"])

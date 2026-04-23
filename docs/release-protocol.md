@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: RELEASE
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -63,6 +63,21 @@ If the primary checkout has unpublished local work, decide before the release wh
 
 If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${VERSION}`. The release branch is for the final version, changelog, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
 
+If the primary checkout is dirty because it already contains the intended release-candidate work, capture that state explicitly before creating the clean release worktree:
+
+```bash
+PREP_BRANCH="release-prep/${VERSION}"
+git switch -c "$PREP_BRANCH"
+git add <every already-intended release file>
+git commit -m "chore: prepare ${VERSION} release candidate"
+git fetch origin --prune --tags
+RELEASE_WORKTREE="$(mktemp -d -t ffhn-release-XXXXXX)"
+git worktree add -b "$RELEASE_BRANCH" "$RELEASE_WORKTREE" "$PREP_BRANCH"
+cd "$RELEASE_WORKTREE"
+```
+
+That keeps the release worktree clean without discarding the real unpublished state that must ship. Do not hand-copy a dirty diff into a temporary checkout and hope it still matches later.
+
 Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). Rust `1.95.0` remains the default FFHN toolchain. Nightly is installed alongside it only for the coverage gate and optional manual sanitizer-backed fuzz runs.
 
 Run the single local quality gate first:
@@ -99,6 +114,7 @@ Then verify:
   - `main` protected
   - no required approving reviews on `main`
   - no admin-enforced branch protection override requirement
+  - required conversation resolution before merge
   - required status checks exactly:
     - `Check`
 
@@ -146,6 +162,12 @@ gh pr view "$PR_NUMBER" --json number,state,mergeStateStatus,statusCheckRollup,u
 gh pr checks "$PR_NUMBER"
 ```
 
+If `gh pr diff "$PR_NUMBER" --name-only` fails with HTTP `406` because the diff exceeds GitHub's line-limit for that endpoint, enumerate the changed file set through the pull-files API instead:
+
+```bash
+gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename'
+```
+
 Do not continue until the required job in workflow `CI` is green:
 
 - `Check`
@@ -157,7 +179,8 @@ Do not continue until the required job in workflow `CI` is green:
 ```bash
 gh pr merge "$PR_NUMBER" --merge --delete-branch --subject "release: bump version to ${VERSION} (#${PR_NUMBER})"
 git checkout main
-git pull --ff-only
+git fetch origin --prune --tags
+git merge --ff-only origin/main
 gh pr view "$PR_NUMBER" --json number,state,mergedAt,headRefName,baseRefName,url
 ```
 
@@ -167,6 +190,8 @@ Verify:
 - `mergedAt` is populated
 - local `main` contains the merge you expect
 - the remote release branch is deleted
+
+If a green PR is blocked only because conversations are unresolved, resolve or close those threads and then merge normally.
 
 If a green PR is blocked by review requirements or admin-enforced branch protection, repository settings have drifted away from this protocol and must be corrected before the release proceeds.
 
@@ -328,12 +353,23 @@ gh pr list --state open \
 
 Treat any PR whose `author.login` is `dependabot[bot]` as in scope for this step, even if it was already reviewed during Step 1. Step 1 creates the release-time decision; Step 10 closes the loop before the release session is allowed to end.
 
-For each open Dependabot PR, inspect the exact payload and its current gate status with `gh pr diff <url> --name-only` and `gh pr view <url> --json number,title,state,mergeStateStatus,statusCheckRollup,url`.
+For each open Dependabot PR, inspect the exact payload and its current gate status:
+
+```bash
+gh pr diff <N> --name-only
+gh pr view <N> --json number,title,state,mergeStateStatus,statusCheckRollup,url
+```
+
+If `gh pr diff <N> --name-only` fails with HTTP `406` because the diff exceeds GitHub's line-limit for that endpoint, enumerate the changed file set through the pull-files API instead:
+
+```bash
+gh api "repos/$REPO/pulls/<N>/files" --paginate --jq '.[].filename'
+```
 
 Rules:
 
-- If the PR is wanted, mergeable, and already green on the required `CI` checks, merge it immediately with `gh pr merge <url> --merge --delete-branch`.
-- If the PR is stale, superseded by `main`, intentionally rejected, or replaced by a different change path, close it explicitly and delete its branch with `gh pr close <url> --comment "Superseded or intentionally rejected during release hygiene." --delete-branch`.
+- If the PR is wanted, mergeable, and already green on the required `Check` status, merge it immediately with `gh pr merge <N> --merge --delete-branch`.
+- If the PR is stale, superseded by `main`, intentionally rejected, or replaced by a different change path, close it explicitly and delete its branch with `gh pr close <N> --comment "Superseded or intentionally rejected during release hygiene." --delete-branch`.
 - If the PR needs follow-up work before it is acceptable, do that work as a normal post-release change on `main` and then land or replace the Dependabot PR. Do not leave a green but unattended Dependabot PR parked indefinitely just because the release itself already shipped.
 - Never retag, amend, or move the just-published release tag to absorb a Dependabot change. The published release remains immutable. Dependabot resolution is post-release `main` hygiene.
 - There is no "ignore it and leave the branch there" option. Every open Dependabot PR must end this step in exactly one of these states:
@@ -345,8 +381,8 @@ After each merge or close, resync and re-check GitHub branch state:
 
 ```bash
 git checkout main
-git pull --ff-only
-git remote prune origin
+git fetch origin --prune --tags
+git merge --ff-only origin/main
 gh api "repos/$REPO/branches" --paginate --jq '.[].name'
 ```
 
@@ -362,7 +398,8 @@ After the release is complete, refresh the checked-in semver baseline so future 
 
 ```bash
 git checkout main
-git pull --ff-only
+git fetch origin --prune --tags
+git merge --ff-only origin/main
 cargo xtask refresh-semver-baseline --git-ref "$TAG"
 git add semver-baseline/ffhn-core
 git commit -m "chore: refresh ffhn-core semver baseline"
@@ -383,7 +420,8 @@ BASELINE_PR_URL="$(gh pr create \
   --body "Refresh the checked-in ffhn-core semver baseline to ${TAG} after the public release.")"
 gh pr merge "$BASELINE_PR_URL" --merge --delete-branch
 git checkout main
-git pull --ff-only
+git fetch origin --prune --tags
+git merge --ff-only origin/main
 ```
 
 Only bypass that PR flow if the repository explicitly allows trusted maintainers to push this post-release housekeeping commit directly to `main`.
@@ -393,6 +431,12 @@ Only bypass that PR flow if the repository explicitly allows trusted maintainers
 If the release used a dedicated release worktree or any checkout other than the primary checkout, the session is not complete until the primary checkout is truthful again. This is a blocking release closeout gate, not an advisory cleanup reminder.
 
 If unpublished local work from the primary checkout is still needed, move it onto a named branch based on current `main` first, then return the primary checkout itself to `main`.
+
+If the disposable release worktree still has `main` checked out, Git will refuse `git -C "$PRIMARY_CHECKOUT" checkout main`. Detach that disposable worktree first:
+
+```bash
+git -C "$RELEASE_WORKTREE" checkout --detach
+```
 
 Run:
 
@@ -405,11 +449,18 @@ git -C "$PRIMARY_CHECKOUT" rev-parse HEAD
 git -C "$PRIMARY_CHECKOUT" status --short
 ```
 
+If a temporary `release-prep/${VERSION}` branch was created only to capture dirty release-candidate state and the shipped `main` history has absorbed it, delete that stale prep branch explicitly:
+
+```bash
+git -C "$PRIMARY_CHECKOUT" branch -d "release-prep/${VERSION}"
+```
+
 Requirements before declaring the release session complete:
 
 - the primary checkout `HEAD` equals `origin/main`
 - the primary checkout `Cargo.toml` and `changelog.md` reflect the released version
 - no stale release-only checkout may be left behind with the appearance of being authoritative
+- no stale local `release-prep/` branch may remain once the shipped `main` history fully absorbs it
 - if unpublished local work from the primary checkout is still needed, replay it deliberately onto a named branch based on current `main`; do not leave it only in a stash or mixed back into `main`
 - if that unpublished local work is stale, superseded, or regresses the shipped release state, delete it instead of preserving misleading debris
 

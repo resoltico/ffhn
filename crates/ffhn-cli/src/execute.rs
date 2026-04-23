@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io;
 use std::io::Write;
 use std::path::Path;
 
@@ -81,10 +82,7 @@ pub fn run(
                                     .expect("registered run report write error"),
                             );
                             EXIT_CODE_FATAL
-                        } else if matches!(
-                            report.run_outcome,
-                            RunOutcome::FailedTransient | RunOutcome::FailedPermanent
-                        ) {
+                        } else if run_report_requires_failed_exit(&report) {
                             EXIT_CODE_RUN_FAILED
                         } else {
                             0
@@ -117,7 +115,9 @@ pub fn run(
                         EXIT_CODE_FATAL
                     } else if report.outcome_counts.failed_transient > 0
                         || report.outcome_counts.failed_permanent > 0
+                        || report.outcome_counts.persist_error > 0
                         || report.outcome_counts.fatal_error > 0
+                        || batch_report_has_notification_failures(&report)
                     {
                         EXIT_CODE_RUN_FAILED
                     } else {
@@ -175,8 +175,17 @@ fn duplicate_target_id(command: &RunCommand) -> Option<&str> {
 
 pub(crate) fn discover_watch_root_targets(watch_root: &Path) -> Result<Vec<String>, CoreError> {
     let mut targets = Vec::new();
+    if !watch_root.exists() {
+        return Err(CoreError::io(
+            watch_root,
+            io::Error::new(io::ErrorKind::NotFound, "watch root does not exist"),
+        ));
+    }
     if !watch_root.is_dir() {
-        return Ok(targets);
+        return Err(CoreError::io(
+            watch_root,
+            io::Error::other("watch root is not a directory"),
+        ));
     }
 
     let read_dir = fs::read_dir(watch_root)
@@ -186,6 +195,9 @@ pub(crate) fn discover_watch_root_targets(watch_root: &Path) -> Result<Vec<Strin
     entries.sort();
 
     for target_id in entries.into_iter().filter_map(|path| {
+        if !path.join("target.toml").exists() {
+            return None;
+        }
         path.file_name()
             .and_then(|name| name.to_str())
             .map(str::to_owned)
@@ -235,4 +247,27 @@ fn raw_option_tokens(raw_args: &[String]) -> impl Iterator<Item = &str> {
         .skip(1)
         .take_while(|arg| arg.as_str() != "--")
         .map(String::as_str)
+}
+
+fn run_report_requires_failed_exit(report: &ffhn_core::RunReport) -> bool {
+    matches!(
+        report.run_outcome,
+        RunOutcome::FailedTransient | RunOutcome::FailedPermanent
+    ) || report.run_mode == RunMode::Live
+        && (report.persist.error.is_some() || run_report_has_notification_failures(report))
+}
+
+fn batch_report_has_notification_failures(report: &ffhn_core::BatchRunReport) -> bool {
+    report
+        .entries
+        .iter()
+        .filter_map(|entry| entry.run_report.as_ref())
+        .any(run_report_has_notification_failures)
+}
+
+fn run_report_has_notification_failures(report: &ffhn_core::RunReport) -> bool {
+    report
+        .notifications
+        .iter()
+        .any(|delivery| !delivery.delivered)
 }

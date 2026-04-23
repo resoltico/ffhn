@@ -57,6 +57,19 @@ pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
     ));
     plan.push(CommandSpec::new(
         "cargo",
+        [
+            "outdated",
+            "--manifest-path",
+            fuzz_manifest_path(repo_root).to_string_lossy().as_ref(),
+            "--root-deps-only",
+            "--exit-code",
+            "1",
+        ],
+        false,
+        false,
+    ));
+    plan.push(CommandSpec::new(
+        "cargo",
         ["audit", "-D", "warnings"],
         false,
         false,

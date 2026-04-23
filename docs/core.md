@@ -1,8 +1,8 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: CORE
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
   keywords: [core runtime, validate_target, status, run_once, run_once_dry_run, run_batch, locking, dry run]
   questions: ["what operations does ffhn-core expose?", "what does ffhn dry-run skip?", "how does ffhn-core classify successful and failed runs?"]
@@ -37,14 +37,15 @@ The main differences are in locking and side effects.
 
 `run_once` and live `run_batch`:
 
-1. short-circuit invalid target documents before lock or state access
+1. short-circuit invalid target documents before lock or state access, but surface target-load filesystem faults as fatal process errors
 2. acquire the exclusive per-target run lock before reading stored state
 3. treat unreadable or invalid stored state as a structured permanent failure
 4. treat snapshot-integrity mismatch as a structured permanent failure
 5. persist live state and snapshot artifacts on successful runs, and state-only updates when applicable
-6. surface live persistence failures after a reportable outcome as structured `persist_error` reports
+6. surface live persistence failures after a reportable outcome as structured `persist_error` reports and/or `persist.error` detail
 7. attempt notification hooks that match the final run outcome
-8. attempt the final `last_run.json` write after notification delivery results are known
+8. keep notification delivery failures in `notifications[]` and leave `run_outcome` unchanged
+9. attempt the final `last_run.json` write after notification delivery results are known
 
 An explicitly disabled live target short-circuits to `skipped_disabled` instead of fetching or extracting.
 
@@ -86,13 +87,16 @@ Its guarantees are:
 2. `max_concurrency` must be positive
 3. `requested_targets` stays in caller-supplied order
 4. `entries` are emitted in the same stable order
-5. `max_concurrency` records the requested chunk width
-6. each entry contains either one `run_report` or one plain `fatal_error` string
-7. `outcome_counts` are derived from the actual entry contents and must match them exactly
+5. `max_concurrency` records the requested concurrency bound
+6. idle workers pull the next target immediately instead of waiting on chunk barriers
+7. each entry contains either one `run_report` or one structured `fatal_error` object
+8. `outcome_counts` are derived from the actual entry contents and must match them exactly
+
+Notification-delivery failures are intentionally outside `outcome_counts`, so callers that care about hook success must inspect `run_report.notifications`.
 
 ## Status Behavior
 
-`status` validates the target first, then acquires a shared lock for valid targets and returns a `ffhn.status_report`.
+`status` validates the target first, then acquires a shared lock for valid targets and returns a `ffhn.status_report`. Target-load filesystem faults stay fatal instead of being flattened into structured `config_invalid`.
 
 It reports:
 

@@ -1,11 +1,11 @@
 ---
 afad: "3.5"
-version: "2.1.0"
+version: "3.0.0"
 domain: CONTRACTS
-updated: "2026-04-22"
+updated: "2026-04-23"
 route:
-  keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, snapshot layout]
-  questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch-root layout?"]
+  keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, notification payload, process errors, snapshot layout]
+  questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch-root layout?", "where is ffhn's structured process-error shape documented?"]
 ---
 
 # Durable Contracts
@@ -43,14 +43,19 @@ All current FFHN schema documents require exact `schema_name` and `schema_versio
 | `ffhn.extraction_record` | 1 | persisted inside snapshot artifacts |
 | `ffhn.state` | 1 | stored as `state.json` |
 | `ffhn.run_report` | 1 | emitted for single-target `run` |
+| `ffhn.notification_payload` | 1 | written to notification-hook stdin |
 | `ffhn.batch_run_report` | 1 | emitted for multi-target `run` |
 | `ffhn.status_report` | 1 | emitted for `status` |
 
 The current HTMLCut interop profile is `htmlcut-v1`.
 
+Embedded field vocabularies and stable subobjects inside those schemas are part of the same public contract surface. That includes report `reason_code` values, notification-event values, and the shared structured process-error detail used by `persist.error` and batch `fatal_error`.
+
 ## Durable Watch-Root Layout
 
 FFHN uses one watch root containing one directory per `target_id`.
+
+For discovery-based `run --all`, only immediate subdirectories that contain a `target.toml` path are treated as target candidates.
 
 ```text
 <watch_root>/
@@ -76,7 +81,7 @@ The durable artifact meanings are:
 
 - `target.toml`: `ffhn.target`
 - `state.json`: `ffhn.state`
-- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails
+- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails, even though stdout already carried the newer report and its `persist.error`
 - `lock/run.lock`: the shared/exclusive lock anchor, created lazily for valid live `run`, valid dry-run `run`, and valid `status` execution
 - `snapshots/current/canonical.txt`: compare-time canonical text
 - `snapshots/current/outer.html`: `selected_match.outer_html`

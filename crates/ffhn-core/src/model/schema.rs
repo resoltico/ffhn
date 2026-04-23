@@ -18,6 +18,11 @@ pub const RUN_REPORT_SCHEMA_NAME: &str = "ffhn.run_report";
 /// Canonical schema version for `ffhn.run_report`.
 pub const RUN_REPORT_SCHEMA_VERSION: u32 = 1;
 
+/// Canonical schema name for `ffhn.notification_payload`.
+pub const NOTIFICATION_PAYLOAD_SCHEMA_NAME: &str = "ffhn.notification_payload";
+/// Canonical schema version for `ffhn.notification_payload`.
+pub const NOTIFICATION_PAYLOAD_SCHEMA_VERSION: u32 = 1;
+
 /// Canonical schema name for `ffhn.batch_run_report`.
 pub const BATCH_RUN_REPORT_SCHEMA_NAME: &str = "ffhn.batch_run_report";
 /// Canonical schema version for `ffhn.batch_run_report`.

@@ -257,6 +257,7 @@ fn run_report_validation_rejects_dry_run_mutation_and_failure_class_mismatches()
             duration_ms: 1,
             wrote_state: true,
             wrote_last_run: false,
+            error: None,
         },
         ..valid_run_report()
     }
@@ -403,5 +404,35 @@ fn run_report_validation_checks_change_and_notification_details() {
     }
     .with_digest()
     .expect("nonzero delivered digest");
+    assert!(report.validate().is_err());
+
+    let report = RunReport {
+        persist: RunPersistSection {
+            duration_ms: 1,
+            wrote_state: false,
+            wrote_last_run: true,
+            error: Some(valid_process_error()),
+        },
+        run_outcome: RunOutcome::FailedTransient,
+        reason_code: ReasonCode::PersistError,
+        failure_class: Some(FailureClass::Transient),
+        current_compare_digest_sha256: None,
+        ..valid_run_report()
+    }
+    .with_digest()
+    .expect("persist error detail digest");
+    report.validate().expect("persist error detail report");
+
+    let report = RunReport {
+        persist: RunPersistSection {
+            duration_ms: 1,
+            wrote_state: true,
+            wrote_last_run: true,
+            error: Some(valid_process_error()),
+        },
+        ..valid_run_report()
+    }
+    .with_digest()
+    .expect("persist error digest");
     assert!(report.validate().is_err());
 }

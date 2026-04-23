@@ -151,6 +151,7 @@ pub(super) fn live_success_report(target_id: &str) -> RunReport {
             duration_ms: 2,
             wrote_state: true,
             wrote_last_run: false,
+            error: None,
         },
         notifications: Vec::new(),
         extensions: None,

@@ -70,7 +70,7 @@ fn evaluate_coverage_report_merges_duplicate_segments_and_ignores_untracked_file
         &[
             "crates/ffhn-core/src/canonical.rs",
             "crates/ffhn-core/src/fetch.rs",
-            "crates/ffhn-core/src/model/report.rs",
+            "crates/ffhn-core/src/model/report/run.rs",
             "xtask/src/model.rs",
         ],
     );
@@ -133,7 +133,7 @@ fn evaluate_coverage_report_merges_duplicate_segments_and_ignores_untracked_file
                     CoverageFile {
                         filename: repo_root
                             .path()
-                            .join("crates/ffhn-core/src/model/report.rs"),
+                            .join("crates/ffhn-core/src/model/report/run.rs"),
                         segments: vec![(30, 0, 1, false, true, false)],
                         branches: Vec::new(),
                         summary: CoverageFileSummary::default(),
@@ -236,7 +236,7 @@ fn evaluate_coverage_report_reports_uncovered_and_missing_files() {
             files: vec![CoverageFile {
                 filename: repo_root
                     .path()
-                    .join("crates/ffhn-core/src/model/report.rs"),
+                    .join("crates/ffhn-core/src/model/report/run.rs"),
                 segments: vec![(7, 0, 0, false, true, false)],
                 branches: Vec::new(),
                 summary: CoverageFileSummary {
@@ -258,7 +258,7 @@ fn evaluate_coverage_report_reports_uncovered_and_missing_files() {
     let core_failure = summary
         .failures
         .iter()
-        .find(|failure| failure.file == "crates/ffhn-core/src/model/report.rs")
+        .find(|failure| failure.file == "crates/ffhn-core/src/model/report/run.rs")
         .expect("core failure");
     assert_eq!(core_failure.uncovered_lines, vec!["7".to_owned()]);
     assert_eq!(core_failure.uncovered_branch_count, 1);
@@ -280,7 +280,7 @@ fn evaluate_coverage_report_reports_branch_only_failures() {
                 CoverageFile {
                     filename: repo_root
                         .path()
-                        .join("crates/ffhn-core/src/model/report.rs"),
+                        .join("crates/ffhn-core/src/model/report/run.rs"),
                     segments: vec![(7, 0, 1, false, true, false)],
                     branches: Vec::new(),
                     summary: CoverageFileSummary {

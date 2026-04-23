@@ -166,6 +166,112 @@ fn code_segments(text: &str) -> Vec<String> {
     segments
 }
 
+fn markdown_link_targets(text: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut remainder = text;
+
+    while let Some(start) = remainder.find("](") {
+        let after_start = &remainder[start + 2..];
+        let Some(end) = after_start.find(')') else {
+            break;
+        };
+        targets.push(
+            after_start[..end]
+                .trim()
+                .trim_matches(['<', '>'])
+                .to_owned(),
+        );
+        remainder = &after_start[end + 1..];
+    }
+
+    targets
+}
+
+fn repo_file_mentions(text: &str) -> BTreeSet<String> {
+    let mut mentions = BTreeSet::new();
+
+    for segment in code_segments(text) {
+        for raw_token in segment.split_whitespace() {
+            let token = raw_token.trim_matches(|character: char| {
+                matches!(
+                    character,
+                    '`' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' | ':'
+                )
+            });
+            if looks_like_repo_file_mention(token) {
+                mentions.insert(token.to_owned());
+            }
+        }
+    }
+
+    mentions
+}
+
+fn looks_like_repo_file_mention(token: &str) -> bool {
+    if token.is_empty()
+        || token.starts_with("http://")
+        || token.starts_with("https://")
+        || token.starts_with("mailto:")
+        || token.contains('*')
+    {
+        return false;
+    }
+
+    let normalized = token
+        .trim_start_matches("./")
+        .trim_start_matches("../")
+        .trim_end_matches(['.', '/', ')']);
+
+    if matches!(
+        normalized,
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "README.md"
+            | "CONTRIBUTING.md"
+            | "changelog.md"
+            | "check.sh"
+            | "rust-toolchain.toml"
+    ) {
+        return true;
+    }
+
+    [
+        ".codex/",
+        ".claude/",
+        ".gemini/",
+        ".github/workflows/",
+        "crates/",
+        "docs/",
+        "examples/",
+        "fuzz/",
+        "scripts/",
+        "watchlist/",
+        "xtask/",
+    ]
+    .iter()
+    .any(|prefix| normalized.starts_with(prefix))
+        && [".lock", ".md", ".rs", ".sh", ".toml", ".yml"]
+            .iter()
+            .any(|suffix| normalized.ends_with(suffix))
+}
+
+fn resolve_repo_path_exists(repo_root: &Path, markdown_file: &Path, mention: &str) -> bool {
+    let relative = mention.split('#').next().unwrap_or(mention);
+    if relative.is_empty() {
+        return true;
+    }
+
+    [
+        markdown_file
+            .parent()
+            .expect("markdown parent")
+            .join(relative),
+        repo_root.join(relative),
+    ]
+    .into_iter()
+    .any(|candidate| candidate.exists())
+}
+
 fn string_literals(text: &str) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut literals = Vec::new();
@@ -347,4 +453,5 @@ fn bash_stdout_lines(repo_root: &Path, command: &str) -> Vec<String> {
 
 mod docs;
 mod examples;
+mod fuzz;
 mod parsing;
