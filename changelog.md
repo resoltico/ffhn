@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Made the `CI` workflow's manual-dispatch recovery path explicit in the maintainer docs, clarified that GitHub may surface Dependabot as `app/dependabot`, and documented that cancelled sibling release reruns are not authoritative when another run already converged the published release object.
+
 ## [3.0.1] - 2026-04-23
 
 - Bumped `htmlcut-core` from `v4.4.0` to `v4.4.1` and refreshed the maintained lockfiles before the public `3.0.1` release.

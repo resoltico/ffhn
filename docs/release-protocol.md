@@ -125,7 +125,7 @@ gh pr list --state open \
   --json number,title,url,headRefName,mergeStateStatus,isDraft,author,statusCheckRollup
 ```
 
-If any open PR is authored by `dependabot[bot]`, decide up front whether it changes release machinery, release assets, or release-critical dependencies. If it does, land or reject it before cutting the release branch. If it does not, carry that decision forward and complete Step 10 before ending the release session.
+If any open PR is authored by Dependabot, usually surfaced as `app/dependabot` and sometimes as `dependabot[bot]` in `author.login`, decide up front whether it changes release machinery, release assets, or release-critical dependencies. If it does, land or reject it before cutting the release branch. If it does not, carry that decision forward and complete Step 10 before ending the release session.
 
 ## 2. Release branch
 
@@ -285,7 +285,7 @@ RUN_ID="$(gh run list --workflow=release.yml --commit "$TAG_SHA" --limit 1 --jso
 gh run view "$RUN_ID" --log-failed
 ```
 
-Never treat one failed run as authoritative if another sibling run for the same tag already converged the release object onto the required state. The authoritative state is the GitHub release object and its assets, not the first workflow run you happen to inspect.
+Never treat one failed or cancelled sibling run as authoritative if another run for the same tag already converged the release object onto the required state. The authoritative state is the GitHub release object and its assets, not the first workflow run you happen to inspect.
 
 ## 8. Verify the GitHub release object
 
@@ -381,7 +381,7 @@ gh pr list --state open \
   --json number,title,url,headRefName,mergeStateStatus,isDraft,author,statusCheckRollup
 ```
 
-Treat any PR whose `author.login` is `dependabot[bot]` as in scope for this step, even if it was already reviewed during Step 1. Step 1 creates the release-time decision; Step 10 closes the loop before the release session is allowed to end.
+Treat any PR whose `author.login` is `app/dependabot` or `dependabot[bot]` as in scope for this step, even if it was already reviewed during Step 1. Step 1 creates the release-time decision; Step 10 closes the loop before the release session is allowed to end.
 
 For each open Dependabot PR, inspect the exact payload and its current gate status:
 

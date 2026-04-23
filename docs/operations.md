@@ -50,6 +50,8 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 3. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
 4. `check`: aggregate success job used for branch protection
 
+`CI` also exposes `workflow_dispatch` so maintainers can rerun the exact aggregate `Check` against a branch when GitHub fails to attach the `pull_request` workflow on the initial PR open.
+
 `/.github/workflows/release.yml` uses one helper job, two build jobs, and one publication job. The effective publication flow is:
 
 1. compute the standalone target matrix
