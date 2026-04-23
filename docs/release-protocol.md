@@ -176,6 +176,24 @@ Do not continue until the required job in workflow `CI` is green:
 
 `Check` is the aggregate branch-protection gate. It must reflect both the Rust maintainer gate and the release-target smoke matrix.
 
+If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
+
+Recover in this order:
+
+1. Close and reopen the PR once to retrigger the `pull_request` workflow without changing release contents.
+2. Re-check:
+
+```bash
+gh pr close "$PR_NUMBER"
+gh pr reopen "$PR_NUMBER"
+gh pr checks "$PR_NUMBER"
+gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+```
+
+3. If `Check` is still absent, push one more commit to the release branch to force a `pull_request` synchronize event. Prefer a real corrective follow-up commit when the protocol or release docs genuinely need refinement; use an empty retrigger commit only as the last resort.
+
+Never merge a release PR whose required `Check` status never materialized on GitHub.
+
 ## 4. Merge handoff
 
 ```bash
