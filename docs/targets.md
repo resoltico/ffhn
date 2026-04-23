@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: TARGETS
 updated: "2026-04-23"
 route:
@@ -25,6 +25,7 @@ Every target document requires:
 9. `[compare]`
 
 Optional sections are `[storage]`, `[[notifications]]`, top-level `[extensions]`, and reserved `[fetch.extensions]`.
+FFHN currently preserves those extension objects structurally but does not interpret them semantically, so they are reserved for forward-compatible metadata rather than current runtime behavior.
 
 `enabled` has three user-facing effects:
 
@@ -117,6 +118,9 @@ Additional HTTP-only rules:
 3. `accept` is required
 4. `headers` keys and values must be non-empty when present
 5. `fetch.engine = "file"` is forbidden
+
+HTTP responses with no `Content-Type` header are still accepted and decoded as UTF-8 by default.
+`fetch_unsupported_content_type` is reserved for responses that do send a non-HTML/XHTML media type.
 
 ### File fetch rules
 

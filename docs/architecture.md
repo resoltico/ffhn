@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: ARCHITECTURE
 updated: "2026-04-23"
 route:
@@ -20,6 +20,7 @@ crates/
   ffhn-cli/
 xtask/
 fuzz/
+semver-baseline/
 docs/
 examples/
 scripts/
@@ -42,7 +43,7 @@ watchlist/
 `ffhn-cli` is a thin process adapter. It owns:
 
 1. rendering the core-owned CLI operation contract into argument parsing and help text
-2. watch-root discovery for `run --all`, including the `target.toml` marker rule
+2. watch root discovery for `run --all`, including the `target.toml` marker rule
 3. choosing single-target versus batch execution
 4. emitting exactly one JSON document on stdout
 5. mapping outcomes plus notification-delivery failures into process exit codes
@@ -54,6 +55,8 @@ watchlist/
 3. `cargo xtask refresh-semver-baseline --git-ref <published-tag>`
 
 `fuzz/` is a separate `cargo-fuzz` package. It is not part of the normal workspace members and is compile-smoked by the maintainer gate through its own manifest.
+
+`semver-baseline/ffhn-core` is checked-in release reference data, not a live workspace member. `cargo semver-checks` compares the current public `ffhn-core` API against that last-published baseline so the release contract stays explicit.
 
 ## FFHN Versus HTMLCut
 

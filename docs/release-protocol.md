@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: RELEASE
 updated: "2026-04-23"
 route:
@@ -103,7 +103,7 @@ Then verify:
 - `CONTRIBUTING.md` still matches the maintained contributor and release workflow.
 - `docs/README.md` still points at the maintained developer and maintainer docs.
 - `docs/versioning-policy.md` still matches the shipped contract policy, frozen HTMLCut interop model, and semver-baseline rules.
-- `docs/cli.md`, `docs/core.md`, `docs/contracts.md`, `docs/reports.md`, and `docs/targets.md` still match the shipped surfaces.
+- `docs/cli.md`, `docs/core.md`, `docs/contracts.md`, `docs/reports.md`, `docs/run-reports.md`, and `docs/targets.md` still match the shipped surfaces.
 - `docs/quality-gates.md` still matches `cargo xtask`.
 - `docs/operations.md` still matches the release scripts, asset matrix, checksum-manifest flow, and workflow structure.
 - `docs/platform-support.md` still matches the shipped release target matrix, package contents, and deployment floors.
@@ -132,7 +132,9 @@ If any open PR is authored by `dependabot[bot]`, decide up front whether it chan
 Do release commits on a release branch, not directly on `main`.
 
 ```bash
-git switch -c "$RELEASE_BRANCH"
+if [ "$(git branch --show-current)" != "$RELEASE_BRANCH" ]; then
+  git switch -c "$RELEASE_BRANCH"
+fi
 git add -A
 git status --short
 git diff --cached --name-status
@@ -174,13 +176,37 @@ Do not continue until the required job in workflow `CI` is green:
 
 `Check` is the aggregate branch-protection gate. It must reflect both the Rust maintainer gate and the release-target smoke matrix.
 
+If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
+
+Recover in this order:
+
+1. Close and reopen the PR once to retrigger the `pull_request` workflow without changing release contents.
+2. Re-check:
+
+```bash
+gh pr close "$PR_NUMBER"
+gh pr reopen "$PR_NUMBER"
+gh pr checks "$PR_NUMBER"
+gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+```
+
+3. If `Check` is still absent, push one more commit to the release branch to force a `pull_request` synchronize event. Prefer a real corrective follow-up commit when the protocol or release docs genuinely need refinement; use an empty retrigger commit only as the last resort.
+4. If the synchronize event still does not produce `Check`, dispatch the `CI` workflow manually against the release branch and wait for the resulting `Check` status:
+
+```bash
+gh workflow run ci.yml --ref "$RELEASE_BRANCH"
+gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+gh pr checks "$PR_NUMBER"
+```
+
+`CI` intentionally exposes `workflow_dispatch` for this maintainer recovery path. If `Check` still never materializes after the manual dispatch, stop and investigate repository or GitHub-side drift instead of merging blind.
+
 ## 4. Merge handoff
 
 ```bash
 gh pr merge "$PR_NUMBER" --merge --delete-branch --subject "release: bump version to ${VERSION} (#${PR_NUMBER})"
-git checkout main
 git fetch origin --prune --tags
-git merge --ff-only origin/main
+git checkout --detach origin/main
 gh pr view "$PR_NUMBER" --json number,state,mergedAt,headRefName,baseRefName,url
 ```
 
@@ -188,7 +214,7 @@ Verify:
 
 - PR state is `MERGED`
 - `mergedAt` is populated
-- local `main` contains the merge you expect
+- the synced release checkout now reflects `origin/main` at the merged release commit
 - the remote release branch is deleted
 
 If a green PR is blocked only because conversations are unresolved, resolve or close those threads and then merge normally.
@@ -284,6 +310,7 @@ Requirements:
   - `ffhn-${VERSION}-checksums.txt`
 
 Workflow success is not authoritative. The release object and its assets are authoritative.
+GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest, but this protocol's blocking verification keys on the release object and the maintained asset inventory rather than those separate attestation records.
 
 GitHub will also render `Source code (zip)` and `Source code (tar.gz)` links on the release page. Those links are GitHub-generated convenience downloads and are not part of FFHN's maintained asset inventory.
 
@@ -313,6 +340,7 @@ esac
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+DESCRIPTION="$(./scripts/workspace-package-field.sh description)"
 
 gh release download "$TAG" \
   -p "$HOST_ARCHIVE" \
@@ -328,7 +356,9 @@ gh release download "$TAG" \
   fi
 
   tar -xzf "$HOST_ARCHIVE"
-  "./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --version | grep "^ffhn ${VERSION}$"
+  VERSION_OUTPUT="$("./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --version | tr -d '\r')"
+  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '1p')" = "ffhn ${VERSION}" ]
+  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '2p')" = "$DESCRIPTION" ]
   "./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --help | grep "status"
 )
 
@@ -380,9 +410,8 @@ Rules:
 After each merge or close, resync and re-check GitHub branch state:
 
 ```bash
-git checkout main
 git fetch origin --prune --tags
-git merge --ff-only origin/main
+git checkout --detach origin/main
 gh api "repos/$REPO/branches" --paginate --jq '.[].name'
 ```
 
@@ -394,37 +423,35 @@ Requirements before declaring the release session complete:
 
 ## 11. Refresh the semver baseline
 
-After the release is complete, refresh the checked-in semver baseline so future minor-version checks compare against the latest published API:
+After the release is complete, refresh the checked-in semver baseline so future semver checks compare against the latest published API.
+
+The maintained path is a short follow-up branch and PR rooted at the released `origin/main` state. That avoids relying on direct pushes to protected `main`, and it still works if the release itself was cut from a dedicated worktree.
 
 ```bash
-git checkout main
 git fetch origin --prune --tags
-git merge --ff-only origin/main
+git checkout --detach origin/main
 cargo xtask refresh-semver-baseline --git-ref "$TAG"
+FOLLOWUP_BRANCH="chore/refresh-semver-baseline-${TAG}"
+git switch -c "$FOLLOWUP_BRANCH"
 git add semver-baseline/ffhn-core
 git commit -m "chore: refresh ffhn-core semver baseline"
-```
-
-That command repackages the published Git ref into `semver-baseline/ffhn-core`, so the baseline cannot silently drift to unreleased local worktree state.
-
-Treat that baseline refresh as an ordinary post-release change, not as an exception to branch protection. If `main` is protected against direct pushes, move the commit onto a short-lived follow-up branch and land it through the normal PR path:
-
-```bash
-FOLLOWUP_BRANCH="chore/refresh-semver-baseline-${TAG}"
-BASELINE_PR_URL=""
-
-git switch -c "$FOLLOWUP_BRANCH"
 git push -u origin "$FOLLOWUP_BRANCH"
 BASELINE_PR_URL="$(gh pr create \
   --title "chore: refresh ffhn-core semver baseline" \
   --body "Refresh the checked-in ffhn-core semver baseline to ${TAG} after the public release.")"
 gh pr merge "$BASELINE_PR_URL" --merge --delete-branch
-git checkout main
+git fetch origin --prune --tags
+git checkout --detach origin/main
+```
+
+That command repackages the published Git ref into `semver-baseline/ffhn-core`, so the baseline cannot silently drift to unreleased local worktree state.
+
+When the current checkout can safely hold `main`, the equivalent branch-bound sync remains:
+
+```bash
 git fetch origin --prune --tags
 git merge --ff-only origin/main
 ```
-
-Only bypass that PR flow if the repository explicitly allows trusted maintainers to push this post-release housekeeping commit directly to `main`.
 
 ## 12. Reconcile the primary checkout
 

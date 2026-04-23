@@ -1,6 +1,6 @@
 ---
 afad: "3.5"
-version: "3.0.0"
+version: "3.0.1"
 domain: FUZZING
 updated: "2026-04-23"
 route:
@@ -31,11 +31,13 @@ Manual live fuzzing:
 
 ## Fuzzer Inventory
 
-| Fuzzer | Target module(s) | Seed files | Primary concern |
+| Fuzzer | Target module(s) | Checked-in corpus | Primary concern |
 | --- | --- | ---: | --- |
-| `dry_run_file_targets` | `ffhn_core::fetch`, `ffhn_core::runtime::run` | 2 | file-source dry-run extraction drift |
-| `state_and_report_json_documents` | `ffhn_core::model::report`, `ffhn_core::model::state` | 4 | schema validation drift |
-| `target_toml_documents` | `ffhn_core::model::target` | 3 | target-contract drift |
+| `dry_run_file_targets` | `ffhn_core::fetch`, `ffhn_core::runtime::run` | `fuzz/corpus/dry_run_file_targets` | file-source dry-run extraction drift |
+| `state_and_report_json_documents` | `ffhn_core::model::report`, `ffhn_core::model::state` | `fuzz/corpus/state_and_report_json_documents` | schema validation drift |
+| `target_toml_documents` | `ffhn_core::model::target` | `fuzz/corpus/target_toml_documents` | target-contract drift |
+
+Each corpus directory may contain both hand-named seed cases and minimized regression inputs, so raw file counts drift over time and are not themselves a maintained contract.
 
 ## Representative Coverage Map
 
@@ -44,8 +46,12 @@ The table below names the main maintained source files each harness exercises; i
 | Source module | Covered by |
 | --- | --- |
 | `crates/ffhn-core/src/fetch.rs` | `dry_run_file_targets` |
+| `crates/ffhn-core/src/fetch/file.rs` | `dry_run_file_targets` |
 | `crates/ffhn-core/src/model/report.rs` | `state_and_report_json_documents` |
+| `crates/ffhn-core/src/model/report/batch.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/report/notification.rs` | `state_and_report_json_documents` |
+| `crates/ffhn-core/src/model/report/run.rs` | `state_and_report_json_documents` |
+| `crates/ffhn-core/src/model/report/status.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/state.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/target/defaults.rs` | `target_toml_documents`, `dry_run_file_targets` |
 | `crates/ffhn-core/src/model/target/types.rs` | `target_toml_documents`, `dry_run_file_targets` |

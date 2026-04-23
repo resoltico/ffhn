@@ -112,6 +112,8 @@ main() {
 
     version="$(release_version)"
     readonly version
+    description="$(ffhn_workspace_description "${script_dir}" "${repo_root}")"
+    readonly description
     package_name="$(release_package_name_for_target "${version}" "${target_triple}")"
     readonly package_name
     package_dir_name="$(release_package_basename_for_target "${version}" "${target_triple}")"
@@ -148,12 +150,21 @@ main() {
     fi
     [[ -f "${extracted_package_dir}/README.md" ]] || ffhn_die "missing packaged README.md"
     [[ -f "${extracted_package_dir}/LICENSE" ]] || ffhn_die "missing packaged LICENSE"
+    [[ -f "${extracted_package_dir}/changelog.md" ]] || ffhn_die "missing packaged changelog.md"
 
     if [[ "${target_triple}" != x86_64-pc-windows-msvc ]]; then
         [[ -x "${binary_path}" ]] || ffhn_die "packaged binary is not executable: ${binary_path}"
     fi
 
-    "${binary_path}" --version | tr -d '\r' | grep "^ffhn ${version}$"
+    version_output="$("${binary_path}" --version | tr -d '\r')"
+    readonly version_output
+    version_line="$(printf '%s\n' "${version_output}" | sed -n '1p')"
+    readonly version_line
+    description_line="$(printf '%s\n' "${version_output}" | sed -n '2p')"
+    readonly description_line
+
+    [[ "${version_line}" == "ffhn ${version}" ]] || ffhn_die "packaged version banner first line mismatch: ${version_line}"
+    [[ "${description_line}" == "${description}" ]] || ffhn_die "packaged version banner description mismatch: ${description_line}"
     "${binary_path}" --help | tr -d '\r' | grep "status"
 
     printf 'Smoke-tested %s\n' "${package_name}"

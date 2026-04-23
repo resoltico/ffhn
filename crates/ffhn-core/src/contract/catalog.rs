@@ -47,7 +47,7 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "watch-root",
         display_label: "Watch Root",
         value_name: Some("PATH"),
-        help_summary: "Watch-root directory containing per-target subdirectories.",
+        help_summary: "Watch root directory containing per-target subdirectories.",
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
@@ -115,7 +115,7 @@ const STATUS_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "watch-root",
         display_label: "Watch Root",
         value_name: Some("PATH"),
-        help_summary: "Watch-root directory containing per-target subdirectories.",
+        help_summary: "Watch root directory containing per-target subdirectories.",
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
@@ -158,7 +158,7 @@ const RUN_INVOCATIONS: &[CliInvocationContract] = &[
         operation_id: CLI_OPERATION_RUN_ID,
         usage: "ffhn run --all",
         output_document_id: BATCH_RUN_REPORT_SCHEMA_NAME,
-        analysis_summary: "watch-root discovery",
+        analysis_summary: "watch root discovery",
     },
 ];
 
@@ -226,7 +226,7 @@ const HARD_LIMITS: &[CliHardLimitContract] = &[
     CliHardLimitContract {
         id: CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID,
         operation_id: Some(CLI_OPERATION_RUN_ID),
-        display_label: "Immediate Watch-Root Discovery",
+        display_label: "Immediate Watch Root Discovery",
         summary: "`--all` only discovers immediate subdirectories of the watch root.",
         cli_usage_error_template: "`--all` only discovers immediate subdirectories of the watch root",
     },

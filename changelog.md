@@ -1,9 +1,27 @@
+---
+afad: "3.5"
+version: "3.0.1"
+domain: HISTORY
+updated: "2026-04-23"
+route:
+  keywords: [changelog, release history, unreleased, breaking changes, version timeline]
+  questions: ["what changed in ffhn 3.0.1?", "what is unreleased in ffhn right now?", "where is ffhn's release history documented?"]
+---
+
 # Changelog
 
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [3.0.1] - 2026-04-23
+
+- Bumped `htmlcut-core` from `v4.4.0` to `v4.4.1` and refreshed the maintained lockfiles before the public `3.0.1` release.
+- Refactored the root README into a storefront-style overview, moved deeper onboarding into `docs/getting-started.md`, added `docs/run-reports.md` plus `examples/README.md`, and re-audited the maintained Markdown set so examples, metadata, and release docs match the shipped code and assets more literally.
+- Standardized user-facing "watch root" terminology, documented `validate_target` plus the top-level help/version contract more literally, and tightened the CLI so root help prints the single-source version banner while `--version` remains top-level-only instead of masking invalid subcommand usage.
+- Hardened packaged-artifact smoke and the release protocol against the bannered `ffhn --version` output by verifying both the version and package-description lines, and added maintained tests for the shared workspace package-field helper.
+- Clarified the release protocol's missing-CI recovery path so a mergeable release PR with no delivered `Check` must be retriggered through PR reopen, a follow-up branch commit, and finally a maintainer-triggered `gh workflow run ci.yml --ref release/X.Y.Z` path backed by a newly dispatchable CI workflow, rather than being merged blind.
 
 ## [3.0.0] - 2026-04-23
 

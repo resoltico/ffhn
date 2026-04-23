@@ -30,7 +30,14 @@ ffhn_workspace_version() {
     local helper_script_dir="$1"
     local helper_repo_root="$2"
 
-    "${helper_script_dir}/workspace-version.sh" "${helper_repo_root}/Cargo.toml"
+    "${helper_script_dir}/workspace-package-field.sh" version "${helper_repo_root}/Cargo.toml"
+}
+
+ffhn_workspace_description() {
+    local helper_script_dir="$1"
+    local helper_repo_root="$2"
+
+    "${helper_script_dir}/workspace-package-field.sh" description "${helper_repo_root}/Cargo.toml"
 }
 
 ffhn_temp_root() {

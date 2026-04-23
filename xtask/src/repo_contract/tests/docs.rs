@@ -20,16 +20,31 @@ fn agent_instruction_parity_docs_stay_in_lockstep_with_codex_entrypoint() {
 #[test]
 fn generated_cli_sections_match_the_core_owned_contract() {
     let repo_root = repo_root();
-    let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
     let cli_doc = fs::read_to_string(repo_root.join("docs/cli.md")).expect("read docs/cli.md");
 
     assert_eq!(
-        marked_section(&readme, "cli-summary").expect("README CLI summary section"),
-        render_readme_cli_summary_section()
-    );
-    assert_eq!(
         marked_section(&cli_doc, "cli-catalog").expect("CLI catalog section"),
         render_cli_catalog_section()
+    );
+}
+
+#[test]
+fn storefront_readme_and_docs_index_route_readers_to_getting_started() {
+    let repo_root = repo_root();
+    let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
+    let docs_index = fs::read_to_string(repo_root.join("docs/README.md")).expect("read docs index");
+
+    assert!(
+        readme.contains("(docs/getting-started.md#quick-start)"),
+        "README.md must route readers to the quick-start entrypoint"
+    );
+    assert!(
+        readme.contains("(docs/README.md)"),
+        "README.md must route readers to the full docs index"
+    );
+    assert!(
+        docs_index.contains("[getting-started.md](getting-started.md)"),
+        "docs/README.md must list getting-started.md"
     );
 }
 
@@ -68,7 +83,6 @@ fn public_markdown_links_and_repo_file_mentions_resolve() {
 #[test]
 fn public_release_docs_match_the_canonical_release_target_script() {
     let repo_root = repo_root();
-    let readme = fs::read_to_string(repo_root.join("README.md")).expect("read README");
     let platform_support = fs::read_to_string(repo_root.join("docs/platform-support.md"))
         .expect("read docs/platform-support.md");
     let operations =
@@ -104,7 +118,6 @@ fn public_release_docs_match_the_canonical_release_target_script() {
         "release asset inventory is empty"
     );
     for asset in &public_assets {
-        assert!(readme.contains(asset), "README.md missing `{asset}`");
         assert!(
             platform_support.contains(asset),
             "docs/platform-support.md missing `{asset}`"
