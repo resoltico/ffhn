@@ -1,6 +1,6 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: QUALITY
 updated: "2026-04-23"
 route:
@@ -70,7 +70,7 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 9. `cargo deny check advisories bans licenses sources`
 10. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with an isolated `CARGO_TARGET_DIR`
 11. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
-12. `cargo nextest run --workspace --all-targets --all-features --locked`
+12. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
 13. `cargo test --workspace --doc --all-features --locked`
 14. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
 15. `target/dist/ffhn --version`
@@ -90,26 +90,27 @@ The coverage gate:
 
 1. starts from a clean `cargo llvm-cov` workspace
 2. runs `cargo +nightly llvm-cov --branch --workspace --all-targets --all-features --locked`
-3. scores only the curated tracked-file list in `xtask/src/model.rs`
+3. scores every maintained non-test Rust source file under `crates/ffhn-core/src`, `crates/ffhn-cli/src`, and `xtask/src`
 4. deduplicates duplicate branch spans emitted by Rust lowering before scoring
-5. requires 100% executable-line coverage and 100% branch coverage for the tracked set
-6. cleans the llvm-cov workspace again after scoring
+5. treats LLVM segments as line ranges rather than single-point hits, so multiline statements are scored correctly and module-barrel files with no instrumentable regions do not fail as fake misses
+6. requires 100% executable-line coverage and 100% branch coverage for the tracked set
+7. cleans the llvm-cov workspace again after scoring
 
-The tracked-file list currently includes the maintained core runtime/model files, including the split report and notification-contract modules, the core-owned CLI contract metadata, `crates/ffhn-cli/src/args.rs`, `crates/ffhn-cli/src/execute.rs`, and the `xtask` planning/coverage/model plus repo-contract helpers.
+That source-tree scan deliberately excludes `tests.rs` and any nested `tests/` modules, but it no longer relies on a hand-curated allowlist that can silently miss newly added production files.
 
 The `xtask` test suite also enforces maintainer-facing repository contracts that are easy to let drift silently:
 
-1. every public Markdown file must carry AFAD frontmatter using the current workspace version and the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`
+1. AFAD-managed Markdown under `docs/`, `examples/`, and `fuzz/` must carry AFAD frontmatter using the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`; the root `README.md`, `CONTRIBUTING.md`, and `changelog.md` remain special docs and are validated without forced AFAD metadata
 2. public Markdown local links and maintained repo-file path mentions must still resolve
 3. checked-in public target examples must still validate against the current `ffhn.target` contract
-4. `.claude/CLAUDE.md` and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to `.codex/AGENTS.md`
+4. `.codex/AGENTS.md`, `.claude/CLAUDE.md`, and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to the repository-root `AGENTS.md`
 5. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
 6. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
 7. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
 8. the README, platform-support docs, and release protocol must stay aligned with the canonical release-target and release-asset inventory emitted by `scripts/release-targets.sh`
 9. every documented `cargo xtask refresh-semver-baseline` invocation in public Markdown must include the required `--git-ref` argument
 
-The `ffhn-cli` test suite complements that repository lint by asserting that live help output and CLI write-failure text render from the same core-owned operation, limit, and document contract instead of carrying separate hard-coded labels.
+The `ffhn-cli` test suite complements that repository lint by asserting that live help output, help/version write-failure handling, and document write-failure text render from the same core-owned operation, limit, and document contract instead of carrying separate hard-coded labels.
 
 ## Fuzzing Policy
 

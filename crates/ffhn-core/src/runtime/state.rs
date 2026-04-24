@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use serde_json::Value;
+
 use crate::canonical::normalize_line_endings;
 use crate::stable_json::sha256_hex;
 use crate::{
@@ -42,16 +44,13 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
         Ok(state_json) => state_json,
         Err(_) => return StateLoad::Unreadable,
     };
+    let parsed_phase = recover_state_phase(&state_json);
     let document = match serde_json::from_str::<StateDocument>(&state_json) {
         Ok(document) => document,
-        Err(_) => return StateLoad::InvalidSchema(None),
+        Err(_) => return StateLoad::InvalidSchema(parsed_phase),
     };
-    let parsed_phase = Some(document.state_phase);
 
-    if document.target_id != paths.target_id() {
-        return StateLoad::InvalidSchema(parsed_phase);
-    }
-    if document.validate().is_err() {
+    if document.target_id.as_str() != paths.target_id() {
         return StateLoad::InvalidSchema(parsed_phase);
     }
 
@@ -70,6 +69,12 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
     }
 
     StateLoad::Valid(Box::new(LoadedState { document, current }))
+}
+
+fn recover_state_phase(state_json: &str) -> Option<StatePhase> {
+    let value = serde_json::from_str::<Value>(state_json).ok()?;
+    let phase = value.get("state_phase")?.clone();
+    serde_json::from_value(phase).ok()
 }
 
 fn load_snapshot(
@@ -104,20 +109,20 @@ fn validate_snapshot_integrity(
 ) -> Result<(), CoreError> {
     let canonical_digest = sha256_hex(normalize_line_endings(canonical_text).as_bytes());
     if canonical_digest != reference.canonical_text_sha256 {
-        return Err(CoreError::htmlcut(
+        return Err(CoreError::contract(
             "snapshot artifact digests do not match state",
         ));
     }
 
     let outer_html_digest = sha256_hex(normalize_line_endings(outer_html).as_bytes());
     if outer_html_digest != reference.outer_html_sha256 {
-        return Err(CoreError::htmlcut(
+        return Err(CoreError::contract(
             "snapshot artifact digests do not match state",
         ));
     }
 
     if extraction_record.outer_html_sha256 != reference.outer_html_sha256 {
-        return Err(CoreError::htmlcut(
+        return Err(CoreError::contract(
             "snapshot artifact digests do not match state",
         ));
     }

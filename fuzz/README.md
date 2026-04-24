@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: FUZZING
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
   questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]
@@ -38,6 +38,7 @@ Manual live fuzzing:
 | `target_toml_documents` | `ffhn_core::model::target` | `fuzz/corpus/target_toml_documents` | target-contract drift |
 
 Each corpus directory may contain both hand-named seed cases and minimized regression inputs, so raw file counts drift over time and are not themselves a maintained contract.
+Hand-named seeds whose filename contains `invalid` are intentional negative cases; the repo-contract suite asserts that FFHN keeps rejecting them.
 
 ## Representative Coverage Map
 
@@ -53,6 +54,8 @@ The table below names the main maintained source files each harness exercises; i
 | `crates/ffhn-core/src/model/report/run.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/report/status.rs` | `state_and_report_json_documents` |
 | `crates/ffhn-core/src/model/state.rs` | `state_and_report_json_documents` |
+| `crates/ffhn-core/src/model/value/relative_artifact_path.rs` | `state_and_report_json_documents` |
+| `crates/ffhn-core/src/model/value/target_id.rs` | `target_toml_documents` |
 | `crates/ffhn-core/src/model/target/defaults.rs` | `target_toml_documents`, `dry_run_file_targets` |
 | `crates/ffhn-core/src/model/target/types.rs` | `target_toml_documents`, `dry_run_file_targets` |
 | `crates/ffhn-core/src/model/target/validation.rs` | `target_toml_documents`, `dry_run_file_targets` |
@@ -103,6 +106,7 @@ Purpose:
 3. decode arbitrary JSON into `ffhn.notification_payload`
 4. decode arbitrary JSON into `ffhn.batch_run_report`
 5. decode arbitrary JSON into `ffhn.status_report`
+6. keep Windows absolute and UNC snapshot artifact paths rejected at deserialize time
 
 ### `target_toml_documents`
 
@@ -111,6 +115,7 @@ Purpose:
 1. decode arbitrary TOML into `ffhn.target`
 2. enforce target-id, source, fetch, selection, compare, storage, and notification rules
 3. keep file-target fetch restrictions stable, including rejection of HTTP-only knobs
+4. keep durable target-id escape attempts rejected during deserialize as well as later validation
 
 ## Cleanup
 

@@ -52,12 +52,9 @@ fn detect_top_level_request(raw_args: &[String]) -> Option<TopLevelRequest> {
     }
 
     if saw_help {
-        Some(TopLevelRequest::Help)
-    } else if saw_version {
-        Some(TopLevelRequest::Version)
-    } else {
-        None
+        return Some(TopLevelRequest::Help);
     }
+    saw_version.then_some(TopLevelRequest::Version)
 }
 
 fn help_subcommand_requests_root_help(rest: &[String]) -> bool {
@@ -156,6 +153,10 @@ mod tests {
             detect_top_level_request(&args(&["ffhn", "help", "--version"])),
             Some(TopLevelRequest::Help)
         );
+        assert_eq!(
+            detect_top_level_request(&args(&["ffhn", "help", "-h"])),
+            Some(TopLevelRequest::Help)
+        );
     }
 
     #[test]
@@ -177,10 +178,36 @@ mod tests {
             detect_top_level_request(&args(&["ffhn", "help", "run"])),
             None
         );
+        assert_eq!(
+            detect_top_level_request(&args(&["ffhn", "help", "-x"])),
+            None
+        );
+        assert_eq!(detect_top_level_request(&args(&["ffhn", "-x"])), None);
         assert_eq!(detect_top_level_request(&args(&["ffhn", "--bogus"])), None);
         assert_eq!(
             detect_top_level_request(&args(&["ffhn", "--", "--help"])),
             None
         );
+    }
+
+    #[test]
+    fn parse_known_top_level_flags_covers_short_groups_and_empty_groups() {
+        let mut saw_help = false;
+        let mut saw_version = false;
+        assert!(parse_known_top_level_flags(
+            "-hV",
+            &mut saw_help,
+            &mut saw_version,
+        ));
+        assert!(saw_help);
+        assert!(saw_version);
+
+        let mut saw_help = false;
+        let mut saw_version = false;
+        assert!(!parse_known_top_level_flags(
+            "-",
+            &mut saw_help,
+            &mut saw_version,
+        ));
     }
 }

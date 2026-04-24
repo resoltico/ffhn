@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: RELEASE
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -61,7 +61,9 @@ Use a Git worktree, not a disconnected clone, whenever possible. A worktree shar
 
 If the primary checkout has unpublished local work, decide before the release whether that work is real or stale. Real work must move onto a named branch or exported patch before closeout. Stale work must be dropped. Never leave the primary checkout on stale `main` plus unpublished overlays.
 
-If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${VERSION}`. The release branch is for the final version, changelog, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
+If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${VERSION}`. The release branch is for the final changelog dating, tag-triggering, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
+
+When that substantive pre-release work already includes the intended release notes, keep those entries under `## [Unreleased]` while landing the normal PR to `main`. The final `release/${VERSION}` branch must still carry a real narrow diff, typically converting the accumulated `Unreleased` entries into `## [${VERSION}] - YYYY-MM-DD` immediately before the release PR. If the working tree already has a dated release section before the substantive PR is merged, move those entries back under `Unreleased` first so the final release branch remains mechanically meaningful.
 
 If the primary checkout is dirty because it already contains the intended release-candidate work, capture that state explicitly before creating the clean release worktree:
 
@@ -78,6 +80,8 @@ cd "$RELEASE_WORKTREE"
 
 That keeps the release worktree clean without discarding the real unpublished state that must ship. Do not hand-copy a dirty diff into a temporary checkout and hope it still matches later.
 
+If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${VERSION}` from the updated `origin/main`.
+
 Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). Rust `1.95.0` remains the default FFHN toolchain. Nightly is installed alongside it only for the coverage gate and optional manual sanitizer-backed fuzz runs.
 
 Run the single local quality gate first:
@@ -92,7 +96,7 @@ or equivalently:
 cargo xtask check
 ```
 
-That gate must succeed before any release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
+That gate must succeed before any final release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
 
 Then verify:
 
@@ -147,7 +151,8 @@ Before committing:
 
 - `git status --short` must show no intended release file left unstaged
 - `git diff --cached --name-status` must show the exact release file set
-- `git diff --cached --stat` must reflect versioning, changelog, docs, workflow, and release-script updates only
+- `git diff --cached --stat` must reflect versioning, changelog dating, docs, workflow, and release-script updates only
+- if the branch carries broad product changes instead of the final release delta, stop and land those changes on `main` first through the normal PR path
 
 ## 3. Pull request and CI
 
@@ -313,6 +318,7 @@ Workflow success is not authoritative. The release object and its assets are aut
 GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest, but this protocol's blocking verification keys on the release object and the maintained asset inventory rather than those separate attestation records.
 
 GitHub will also render `Source code (zip)` and `Source code (tar.gz)` links on the release page. Those links are GitHub-generated convenience downloads and are not part of FFHN's maintained asset inventory.
+The maintained `ffhn-source-*` assets are built via `git archive`, and `.gitattributes export-ignore` keeps maintainer-only agent and automation configuration out of those shipped source archives even when that configuration is committed in the repository.
 
 ## 9. Verify the public binary
 

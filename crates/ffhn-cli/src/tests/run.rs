@@ -238,7 +238,7 @@ fn run_command_batch_covers_live_failure_render_and_validation_fatal_paths() {
         "--target".to_owned(),
         "Demo".to_owned(),
     ]);
-    assert_eq!(exit_code, EXIT_CODE_FATAL);
+    assert_eq!(exit_code, EXIT_CODE_USAGE);
     assert!(stdout.is_empty());
     assert!(stderr.contains("target_id"));
 }

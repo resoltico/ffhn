@@ -1,7 +1,8 @@
-# Exclude internal directories from `git archive` source packages.
-# These contain CI infrastructure and AI agent configs that have no value
-# for anyone building from a source archive.
-.claude/  export-ignore
-.codex/   export-ignore
-.gemini/  export-ignore
-.github/  export-ignore
+# Exclude maintainer-only agent and automation config from `git archive`
+# source packages so the files can stay versioned in Git without shipping
+# inside FFHN-owned release assets.
+/AGENTS.md export-ignore
+/.claude/** export-ignore
+/.codex/** export-ignore
+/.gemini/** export-ignore
+/.github/** export-ignore

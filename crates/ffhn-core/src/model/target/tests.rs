@@ -1,6 +1,6 @@
 use super::*;
 use crate::NotificationEvent;
-use crate::{TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION};
+use crate::{TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION, TargetId};
 use std::collections::BTreeMap;
 use url::Url;
 
@@ -8,7 +8,7 @@ fn valid_target() -> TargetDocument {
     TargetDocument {
         schema_name: TARGET_SCHEMA_NAME.to_owned(),
         schema_version: TARGET_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: TargetId::new("demo").expect("target id"),
         display_name: "Demo".to_owned(),
         enabled: true,
         target: TargetSource {
@@ -167,6 +167,10 @@ fn css_selection_forbids_delimiter_specific_fields_and_flags() {
 
     let mut selection = valid_target().selection;
     selection.flags = vec![RegexFlag::CaseInsensitive];
+    assert!(selection.validate().is_err());
+
+    let mut selection = valid_target().selection;
+    selection.selector = Some("main[".to_owned());
     assert!(selection.validate().is_err());
 }
 
@@ -398,7 +402,7 @@ fn file_targets_storage_and_notifications_validate_their_specific_contracts() {
 }
 
 #[test]
-fn serde_defaults_fill_fetch_and_notification_fields() {
+fn serde_defaults_fill_http_fetch_storage_and_notification_fields() {
     let parsed: TargetDocument = toml::from_str(
         r#"
 schema_name = "ffhn.target"
@@ -408,11 +412,13 @@ display_name = "Demo"
 enabled = true
 
 [target]
-kind = "file"
-file_path = "/tmp/demo.html"
+kind = "http"
+source_url = "https://example.com/demo"
 
 [fetch]
-engine = "file"
+engine = "http"
+user_agent = "ffhn/example"
+accept = "text/html"
 
 [selection]
 kind = "css_selector"
@@ -441,4 +447,38 @@ command = "echo changed"
     assert_eq!(parsed.storage.history_limit, 10);
     assert_eq!(parsed.notifications[0].shell, "/bin/sh");
     assert_eq!(parsed.notifications[0].timeout_ms, 5_000);
+}
+
+#[test]
+fn file_targets_require_explicit_follow_redirects_false_when_deserialized() {
+    let parsed = toml::from_str::<TargetDocument>(
+        r#"
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo"
+display_name = "Demo"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "/tmp/demo.html"
+
+[fetch]
+engine = "file"
+
+[selection]
+kind = "css_selector"
+selector = "main"
+match = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []
+"#,
+    );
+
+    assert!(parsed.is_err());
 }

@@ -6,6 +6,7 @@ use std::thread;
 use tempfile::tempdir;
 
 use super::*;
+use crate::error::CLI_OUTPUT_WRITE_ERROR;
 use crate::execute::{collect_watch_root_directories, discover_watch_root_targets};
 use ffhn_core::{
     BATCH_RUN_REPORT_SCHEMA_NAME, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID,

@@ -1,14 +1,6 @@
----
-afad: "3.5"
-version: "3.0.1"
-domain: OVERVIEW
-updated: "2026-04-23"
-route:
-  keywords: [ffhn, website monitor, local html monitor, quick start, release packages, json reports]
-  questions: ["what is ffhn?", "how do I try ffhn quickly?", "where do I get ffhn?", "where are the full ffhn docs?"]
----
-
 # ffhn
+
+FFHN stands for `Focused Fragment History Notifier`.
 
 `ffhn` is a command-line monitor for people who keep rechecking the same website or local HTML file and want a saved, repeatable check instead of another one-off script.
 
@@ -31,6 +23,7 @@ ffhn run --watch-root "$WATCH_ROOT" --target release_notes
 ```
 
 If you are running straight from this repository, replace `ffhn` with `cargo run -p ffhn-cli --`.
+Each saved check lives under `<watch_root>/<target_id>/target.toml`, where `target_id` is a durable lowercase directory label.
 
 That sample path is exercised by automated tests. The first live run gives you a structured JSON result and a saved point of comparison for the next run. The full sample flow, packaged install steps, and Windows path live in [docs/getting-started.md](docs/getting-started.md).
 

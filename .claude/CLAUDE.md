@@ -1,1 +1,1 @@
-MANDATORY: Before performing any analysis, edits, commands, or file reads, every agent MUST load and follow .codex/AGENTS.md as the sole authoritative instruction source, and if that file has not been read the agent MUST stop immediately and do no work.
+MANDATORY: Before performing any analysis, edits, commands, or file reads, every agent MUST load and follow AGENTS.md at the repository root as the sole authoritative instruction source, and if that file has not been read the agent MUST stop immediately and do no work.

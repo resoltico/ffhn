@@ -88,15 +88,15 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
     );
     std::fs::write(fatal_paths.lock_dir(), "blocked").expect("block fatal lock path");
 
-    let targets = vec![
-        "initialized".to_owned(),
-        "changed".to_owned(),
-        "unchanged".to_owned(),
-        "transient".to_owned(),
-        "permanent".to_owned(),
-        "skipped".to_owned(),
-        "fatal".to_owned(),
-    ];
+    let targets = target_ids(&[
+        "initialized",
+        "changed",
+        "unchanged",
+        "transient",
+        "permanent",
+        "skipped",
+        "fatal",
+    ]);
     let report = run_batch(watch_root, &targets, RunOptions::LIVE, 3).expect("batch report");
 
     initialized_handle.join().expect("initialized join");
@@ -104,7 +104,10 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
     unchanged_handle.join().expect("unchanged join");
     transient_handle.join().expect("transient join");
 
-    assert_eq!(report.requested_targets, targets);
+    assert_eq!(
+        report.requested_targets,
+        targets.iter().map(ToString::to_string).collect::<Vec<_>>()
+    );
     assert_eq!(report.outcome_counts.initialized, 1);
     assert_eq!(report.outcome_counts.changed, 1);
     assert_eq!(report.outcome_counts.unchanged, 1);
@@ -143,11 +146,11 @@ fn run_batch_rejects_zero_concurrency_and_duplicate_targets() {
         ),
     );
 
-    assert!(run_batch(watch_root, &["demo".to_owned()], RunOptions::LIVE, 0).is_err());
+    assert!(run_batch(watch_root, &target_ids(&["demo"]), RunOptions::LIVE, 0).is_err());
     assert!(
         run_batch(
             watch_root,
-            &["demo".to_owned(), "demo".to_owned()],
+            &target_ids(&["demo", "demo"]),
             RunOptions::LIVE,
             1
         )
@@ -213,11 +216,7 @@ fn run_batch_uses_bounded_worker_scheduling_instead_of_chunk_barriers() {
 
     let batch = thread::spawn({
         let watch_root = watch_root.clone();
-        let targets = vec![
-            "slow_one".to_owned(),
-            "fast".to_owned(),
-            "slow_two".to_owned(),
-        ];
+        let targets = target_ids(&["slow_one", "fast", "slow_two"]);
         move || run_batch(&watch_root, &targets, RunOptions::LIVE, 2).expect("batch report")
     });
 
@@ -262,7 +261,7 @@ fn run_batch_counts_reports_with_reason_code_persist_error() {
 
     let report = run_batch(
         watch_root,
-        &["persist_error".to_owned()],
+        &target_ids(&["persist_error"]),
         RunOptions::LIVE,
         1,
     )

@@ -4,35 +4,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::model::DynResult;
+use crate::repo_files::{
+    afad_managed_markdown_paths as repo_afad_managed_markdown_paths, maintained_rust_source_paths,
+    public_markdown_paths as repo_public_markdown_paths,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AfadFrontmatter {
     pub(crate) afad: String,
-    pub(crate) version: String,
+    pub(crate) version: Option<String>,
 }
 
 pub(crate) fn public_markdown_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
-    let mut paths = Vec::new();
+    repo_public_markdown_paths(repo_root)
+}
 
-    for file in ["README.md", "CONTRIBUTING.md", "changelog.md"] {
-        let path = repo_root.join(file);
-        if path.is_file() {
-            paths.push(path);
-        }
-    }
-
-    for directory in [
-        repo_root.join("docs"),
-        repo_root.join("examples"),
-        repo_root.join("fuzz"),
-    ] {
-        if directory.is_dir() {
-            collect_markdown_paths(&directory, &mut paths)?;
-        }
-    }
-
-    paths.sort();
-    Ok(paths)
+pub(crate) fn afad_managed_markdown_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
+    repo_afad_managed_markdown_paths(repo_root)
 }
 
 pub(crate) fn afad_frontmatter(path: &Path) -> DynResult<Option<AfadFrontmatter>> {
@@ -83,53 +71,7 @@ pub(crate) fn public_target_example_paths(repo_root: &Path) -> DynResult<Vec<Pat
 }
 
 pub(crate) fn user_facing_source_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-
-    for directory in [
-        repo_root.join("crates/ffhn-core/src"),
-        repo_root.join("crates/ffhn-cli/src"),
-        repo_root.join("xtask/src"),
-    ] {
-        if directory.is_dir() {
-            collect_rust_source_paths(&directory, &mut paths)?;
-        }
-    }
-
-    paths.sort();
-    Ok(paths)
-}
-
-fn collect_markdown_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> DynResult<()> {
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_markdown_paths(&path, paths)?;
-        } else if path.extension() == Some(OsStr::new("md")) {
-            paths.push(path);
-        }
-    }
-
-    Ok(())
-}
-
-fn collect_rust_source_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> DynResult<()> {
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_source_paths(&path, paths)?;
-        } else if path.extension() == Some(OsStr::new("rs"))
-            && !path
-                .components()
-                .any(|component| component.as_os_str() == OsStr::new("tests"))
-            && path.file_name() != Some(OsStr::new("tests.rs"))
-        {
-            paths.push(path);
-        }
-    }
-
-    Ok(())
+    maintained_rust_source_paths(repo_root)
 }
 
 fn parse_afad_frontmatter(text: &str) -> Result<Option<AfadFrontmatter>, String> {
@@ -164,14 +106,18 @@ fn parse_afad_frontmatter(text: &str) -> Result<Option<AfadFrontmatter>, String>
 
     Ok(Some(AfadFrontmatter {
         afad: afad.ok_or_else(|| "missing afad field".to_owned())?,
-        version: version.ok_or_else(|| "missing version field".to_owned())?,
+        version,
     }))
 }
 
 fn parse_protocol_afad_version(text: &str) -> Result<String, String> {
     for line in text.lines() {
-        if let Some(version) = line.trim().strip_prefix("VERSION:") {
-            let version = version.trim();
+        let trimmed = line.trim();
+        if let Some(version) = trimmed
+            .strip_prefix("Version:")
+            .or_else(|| trimmed.strip_prefix("VERSION:"))
+        {
+            let version = version.trim().trim_matches('`').trim_matches('"');
             if version.is_empty() {
                 return Err("VERSION line is empty".to_owned());
             }

@@ -8,8 +8,12 @@ use std::time::Duration;
 
 use crate::{
     CompareBasis, CompareConfig, FetchConfig, FetchEngine, HttpMethod, OutputKind, SelectionConfig,
-    SelectionKind, SelectionMatch, TargetDocument, TargetSource, WhitespaceMode,
+    SelectionKind, SelectionMatch, TargetDocument, TargetId, TargetSource, WhitespaceMode,
 };
+
+fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
 
 struct BrokenReader;
 
@@ -54,7 +58,7 @@ fn target_for(url: Url) -> TargetDocument {
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         display_name: "Demo".to_owned(),
         enabled: true,
         target: TargetSource {
@@ -102,7 +106,7 @@ fn file_target_for(path: &Path) -> TargetDocument {
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
-        target_id: "demo_file".to_owned(),
+        target_id: target_id("demo_file"),
         display_name: "Demo File".to_owned(),
         enabled: true,
         target: TargetSource {

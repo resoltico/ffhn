@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: RUN_REPORTS
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [run report, batch run report, process errors, reason codes, notification delivery, persist error]
   questions: ["what does ffhn.run_report mean?", "what does ffhn.batch_run_report mean?", "which reason codes can ffhn emit?", "what is the shared ffhn process-error shape?"]
@@ -160,7 +160,15 @@ The current `kind` vocabulary is:
 4. `url`
 5. `time_format`
 6. `time_parse`
-7. `htmlcut`
+7. `contract`
+8. `htmlcut_interop`
+9. `internal`
+
+Interpretation:
+
+1. `contract` means FFHN itself rejected one of its durable contracts or invariants
+2. `htmlcut_interop` is reserved for failures reported across FFHN's frozen HTMLCut boundary
+3. `internal` means FFHN hit an internal invariant or orchestration failure that was not attributable to user input or HTMLCut
 
 ### `notifications`
 
@@ -203,17 +211,19 @@ Interpretation:
 
 1. `watch_root` preserves the path string FFHN was asked to use; it is not rewritten to a canonical absolute path
 2. `requested_targets` preserves caller order, and `entries` use that same stable order even though workers execute concurrently
-3. `run_finished_at` is stamped after the worker pool has converged and the aggregate report is assembled
+3. discovery-based batch reports may preserve raw directory labels that violate FFHN's durable `target_id` rules so the failing entry can be reported literally instead of being dropped or rewritten
+4. `run_finished_at` is stamped after the worker pool has converged and the aggregate report is assembled
 
 Per-entry rules:
 
 1. each entry must carry exactly one of `run_report` or `fatal_error`
-2. `run_report.target_id` must match the entry `target_id`
+2. when `run_report` is present, `run_report.target_id` must match the entry `target_id`
 3. `entries` align one-for-one with `requested_targets`
 4. `requested_targets` must be unique
 5. `max_concurrency` must be positive
 
 `fatal_error` is reserved for process-level failures where FFHN could not emit a structured per-target `ffhn.run_report`, and it is itself a structured FFHN-owned error object.
+Discovery-time invalid directory labels therefore surface as `fatal_error.kind = contract` entries whose `target_id` still matches the literal directory name FFHN was asked to inspect.
 
 That structured `fatal_error` object uses the same `ProcessErrorDetail` shape documented above.
 

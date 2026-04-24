@@ -1,5 +1,6 @@
 use url::Url;
 
+use crate::TargetId;
 use crate::stable_json::stable_digest_omitting_field;
 
 use super::checks::{
@@ -134,61 +135,123 @@ pub struct RunChangeSection {
 
 /// `ffhn.run_report` schema.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawRunReport")]
 pub struct RunReport {
     /// Frozen schema identity.
-    pub schema_name: String,
+    pub(crate) schema_name: String,
     /// Frozen schema version.
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     /// Digest of this report with the field omitted.
-    pub run_report_digest_sha256: String,
+    pub(crate) run_report_digest_sha256: String,
     /// Target id.
-    pub target_id: String,
+    pub(crate) target_id: TargetId,
     /// Run start time.
-    pub run_started_at: String,
+    pub(crate) run_started_at: String,
     /// Run finish time.
-    pub run_finished_at: String,
+    pub(crate) run_finished_at: String,
     /// Execution mode.
-    pub run_mode: RunMode,
+    pub(crate) run_mode: RunMode,
     /// Run outcome.
-    pub run_outcome: RunOutcome,
+    pub(crate) run_outcome: RunOutcome,
     /// Reason code.
-    pub reason_code: ReasonCode,
+    pub(crate) reason_code: ReasonCode,
     /// Failure classification when the run failed.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failure_class: Option<FailureClass>,
+    pub(crate) failure_class: Option<FailureClass>,
     /// Target status after the run.
-    pub target_status_after_run: TargetStatus,
+    pub(crate) target_status_after_run: TargetStatus,
     /// Compare basis.
-    pub compare_basis: CompareBasis,
+    pub(crate) compare_basis: CompareBasis,
     /// Previous compare digest.
-    pub previous_compare_digest_sha256: Option<String>,
+    pub(crate) previous_compare_digest_sha256: Option<String>,
     /// Current compare digest.
-    pub current_compare_digest_sha256: Option<String>,
+    pub(crate) current_compare_digest_sha256: Option<String>,
     /// State phase before the run.
-    pub state_phase_before_run: StatePhase,
+    pub(crate) state_phase_before_run: StatePhase,
     /// State phase after the run.
-    pub state_phase_after_run: StatePhase,
+    pub(crate) state_phase_after_run: StatePhase,
     /// Fetch subsection.
-    pub fetch: Option<RunFetchSection>,
+    pub(crate) fetch: Option<RunFetchSection>,
     /// Extraction subsection.
-    pub extraction: Option<RunExtractionSection>,
+    pub(crate) extraction: Option<RunExtractionSection>,
     /// Compare subsection.
-    pub compare: Option<RunCompareSection>,
+    pub(crate) compare: Option<RunCompareSection>,
     /// Machine-usable change summary.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub change: Option<RunChangeSection>,
+    pub(crate) change: Option<RunChangeSection>,
     /// Persist subsection.
-    pub persist: RunPersistSection,
+    pub(crate) persist: RunPersistSection,
     /// Best-effort notification deliveries attempted by the run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notifications: Vec<RunNotificationDelivery>,
+    pub(crate) notifications: Vec<RunNotificationDelivery>,
     /// Reserved extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRunReport {
+    schema_name: String,
+    schema_version: u32,
+    run_report_digest_sha256: String,
+    target_id: String,
+    run_started_at: String,
+    run_finished_at: String,
+    run_mode: RunMode,
+    run_outcome: RunOutcome,
+    reason_code: ReasonCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure_class: Option<FailureClass>,
+    target_status_after_run: TargetStatus,
+    compare_basis: CompareBasis,
+    previous_compare_digest_sha256: Option<String>,
+    current_compare_digest_sha256: Option<String>,
+    state_phase_before_run: StatePhase,
+    state_phase_after_run: StatePhase,
+    fetch: Option<RunFetchSection>,
+    extraction: Option<RunExtractionSection>,
+    compare: Option<RunCompareSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change: Option<RunChangeSection>,
+    persist: RunPersistSection,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notifications: Vec<RunNotificationDelivery>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Extensions,
 }
 
 impl RunReport {
+    /// Returns the run mode.
+    pub fn run_mode(&self) -> RunMode {
+        self.run_mode
+    }
+
+    /// Returns the run outcome.
+    pub fn run_outcome(&self) -> RunOutcome {
+        self.run_outcome
+    }
+
+    /// Returns the reason code.
+    pub fn reason_code(&self) -> ReasonCode {
+        self.reason_code
+    }
+
+    /// Returns the persisted target id string.
+    pub fn target_id(&self) -> &str {
+        self.target_id.as_str()
+    }
+
+    /// Returns the persist subsection.
+    pub fn persist(&self) -> &RunPersistSection {
+        &self.persist
+    }
+
+    /// Returns the attempted notification deliveries.
+    pub fn notifications(&self) -> &[RunNotificationDelivery] {
+        &self.notifications
+    }
+
     /// Computes and stores the report digest.
     pub fn with_digest(mut self) -> Result<Self, CoreError> {
         self.run_report_digest_sha256 =
@@ -199,11 +262,10 @@ impl RunReport {
     /// Validates one run report.
     pub fn validate(&self) -> Result<(), CoreError> {
         validate_run_report_identity(&self.schema_name, self.schema_version)?;
-        validate_target_id(&self.target_id)?;
         validate_sha256(&self.run_report_digest_sha256)?;
         let expected_digest = stable_digest_omitting_field(self, "run_report_digest_sha256")?;
         if expected_digest != self.run_report_digest_sha256 {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "run_report_digest_sha256 does not match the report body",
             ));
         }
@@ -215,14 +277,14 @@ impl RunReport {
                 || self.persist.error.is_some()
                 || !self.notifications.is_empty())
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "dry_run reports must not persist state or emit notifications",
             ));
         }
         if let Some(error) = &self.persist.error {
             error.validate()?;
             if self.persist.wrote_state && self.persist.wrote_last_run {
-                return Err(CoreError::htmlcut(
+                return Err(CoreError::contract(
                     "run_report.persist.error requires at least one failed persist write",
                 ));
             }
@@ -238,7 +300,7 @@ impl RunReport {
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
         ) && self.reason_code != ReasonCode::Ok
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "successful outcomes require reason_code = ok",
             ));
         }
@@ -247,7 +309,7 @@ impl RunReport {
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
         ) && self.failure_class.is_some()
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "successful outcomes must not carry failure_class",
             ));
         }
@@ -256,7 +318,7 @@ impl RunReport {
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
         ) && self.current_compare_digest_sha256.is_none()
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "successful outcomes require current_compare_digest_sha256",
             ));
         }
@@ -265,14 +327,14 @@ impl RunReport {
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
         ) && (self.fetch.is_none() || self.extraction.is_none() || self.compare.is_none())
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "successful outcomes require fetch, extraction, and compare sections",
             ));
         }
         if self.run_outcome == RunOutcome::SkippedDisabled
             && self.reason_code != ReasonCode::Disabled
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "skipped_disabled requires reason_code = disabled",
             ));
         }
@@ -282,7 +344,7 @@ impl RunReport {
                 || self.compare.is_some()
                 || self.current_compare_digest_sha256.is_some())
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "skipped_disabled must not carry fetch, extraction, compare, or current digests",
             ));
         }
@@ -291,7 +353,7 @@ impl RunReport {
             RunOutcome::FailedTransient | RunOutcome::FailedPermanent | RunOutcome::SkippedDisabled
         ) && self.current_compare_digest_sha256.is_some()
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "failed or skipped runs must not carry current_compare_digest_sha256",
             ));
         }
@@ -300,7 +362,7 @@ impl RunReport {
                 if self.failure_class != Some(FailureClass::Transient)
                     || self.reason_code.failure_class() != Some(FailureClass::Transient)
                 {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "failed_transient requires a transient reason_code and failure_class",
                     ));
                 }
@@ -309,7 +371,7 @@ impl RunReport {
                 if self.failure_class != Some(FailureClass::Permanent)
                     || self.reason_code.failure_class() != Some(FailureClass::Permanent)
                 {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "failed_permanent requires a permanent reason_code and failure_class",
                     ));
                 }
@@ -317,7 +379,7 @@ impl RunReport {
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged => {}
             RunOutcome::SkippedDisabled => {
                 if self.failure_class.is_some() {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "skipped_disabled must not carry failure_class",
                     ));
                 }
@@ -330,7 +392,7 @@ impl RunReport {
         }
         if let Some(extraction) = &self.extraction {
             if extraction.interop_profile != HTMLCUT_INTEROP_PROFILE {
-                return Err(CoreError::htmlcut(
+                return Err(CoreError::contract(
                     "run_report.extraction.interop_profile must match the FFHN HTMLCut profile",
                 ));
             }
@@ -339,12 +401,12 @@ impl RunReport {
             validate_sha256(&extraction.comparison_input_sha256)?;
             validate_sha256(&extraction.outer_html_sha256)?;
             if extraction.candidate_count == 0 || extraction.selected_candidate_index == 0 {
-                return Err(CoreError::htmlcut(
+                return Err(CoreError::contract(
                     "run_report.extraction candidate counts must be positive",
                 ));
             }
             if extraction.selected_candidate_index > extraction.candidate_count {
-                return Err(CoreError::htmlcut(
+                return Err(CoreError::contract(
                     "run_report.extraction selected_candidate_index must be within candidate_count",
                 ));
             }
@@ -356,5 +418,39 @@ impl RunReport {
             validate_notification_delivery(notification)?;
         }
         Ok(())
+    }
+}
+
+impl TryFrom<RawRunReport> for RunReport {
+    type Error = CoreError;
+
+    fn try_from(raw: RawRunReport) -> Result<Self, Self::Error> {
+        let report = Self {
+            schema_name: raw.schema_name,
+            schema_version: raw.schema_version,
+            run_report_digest_sha256: raw.run_report_digest_sha256,
+            target_id: raw.target_id.try_into()?,
+            run_started_at: raw.run_started_at,
+            run_finished_at: raw.run_finished_at,
+            run_mode: raw.run_mode,
+            run_outcome: raw.run_outcome,
+            reason_code: raw.reason_code,
+            failure_class: raw.failure_class,
+            target_status_after_run: raw.target_status_after_run,
+            compare_basis: raw.compare_basis,
+            previous_compare_digest_sha256: raw.previous_compare_digest_sha256,
+            current_compare_digest_sha256: raw.current_compare_digest_sha256,
+            state_phase_before_run: raw.state_phase_before_run,
+            state_phase_after_run: raw.state_phase_after_run,
+            fetch: raw.fetch,
+            extraction: raw.extraction,
+            compare: raw.compare,
+            change: raw.change,
+            persist: raw.persist,
+            notifications: raw.notifications,
+            extensions: raw.extensions,
+        };
+        report.validate()?;
+        Ok(report)
     }
 }

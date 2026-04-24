@@ -400,7 +400,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ffhn-cli"
-version = "3.0.1"
+version = "4.0.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "ffhn-core"
-version = "3.0.1"
+version = "4.0.0"
 dependencies = [
  "encoding_rs",
  "fs2",
@@ -538,8 +538,8 @@ dependencies = [
 
 [[package]]
 name = "htmlcut-core"
-version = "4.4.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v4.4.1#91864c039c869692fce881c9b84d3075643d2efb"
+version = "5.0.0"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v5.0.0#2cf36873b1526901a01870ae2108c32e1d31d581"
 dependencies = [
  "ego-tree",
  "regex",
@@ -549,7 +549,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
- "ureq",
  "url",
 ]
 
@@ -2130,12 +2129,14 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "3.0.1"
+version = "4.0.0"
 dependencies = [
+ "assert_cmd",
  "clap",
  "ffhn-core",
  "serde",
  "serde_json",
+ "syn",
  "tempfile",
  "toml",
 ]

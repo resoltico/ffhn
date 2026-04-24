@@ -1,4 +1,5 @@
 use super::support::*;
+use std::collections::BTreeMap;
 
 #[test]
 fn notification_helpers_cover_payload_failures_wait_paths_and_panics() {
@@ -157,6 +158,21 @@ fn finish_report_and_notifications_cover_failure_paths() {
     );
     assert!(delivered.delivered);
 
+    let delivered_with_stderr = deliver_notification(
+        &NotificationHook {
+            name: "ok-with-stderr".to_owned(),
+            on: vec![NotificationEvent::Changed],
+            shell: "/bin/sh".to_owned(),
+            command: "echo still-ok >&2; exit 0".to_owned(),
+            timeout_ms: 500,
+        },
+        NotificationEvent::Changed,
+        &target,
+        &live_success_report("demo"),
+    );
+    assert!(delivered_with_stderr.delivered);
+    assert!(delivered_with_stderr.error.is_none());
+
     let exited = deliver_notification(
         &NotificationHook {
             name: "fail".to_owned(),
@@ -197,15 +213,27 @@ fn finish_report_and_notifications_cover_failure_paths() {
             name: "payload".to_owned(),
             on: vec![NotificationEvent::Changed],
             shell: "/bin/sh".to_owned(),
-            command: "exec 0<&-; sleep 1".to_owned(),
+            command: "echo payload-stderr >&2; exec 0<&-; sleep 1".to_owned(),
             timeout_ms: 500,
         },
         NotificationEvent::Changed,
         &target,
-        &live_success_report("demo"),
+        &{
+            let mut report = live_success_report("demo");
+            report.extensions = Some(BTreeMap::from([(
+                "blob".to_owned(),
+                json!("x".repeat(200_000)),
+            )]));
+            report.with_digest().expect("large payload digest")
+        },
     );
     assert!(!payload_failure.delivered);
-    assert!(payload_failure.error.is_some());
+    assert!(
+        payload_failure
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("payload-stderr"))
+    );
 
     let spawn_error = deliver_notification(
         &NotificationHook {
@@ -220,6 +248,30 @@ fn finish_report_and_notifications_cover_failure_paths() {
         &live_success_report("demo"),
     );
     assert!(spawn_error.error.is_some());
+
+    let payload_serialization_failure = deliver_notification(
+        &NotificationHook {
+            name: "invalid-report".to_owned(),
+            on: vec![NotificationEvent::Changed],
+            shell: "/bin/sh".to_owned(),
+            command: "exit 0".to_owned(),
+            timeout_ms: 500,
+        },
+        NotificationEvent::Changed,
+        &target,
+        &{
+            let mut report = live_success_report("demo");
+            report.schema_name = "not.ffhn.run_report".to_owned();
+            report
+        },
+    );
+    assert!(!payload_serialization_failure.delivered);
+    assert!(
+        payload_serialization_failure
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("failed to serialize notification payload"))
+    );
 }
 
 #[test]
@@ -316,7 +368,7 @@ fn deliver_notification_passes_documented_env_vars_and_stdin_payload() {
     payload.validate().expect("valid notification payload");
     assert_eq!(payload.hook_name, "capture");
     assert_eq!(payload.event, NotificationEvent::Changed);
-    assert_eq!(payload.run_report.target_id, "demo");
+    assert_eq!(payload.run_report.target_id(), "demo");
     assert!(!payload.run_report.persist.wrote_last_run);
     assert!(payload.run_report.notifications.is_empty());
     assert_eq!(

@@ -16,7 +16,7 @@ pub fn apply_canonicalizers(
             CanonicalizerKind::NormalizeNewlines => normalize_line_endings(&output),
             CanonicalizerKind::StripRegex => {
                 let pattern = canonicalizer.pattern.as_deref().ok_or_else(|| {
-                    CoreError::htmlcut("strip_regex canonicalizer is missing pattern")
+                    CoreError::contract("strip_regex canonicalizer is missing pattern")
                 })?;
                 let regex = build_regex(pattern, &canonicalizer.flags)?;
                 regex.replace_all(&output, "").into_owned()
@@ -68,7 +68,7 @@ fn build_regex(pattern: &str, flags: &[RegexFlag]) -> Result<regex::Regex, CoreE
 
     builder
         .build()
-        .map_err(|error| CoreError::htmlcut(format!("regex compile failed: {error}")))
+        .map_err(|error| CoreError::contract(format!("regex compile failed: {error}")))
 }
 
 #[cfg(test)]
@@ -123,7 +123,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "htmlcut interop error: strip_regex canonicalizer is missing pattern"
+            "contract error: strip_regex canonicalizer is missing pattern"
         );
     }
 
@@ -178,7 +178,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("htmlcut interop error: regex compile failed:")
+                .contains("contract error: regex compile failed:")
         );
     }
 

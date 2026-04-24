@@ -58,7 +58,7 @@ fn write_exact_bytes(path: PathBuf, bytes: &[u8]) -> Result<(), CoreError> {
 
     let parent = path
         .parent()
-        .ok_or_else(|| CoreError::htmlcut("cannot write file without parent directory"))?;
+        .ok_or_else(|| CoreError::internal("cannot write file without parent directory"))?;
     let mut temp = NamedTempFile::new_in(parent).map_err(|error| CoreError::io(parent, error))?;
     temp.write_all(bytes)
         .map_err(|error| CoreError::io(&path, error))?;

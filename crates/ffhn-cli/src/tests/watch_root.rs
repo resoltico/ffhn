@@ -1,4 +1,14 @@
 use super::*;
+use crate::execute::DiscoveredTarget;
+use ffhn_core::TargetId;
+
+fn discovered_target(requested_id: &str) -> DiscoveredTarget {
+    DiscoveredTarget {
+        requested_id: requested_id.to_owned(),
+        validated_id: Some(TargetId::new(requested_id).expect("target id")),
+        validation_message: None,
+    }
+}
 
 #[test]
 fn discover_watch_root_targets_requires_a_real_watch_root_and_ignores_non_targets() {
@@ -30,7 +40,26 @@ fn discover_watch_root_targets_requires_a_real_watch_root_and_ignores_non_target
 
     assert_eq!(
         discover_watch_root_targets(&watch_root).expect("discover targets"),
-        vec!["demo".to_owned(), "invalid".to_owned()]
+        vec![discovered_target("demo"), discovered_target("invalid")]
+    );
+}
+
+#[test]
+fn discover_watch_root_targets_preserves_invalid_directory_labels_as_contract_failures() {
+    let temp = tempdir().expect("tempdir");
+    let watch_root = temp.path().join("watchlist");
+    write_named_http_target(&watch_root, "Demo", "demo", "https://example.com", true);
+
+    let discovered = discover_watch_root_targets(&watch_root).expect("discover targets");
+    assert_eq!(discovered.len(), 1);
+    assert_eq!(discovered[0].requested_id, "Demo");
+    assert!(discovered[0].validated_id.is_none());
+    assert!(
+        discovered[0]
+            .validation_message
+            .as_deref()
+            .expect("validation message")
+            .contains("target_id must")
     );
 }
 

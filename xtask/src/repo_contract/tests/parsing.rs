@@ -1,11 +1,13 @@
+use std::ffi::OsStr;
+
 use super::*;
 
 #[test]
-fn public_markdown_afad_frontmatter_stays_on_the_workspace_version() {
+fn afad_managed_markdown_frontmatter_stays_on_the_protocol_version() {
     let repo_root = repo_root();
     let protocol_afad_version = protocol_afad_version(&repo_root).expect("protocol AFAD version");
     let workspace_version = workspace_version(&repo_root).expect("workspace version");
-    let paths = public_markdown_paths(&repo_root).expect("markdown paths");
+    let paths = afad_managed_markdown_paths(&repo_root).expect("markdown paths");
 
     for path in paths {
         let path_display = path.display().to_string();
@@ -13,7 +15,24 @@ fn public_markdown_afad_frontmatter_stays_on_the_workspace_version() {
             .expect("frontmatter parse")
             .unwrap_or_else(|| panic!("{path_display} is missing AFAD frontmatter"));
         assert_eq!(frontmatter.afad, protocol_afad_version, "{path_display}");
-        assert_eq!(frontmatter.version, workspace_version, "{}", path.display());
+        if let Some(version) = frontmatter.version {
+            assert_eq!(version, workspace_version, "{path_display}");
+        }
+    }
+}
+
+#[test]
+fn root_special_docs_stay_human_first_without_afad_frontmatter() {
+    let repo_root = repo_root();
+
+    for path in ["README.md", "CONTRIBUTING.md", "changelog.md"] {
+        let path = repo_root.join(path);
+        assert_eq!(
+            afad_frontmatter(&path).expect("frontmatter parse"),
+            None,
+            "{} should remain a special doc without AFAD frontmatter",
+            path.display()
+        );
     }
 }
 
@@ -44,10 +63,12 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     fs::create_dir_all(repo_root.join(".codex")).expect("create codex dir");
 
     fs::write(repo_root.join("README.md"), "# ffhn\n").expect("write README");
+    fs::write(repo_root.join("CONTRIBUTING.md"), "# contribute\n").expect("write CONTRIBUTING");
+    fs::write(repo_root.join("changelog.md"), "# changelog\n").expect("write changelog");
     fs::write(repo_root.join("examples/note.txt"), "ignore").expect("write ignored example");
     fs::write(
         repo_root.join("examples/file-example/README.md"),
-        "---\nafad: \"3.5\"\nversion: \"2.0.0\"\n---\n",
+        "---\nafad: \"4.0\"\nversion: \"2.0.0\"\n---\n",
     )
     .expect("write example markdown");
     fs::write(repo_root.join("watchlist/file.txt"), "ignore")
@@ -67,7 +88,7 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     fs::write(repo_root.join("xtask/src/note.txt"), "ignore").expect("write ignored non-rs source");
     fs::write(
         repo_root.join("docs/nested/guide.md"),
-        "---\nafad: \"3.5\"\nversion: \"2.0.0\"\n---\n",
+        "---\nafad: \"4.0\"\n---\n",
     )
     .expect("write guide");
     fs::write(
@@ -82,7 +103,7 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     .expect("write watchlist target");
     fs::write(
         repo_root.join(".codex/PROTOCOL_AFAD.md"),
-        "PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION: 3.5\n",
+        "Protocol: `AGENT_FIRST_DOCUMENTATION`\nVersion: `4.0`\n",
     )
     .expect("write protocol");
 
@@ -90,7 +111,16 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     assert_eq!(
         markdown_paths,
         vec![
+            repo_root.join("CONTRIBUTING.md"),
             repo_root.join("README.md"),
+            repo_root.join("changelog.md"),
+            repo_root.join("docs/nested/guide.md"),
+            repo_root.join("examples/file-example/README.md"),
+        ]
+    );
+    assert_eq!(
+        afad_managed_markdown_paths(repo_root).expect("afad markdown paths"),
+        vec![
             repo_root.join("docs/nested/guide.md"),
             repo_root.join("examples/file-example/README.md"),
         ]
@@ -107,7 +137,7 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     );
     assert_eq!(
         protocol_afad_version(repo_root).expect("protocol AFAD version"),
-        "3.5"
+        "4.0"
     );
 
     let target_paths = public_target_example_paths(repo_root).expect("target example paths");
@@ -119,11 +149,8 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
         ]
     );
 
-    fs::write(
-        repo_root.join(".codex/PROTOCOL_AFAD.md"),
-        "PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION:\n",
-    )
-    .expect("write invalid protocol");
+    fs::write(repo_root.join(".codex/PROTOCOL_AFAD.md"), "Version:\n")
+        .expect("write invalid protocol");
     assert!(protocol_afad_version(repo_root).is_err());
 }
 
@@ -139,26 +166,37 @@ fn parse_afad_frontmatter_handles_missing_and_malformed_blocks() {
         None
     );
 
-    assert!(parse_afad_frontmatter("---\nafad: \"3.5\"\nversion: \"2.0.0\"\n").is_err());
+    assert!(parse_afad_frontmatter("---\nafad: \"4.0\"\nversion: \"2.0.0\"\n").is_err());
 
-    assert!(parse_afad_frontmatter("---\nafad: \"3.5\"\n---\n").is_err());
     assert_eq!(
-        parse_afad_frontmatter("---\nafad: \"3.5\"\nversion: \"2.0.0\"\n---\n")
+        parse_afad_frontmatter("---\nafad: \"4.0\"\nversion: \"2.0.0\"\n---\n")
             .expect("frontmatter"),
         Some(AfadFrontmatter {
-            afad: "3.5".to_owned(),
-            version: "2.0.0".to_owned(),
+            afad: "4.0".to_owned(),
+            version: Some("2.0.0".to_owned()),
+        })
+    );
+    assert_eq!(
+        parse_afad_frontmatter("---\nafad: \"4.0\"\n---\n").expect("frontmatter"),
+        Some(AfadFrontmatter {
+            afad: "4.0".to_owned(),
+            version: None,
         })
     );
     assert!(parse_afad_frontmatter("---\nversion: \"2.0.0\"\n---\n").is_err());
 
     assert_eq!(
-        parse_protocol_afad_version("PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION: 3.5\n")
+        parse_protocol_afad_version("Protocol: `AGENT_FIRST_DOCUMENTATION`\nVersion: `4.0`\n")
             .expect("protocol version"),
+        "4.0"
+    );
+    assert_eq!(
+        parse_protocol_afad_version("PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION: 3.5\n")
+            .expect("legacy protocol version"),
         "3.5"
     );
     assert!(parse_protocol_afad_version("VERSION:\n").is_err());
-    assert!(parse_protocol_afad_version("PROTOCOL: AGENT_FIRST_DOCUMENTATION\n").is_err());
+    assert!(parse_protocol_afad_version("Protocol: `AGENT_FIRST_DOCUMENTATION`\n").is_err());
 
     assert_eq!(
         marked_section(

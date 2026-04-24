@@ -90,6 +90,57 @@ description="$("$script_dir/workspace-package-field.sh" description "{repo_root}
 }
 
 #[test]
+fn agent_repo_files_stay_trackable_but_export_ignored_from_source_archives() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let gitignore = fs::read_to_string(repo_root.join(".gitignore")).expect("read .gitignore");
+    let gitignore_lines = gitignore.lines().map(str::trim).collect::<Vec<_>>();
+    for expected in ["!/AGENTS.md", "!/.codex/", "!/.codex/**"] {
+        assert!(
+            gitignore_lines.contains(&expected),
+            "missing Git unignore rule `{expected}` in .gitignore"
+        );
+    }
+    assert!(
+        !gitignore_lines.contains(&"AGENTS.md"),
+        "root AGENTS.md should not be ignored by .gitignore"
+    );
+
+    let attributes = Command::new("git")
+        .current_dir(repo_root)
+        .args([
+            "check-attr",
+            "export-ignore",
+            "--",
+            "AGENTS.md",
+            ".codex/AGENTS.md",
+            ".codex/PROTOCOL_AFAD.md",
+        ])
+        .output()
+        .expect("run git check-attr");
+
+    assert!(
+        attributes.status.success(),
+        "git check-attr failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&attributes.stdout),
+        String::from_utf8_lossy(&attributes.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&attributes.stdout);
+    for expected in [
+        "AGENTS.md: export-ignore: set",
+        ".codex/AGENTS.md: export-ignore: set",
+        ".codex/PROTOCOL_AFAD.md: export-ignore: set",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "missing export-ignore assertion `{expected}` in:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn release_shell_helpers_normalize_windows_temp_roots() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

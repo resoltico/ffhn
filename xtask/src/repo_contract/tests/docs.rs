@@ -1,14 +1,15 @@
 use super::*;
 
 #[test]
-fn agent_instruction_parity_docs_stay_in_lockstep_with_codex_entrypoint() {
+fn agent_instruction_parity_docs_redirect_every_agent_to_the_root_entrypoint() {
     let repo_root = repo_root();
-    let codex_agents = repo_root.join(".codex/AGENTS.md");
-    assert!(codex_agents.is_file(), "missing {}", codex_agents.display());
+    let root_agents = repo_root.join("AGENTS.md");
+    assert!(root_agents.is_file(), "missing {}", root_agents.display());
 
-    let expected = "MANDATORY: Before performing any analysis, edits, commands, or file reads, every agent MUST load and follow .codex/AGENTS.md as the sole authoritative instruction source, and if that file has not been read the agent MUST stop immediately and do no work.\n";
+    let expected = "MANDATORY: Before performing any analysis, edits, commands, or file reads, every agent MUST load and follow AGENTS.md at the repository root as the sole authoritative instruction source, and if that file has not been read the agent MUST stop immediately and do no work.\n";
 
     for path in [
+        repo_root.join(".codex/AGENTS.md"),
         repo_root.join(".claude/CLAUDE.md"),
         repo_root.join(".gemini/GEMINI.md"),
     ] {

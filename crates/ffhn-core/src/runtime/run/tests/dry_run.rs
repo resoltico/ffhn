@@ -21,7 +21,7 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
         &crate::StateDocument {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: None,
             last_run_outcome: None,

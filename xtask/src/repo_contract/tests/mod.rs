@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::process::Command;
 
 use super::*;
@@ -96,13 +97,13 @@ fn assert_public_target_example_contract(
             .and_then(Path::file_name)
             .and_then(OsStr::to_str)
             .expect("target directory name");
-        assert_eq!(target.target_id, directory_name, "{}", path.display());
+        assert_eq!(target.target_id(), directory_name, "{}", path.display());
     }
 
-    if target.target.source_url.is_some() {
+    if target.target().source_url.is_some() {
         let path_display = path.display().to_string();
         assert!(
-            !target.fetch.user_agent.contains(workspace_version),
+            !target.fetch().user_agent.contains(workspace_version),
             "{path_display} embeds the workspace version in fetch.user_agent; public examples should use stable example identifiers instead"
         );
     }

@@ -1,4 +1,5 @@
 use super::*;
+use ffhn_core::TargetId;
 
 #[test]
 fn target_command_defaults_watch_root() {
@@ -8,7 +9,7 @@ fn target_command_defaults_watch_root() {
         cli.command,
         Command::Run(RunCommand {
             watch_root: "watchlist".into(),
-            targets: vec!["demo".to_owned()],
+            targets: vec![TargetId::new("demo").expect("target id")],
             all: false,
             jobs: 1,
             dry_run: false,
@@ -215,6 +216,26 @@ fn run_covers_root_help_help_version_and_parse_error_modes() {
     assert_eq!(exit_code, EXIT_CODE_USAGE);
     assert!(stdout.is_empty());
     assert!(stderr.contains(&duplicate_target_ids_usage_error("demo")));
+}
+
+#[test]
+fn run_treats_help_and_version_output_write_failures_as_fatal() {
+    for args in [
+        vec!["ffhn".to_owned()],
+        vec!["ffhn".to_owned(), "--version".to_owned()],
+        vec!["ffhn".to_owned(), "run".to_owned(), "--help".to_owned()],
+    ] {
+        let mut broken_stdout = BrokenWriter;
+        let mut stderr = Vec::new();
+        let exit_code = run(args, &mut broken_stdout, &mut stderr);
+
+        assert_eq!(exit_code, EXIT_CODE_FATAL);
+        assert!(
+            String::from_utf8(stderr)
+                .expect("stderr utf8")
+                .contains(CLI_OUTPUT_WRITE_ERROR)
+        );
+    }
 }
 
 fn root_help_output() -> String {
