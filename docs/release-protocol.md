@@ -445,12 +445,14 @@ git push -u origin "$FOLLOWUP_BRANCH"
 BASELINE_PR_URL="$(gh pr create \
   --title "chore: refresh ffhn-core semver baseline" \
   --body "Refresh the checked-in ffhn-core semver baseline to ${TAG} after the public release.")"
+gh pr checks "$BASELINE_PR_URL" --watch
 gh pr merge "$BASELINE_PR_URL" --merge --delete-branch
 git fetch origin --prune --tags
 git checkout --detach origin/main
 ```
 
 That command repackages the published Git ref into `semver-baseline/ffhn-core`, so the baseline cannot silently drift to unreleased local worktree state.
+The follow-up PR is still a normal protected change against `main`, so wait for the required `Check` status before merging it instead of assuming the short generated diff can skip branch protection.
 
 When the current checkout can safely hold `main`, the equivalent branch-bound sync remains:
 
