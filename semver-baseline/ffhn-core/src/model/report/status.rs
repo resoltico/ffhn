@@ -1,5 +1,6 @@
 use super::checks::validate_status_report_identity;
 use super::*;
+use crate::TargetId;
 
 /// Artifact-integrity summary inside `ffhn.status_report`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,42 +26,79 @@ pub struct SnapshotDigestSummary {
 
 /// `ffhn.status_report` schema.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawStatusReport")]
 pub struct StatusReport {
     /// Frozen schema identity.
-    pub schema_name: String,
+    pub(crate) schema_name: String,
     /// Frozen schema version.
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     /// Target id.
-    pub target_id: String,
+    pub(crate) target_id: TargetId,
     /// Target status.
-    pub target_status: TargetStatus,
+    pub(crate) target_status: TargetStatus,
     /// Reason code.
-    pub reason_code: ReasonCode,
+    pub(crate) reason_code: ReasonCode,
     /// State phase.
-    pub state_phase: Option<StatePhase>,
+    pub(crate) state_phase: Option<StatePhase>,
     /// Artifact integrity summary.
-    pub artifacts: ArtifactStatus,
+    pub(crate) artifacts: ArtifactStatus,
     /// Current snapshot digest summary.
-    pub current_snapshot: Option<SnapshotDigestSummary>,
+    pub(crate) current_snapshot: Option<SnapshotDigestSummary>,
     /// Older retained snapshots, newest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub snapshot_history: Vec<SnapshotDigestSummary>,
+    pub(crate) snapshot_history: Vec<SnapshotDigestSummary>,
     /// Reserved extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusReport {
+    schema_name: String,
+    schema_version: u32,
+    target_id: String,
+    target_status: TargetStatus,
+    reason_code: ReasonCode,
+    state_phase: Option<StatePhase>,
+    artifacts: ArtifactStatus,
+    current_snapshot: Option<SnapshotDigestSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    snapshot_history: Vec<SnapshotDigestSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Extensions,
+}
+
+impl TryFrom<RawStatusReport> for StatusReport {
+    type Error = CoreError;
+
+    fn try_from(raw: RawStatusReport) -> Result<Self, Self::Error> {
+        let report = Self {
+            schema_name: raw.schema_name,
+            schema_version: raw.schema_version,
+            target_id: raw.target_id.try_into()?,
+            target_status: raw.target_status,
+            reason_code: raw.reason_code,
+            state_phase: raw.state_phase,
+            artifacts: raw.artifacts,
+            current_snapshot: raw.current_snapshot,
+            snapshot_history: raw.snapshot_history,
+            extensions: raw.extensions,
+        };
+        report.validate()?;
+        Ok(report)
+    }
 }
 
 impl StatusReport {
     /// Validates one status report.
     pub fn validate(&self) -> Result<(), CoreError> {
         validate_status_report_identity(&self.schema_name, self.schema_version)?;
-        validate_target_id(&self.target_id)?;
         if self.state_phase.is_none()
             && !(self.reason_code == ReasonCode::ConfigInvalid
                 && self.target_status == TargetStatus::Invalid)
         {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "null status.state_phase is only valid for config_invalid",
             ));
         }

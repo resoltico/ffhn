@@ -58,8 +58,18 @@ impl From<&CoreError> for ProcessErrorDetail {
                 message: source.to_string(),
                 path: None,
             },
-            CoreError::Htmlcut(message) => Self {
-                kind: ProcessErrorKind::Htmlcut,
+            CoreError::Contract(message) => Self {
+                kind: ProcessErrorKind::Contract,
+                message: message.clone(),
+                path: None,
+            },
+            CoreError::HtmlcutInterop(message) => Self {
+                kind: ProcessErrorKind::HtmlcutInterop,
+                message: message.clone(),
+                path: None,
+            },
+            CoreError::Internal(message) => Self {
+                kind: ProcessErrorKind::Internal,
                 message: message.clone(),
                 path: None,
             },
@@ -83,8 +93,12 @@ pub enum ProcessErrorKind {
     TimeFormat,
     /// Timestamp parsing error.
     TimeParse,
-    /// HTMLCut interop or contract error.
-    Htmlcut,
+    /// FFHN contract error.
+    Contract,
+    /// HTMLCut interoperability error.
+    HtmlcutInterop,
+    /// Internal FFHN invariant failure.
+    Internal,
 }
 
 /// Best-effort notification delivery result inside `ffhn.run_report`.
@@ -110,23 +124,36 @@ pub struct RunNotificationDelivery {
 
 /// `ffhn.notification_payload` schema written to hook stdin.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawNotificationPayload")]
 pub struct NotificationPayload {
     /// Frozen schema identity.
-    pub schema_name: String,
+    pub(crate) schema_name: String,
     /// Frozen schema version.
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     /// Hook name receiving the payload.
-    pub hook_name: String,
+    pub(crate) hook_name: String,
     /// Event that caused FFHN to invoke the hook.
-    pub event: NotificationEvent,
+    pub(crate) event: NotificationEvent,
     /// Timestamp when FFHN started this delivery attempt.
-    pub delivery_started_at: String,
+    pub(crate) delivery_started_at: String,
     /// Structured pre-delivery run snapshot.
-    pub run_report: RunReport,
+    pub(crate) run_report: RunReport,
     /// Reserved extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotificationPayload {
+    schema_name: String,
+    schema_version: u32,
+    hook_name: String,
+    event: NotificationEvent,
+    delivery_started_at: String,
+    run_report: RunReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Extensions,
 }
 
 impl NotificationPayload {
@@ -142,20 +169,38 @@ impl NotificationPayload {
         validate_timestamp(&self.delivery_started_at)?;
         self.run_report.validate()?;
         if self.run_report.run_mode != RunMode::Live {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "notification_payload.run_report must be a live run snapshot",
             ));
         }
         if self.run_report.persist.wrote_last_run {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "notification_payload.run_report must precede the final last_run.json write",
             ));
         }
         if !self.run_report.notifications.is_empty() {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "notification_payload.run_report must not include notification deliveries",
             ));
         }
         Ok(())
+    }
+}
+
+impl TryFrom<RawNotificationPayload> for NotificationPayload {
+    type Error = CoreError;
+
+    fn try_from(raw: RawNotificationPayload) -> Result<Self, Self::Error> {
+        let payload = Self {
+            schema_name: raw.schema_name,
+            schema_version: raw.schema_version,
+            hook_name: raw.hook_name,
+            event: raw.event,
+            delivery_started_at: raw.delivery_started_at,
+            run_report: raw.run_report,
+            extensions: raw.extensions,
+        };
+        payload.validate()?;
+        Ok(payload)
     }
 }

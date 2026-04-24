@@ -136,6 +136,37 @@ impl CanonicalizerKind {
     }
 }
 
+impl RunMode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::DryRun => "dry_run",
+        }
+    }
+}
+
+impl FailureClass {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Transient => "transient",
+            Self::Permanent => "permanent",
+        }
+    }
+}
+
+impl RunOutcome {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Initialized => "initialized",
+            Self::Changed => "changed",
+            Self::Unchanged => "unchanged",
+            Self::FailedTransient => "failed_transient",
+            Self::FailedPermanent => "failed_permanent",
+            Self::SkippedDisabled => "skipped_disabled",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +184,79 @@ mod tests {
         );
         assert_eq!(CanonicalizerKind::StripRegex.as_str(), "strip_regex");
         assert_eq!(CanonicalizerKind::Lowercase.as_str(), "lowercase");
+        assert_eq!(RunMode::Live.as_str(), "live");
+        assert_eq!(RunMode::DryRun.as_str(), "dry_run");
+        assert_eq!(FailureClass::Transient.as_str(), "transient");
+        assert_eq!(FailureClass::Permanent.as_str(), "permanent");
+        assert_eq!(RunOutcome::Initialized.as_str(), "initialized");
+        assert_eq!(RunOutcome::Changed.as_str(), "changed");
+        assert_eq!(RunOutcome::Unchanged.as_str(), "unchanged");
+        assert_eq!(RunOutcome::FailedTransient.as_str(), "failed_transient");
+        assert_eq!(RunOutcome::FailedPermanent.as_str(), "failed_permanent");
+        assert_eq!(RunOutcome::SkippedDisabled.as_str(), "skipped_disabled");
+        assert_eq!(ReasonCode::Ok.as_str(), "ok");
+        assert_eq!(ReasonCode::Disabled.as_str(), "disabled");
+        assert_eq!(ReasonCode::ConfigInvalid.as_str(), "config_invalid");
+        assert_eq!(ReasonCode::StateInvalid.as_str(), "state_invalid");
+        assert_eq!(ReasonCode::LockUnavailable.as_str(), "lock_unavailable");
+        assert_eq!(
+            ReasonCode::FetchHttpClientError.as_str(),
+            "fetch_http_client_error"
+        );
+        assert_eq!(
+            ReasonCode::FetchHttpServerError.as_str(),
+            "fetch_http_server_error"
+        );
+        assert_eq!(ReasonCode::FetchSourceError.as_str(), "fetch_source_error");
+        assert_eq!(
+            ReasonCode::FetchNetworkError.as_str(),
+            "fetch_network_error"
+        );
+        assert_eq!(ReasonCode::FetchTimeout.as_str(), "fetch_timeout");
+        assert_eq!(ReasonCode::FetchTooLarge.as_str(), "fetch_too_large");
+        assert_eq!(
+            ReasonCode::FetchUnsupportedContentType.as_str(),
+            "fetch_unsupported_content_type"
+        );
+        assert_eq!(ReasonCode::FetchDecodeError.as_str(), "fetch_decode_error");
+        assert_eq!(
+            ReasonCode::ExtractionPlanInvalid.as_str(),
+            "extraction_plan_invalid"
+        );
+        assert_eq!(
+            ReasonCode::ExtractionNoMatch.as_str(),
+            "extraction_no_match"
+        );
+        assert_eq!(
+            ReasonCode::ExtractionAmbiguousMatch.as_str(),
+            "extraction_ambiguous_match"
+        );
+        assert_eq!(
+            ReasonCode::ExtractionInternalError.as_str(),
+            "extraction_internal_error"
+        );
+        assert_eq!(
+            ReasonCode::CanonicalizationError.as_str(),
+            "canonicalization_error"
+        );
+        assert_eq!(ReasonCode::CompareError.as_str(), "compare_error");
+        assert_eq!(ReasonCode::PersistError.as_str(), "persist_error");
+        assert_eq!(ReasonCode::IntegrityMismatch.as_str(), "integrity_mismatch");
+        assert_eq!(NotificationEvent::Initialized.as_str(), "initialized");
+        assert_eq!(NotificationEvent::Changed.as_str(), "changed");
+        assert_eq!(NotificationEvent::Unchanged.as_str(), "unchanged");
+        assert_eq!(
+            NotificationEvent::FailedTransient.as_str(),
+            "failed_transient"
+        );
+        assert_eq!(
+            NotificationEvent::FailedPermanent.as_str(),
+            "failed_permanent"
+        );
+        assert_eq!(
+            NotificationEvent::SkippedDisabled.as_str(),
+            "skipped_disabled"
+        );
     }
 
     #[test]
@@ -295,6 +399,32 @@ pub enum ReasonCode {
 }
 
 impl ReasonCode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Disabled => "disabled",
+            Self::ConfigInvalid => "config_invalid",
+            Self::StateInvalid => "state_invalid",
+            Self::LockUnavailable => "lock_unavailable",
+            Self::FetchHttpClientError => "fetch_http_client_error",
+            Self::FetchHttpServerError => "fetch_http_server_error",
+            Self::FetchSourceError => "fetch_source_error",
+            Self::FetchNetworkError => "fetch_network_error",
+            Self::FetchTimeout => "fetch_timeout",
+            Self::FetchTooLarge => "fetch_too_large",
+            Self::FetchUnsupportedContentType => "fetch_unsupported_content_type",
+            Self::FetchDecodeError => "fetch_decode_error",
+            Self::ExtractionPlanInvalid => "extraction_plan_invalid",
+            Self::ExtractionNoMatch => "extraction_no_match",
+            Self::ExtractionAmbiguousMatch => "extraction_ambiguous_match",
+            Self::ExtractionInternalError => "extraction_internal_error",
+            Self::CanonicalizationError => "canonicalization_error",
+            Self::CompareError => "compare_error",
+            Self::PersistError => "persist_error",
+            Self::IntegrityMismatch => "integrity_mismatch",
+        }
+    }
+
     pub(crate) const fn failure_class(self) -> Option<FailureClass> {
         match self {
             Self::Ok | Self::Disabled => None,
@@ -337,6 +467,19 @@ pub enum NotificationEvent {
     FailedPermanent,
     /// Target disabled.
     SkippedDisabled,
+}
+
+impl NotificationEvent {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Initialized => "initialized",
+            Self::Changed => "changed",
+            Self::Unchanged => "unchanged",
+            Self::FailedTransient => "failed_transient",
+            Self::FailedPermanent => "failed_permanent",
+            Self::SkippedDisabled => "skipped_disabled",
+        }
+    }
 }
 
 /// Supported snapshot slots.

@@ -51,7 +51,7 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
         &crate::StateDocument {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: None,
             last_run_outcome: None,
@@ -425,6 +425,7 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
     assert!(
         state.snapshot_history[0]
             .canonical_text_path
+            .as_str()
             .starts_with("snapshots/history/")
     );
     assert!(paths.last_run_file().is_file());

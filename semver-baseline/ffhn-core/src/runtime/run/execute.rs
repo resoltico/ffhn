@@ -117,19 +117,16 @@ pub(crate) fn run_once_with_options(
     let extraction_started = Instant::now();
     let plan = build_htmlcut_plan(&target)?;
     let source = HtmlInput::new(target.target_id.clone(), fetch.html.clone())
-        .map_err(|error| CoreError::htmlcut(error.to_string()))?
+        .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?
         .with_input_base_url(fetch.final_url.clone());
     let htmlcut_result = match execute_plan(&source, &plan) {
         Ok(result) => {
             result
                 .validate()
-                .map_err(|error| CoreError::htmlcut(error.to_string()))?;
+                .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?;
             result
         }
         Err(error) => {
-            error
-                .validate()
-                .map_err(|validation_error| CoreError::htmlcut(validation_error.to_string()))?;
             return finalize_failed_run(
                 paths,
                 &target,
@@ -177,8 +174,7 @@ pub(crate) fn run_once_with_options(
 
     let compare_started = Instant::now();
     let canonical_text =
-        apply_canonicalizers(&comparison_input_text, &target.compare.canonicalization)
-            .map_err(|_| CoreError::htmlcut("compare canonicalization failed"))?;
+        apply_canonicalizers(&comparison_input_text, &target.compare.canonicalization)?;
     let current_compare_digest_sha256 = sha256_hex(canonical_text.as_bytes());
     let compare_duration_ms = compare_started.elapsed().as_millis() as u64;
 

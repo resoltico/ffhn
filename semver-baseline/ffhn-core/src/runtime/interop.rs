@@ -13,65 +13,51 @@ use crate::{
 };
 
 pub(crate) fn build_htmlcut_plan(target: &TargetDocument) -> Result<Plan, CoreError> {
-    let strategy = match target.selection.kind {
-        SelectionKind::CssSelector => PlanStrategy::css_selector(
-            SelectorQuery::new(
+    let strategy =
+        match target.selection.kind {
+            SelectionKind::CssSelector => PlanStrategy::css_selector(
+                SelectorQuery::new(target.selection.selector.clone().ok_or_else(|| {
+                    CoreError::internal("validated target is missing selection.selector")
+                })?)
+                .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?,
+            ),
+            SelectionKind::DelimiterPair => PlanStrategy::delimiter_pair(
+                SliceBoundary::new(target.selection.start.clone().ok_or_else(|| {
+                    CoreError::internal("validated target is missing selection.start")
+                })?)
+                .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?,
+                SliceBoundary::new(target.selection.end.clone().ok_or_else(|| {
+                    CoreError::internal("validated target is missing selection.end")
+                })?)
+                .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?,
+                match target.selection.mode.ok_or_else(|| {
+                    CoreError::internal("validated target is missing selection.mode")
+                })? {
+                    DelimiterMode::Literal => HtmlcutDelimiterMode::Literal,
+                    DelimiterMode::Regex => HtmlcutDelimiterMode::Regex,
+                },
+                target.selection.include_start.unwrap_or(false),
+                target.selection.include_end.unwrap_or(false),
                 target
                     .selection
-                    .selector
-                    .clone()
-                    .ok_or_else(|| CoreError::htmlcut("missing selection.selector"))?,
-            )
-            .map_err(|error| CoreError::htmlcut(error.to_string()))?,
-        ),
-        SelectionKind::DelimiterPair => PlanStrategy::delimiter_pair(
-            SliceBoundary::new(
-                target
-                    .selection
-                    .start
-                    .clone()
-                    .ok_or_else(|| CoreError::htmlcut("missing selection.start"))?,
-            )
-            .map_err(|error| CoreError::htmlcut(error.to_string()))?,
-            SliceBoundary::new(
-                target
-                    .selection
-                    .end
-                    .clone()
-                    .ok_or_else(|| CoreError::htmlcut("missing selection.end"))?,
-            )
-            .map_err(|error| CoreError::htmlcut(error.to_string()))?,
-            match target
-                .selection
-                .mode
-                .ok_or_else(|| CoreError::htmlcut("missing selection.mode"))?
-            {
-                DelimiterMode::Literal => HtmlcutDelimiterMode::Literal,
-                DelimiterMode::Regex => HtmlcutDelimiterMode::Regex,
-            },
-            target.selection.include_start.unwrap_or(false),
-            target.selection.include_end.unwrap_or(false),
-            target
-                .selection
-                .flags
-                .iter()
-                .copied()
-                .map(map_regex_flag)
-                .collect(),
-        ),
-    };
+                    .flags
+                    .iter()
+                    .copied()
+                    .map(map_regex_flag)
+                    .collect(),
+            ),
+        };
 
     let selection = match target.selection.r#match {
         SelectionMatch::Single => Selection::single(),
         SelectionMatch::First => Selection::first(),
         SelectionMatch::Nth => Selection::nth(
-            NonZeroUsize::new(
-                target
-                    .selection
-                    .index
-                    .ok_or_else(|| CoreError::htmlcut("missing selection.index"))?,
-            )
-            .ok_or_else(|| CoreError::htmlcut("selection.index must be positive"))?,
+            NonZeroUsize::new(target.selection.index.ok_or_else(|| {
+                CoreError::internal("validated target is missing selection.index")
+            })?)
+            .ok_or_else(|| {
+                CoreError::internal("validated target has a non-positive selection.index")
+            })?,
         ),
     };
 
@@ -135,7 +121,7 @@ mod tests {
         TargetDocument {
             schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
             schema_version: crate::TARGET_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: crate::TargetId::new("demo").expect("target id"),
             display_name: "Demo".to_owned(),
             enabled: true,
             target: crate::TargetSource {
@@ -234,6 +220,45 @@ mod tests {
         target.selection.include_end = Some(false);
         target.selection.r#match = crate::SelectionMatch::Nth;
         target.selection.index = Some(0);
+        assert!(build_htmlcut_plan(&target).is_err());
+
+        let mut target = target_with_css();
+        target.selection.kind = crate::SelectionKind::DelimiterPair;
+        target.selection.selector = None;
+        target.selection.end = Some("END".to_owned());
+        target.selection.mode = Some(crate::DelimiterMode::Literal);
+        target.selection.include_start = Some(false);
+        target.selection.include_end = Some(false);
+        assert!(build_htmlcut_plan(&target).is_err());
+
+        let mut target = target_with_css();
+        target.selection.kind = crate::SelectionKind::DelimiterPair;
+        target.selection.selector = None;
+        target.selection.start = Some("BEGIN".to_owned());
+        target.selection.mode = Some(crate::DelimiterMode::Literal);
+        target.selection.include_start = Some(false);
+        target.selection.include_end = Some(false);
+        assert!(build_htmlcut_plan(&target).is_err());
+
+        let mut target = target_with_css();
+        target.selection.kind = crate::SelectionKind::DelimiterPair;
+        target.selection.selector = None;
+        target.selection.start = Some("BEGIN".to_owned());
+        target.selection.end = Some("END".to_owned());
+        target.selection.include_start = Some(false);
+        target.selection.include_end = Some(false);
+        assert!(build_htmlcut_plan(&target).is_err());
+
+        let mut target = target_with_css();
+        target.selection.kind = crate::SelectionKind::DelimiterPair;
+        target.selection.r#match = crate::SelectionMatch::Nth;
+        target.selection.selector = None;
+        target.selection.start = Some("BEGIN".to_owned());
+        target.selection.end = Some("END".to_owned());
+        target.selection.mode = Some(crate::DelimiterMode::Literal);
+        target.selection.include_start = Some(false);
+        target.selection.include_end = Some(false);
+        target.selection.index = None;
         assert!(build_htmlcut_plan(&target).is_err());
     }
 
