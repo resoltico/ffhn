@@ -7,8 +7,8 @@ use clap::{
 use ffhn_core::{
     CLI_ARGUMENT_ALL_ID, CLI_ARGUMENT_DRY_RUN_ID, CLI_ARGUMENT_JOBS_ID, CLI_ARGUMENT_TARGET_ID,
     CLI_ARGUMENT_WATCH_ROOT_ID, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID, CliArgumentContract,
-    CliArgumentValueKind, CliOperationContract, cli_operation,
-    positive_batch_concurrency_usage_error,
+    CliArgumentValueKind, CliOperationContract, TargetId, positive_batch_concurrency_usage_error,
+    run_operation, status_operation,
 };
 
 use crate::metadata::{FFHN_DESCRIPTION, FFHN_VERSION, TOOL_NAME};
@@ -35,7 +35,7 @@ pub struct RunCommand {
     /// Watch root directory containing per-target subdirectories.
     pub watch_root: PathBuf,
     /// One or more target ids under the watch root.
-    pub targets: Vec<String>,
+    pub targets: Vec<TargetId>,
     /// Run every target directory discovered under the watch root.
     pub all: bool,
     /// Maximum concurrent target runs.
@@ -50,7 +50,7 @@ pub struct StatusCommand {
     /// Watch root directory containing per-target subdirectories.
     pub watch_root: PathBuf,
     /// Target id under the watch root.
-    pub target: String,
+    pub target: TargetId,
 }
 
 pub(crate) fn build_cli_command() -> ClapCommand {
@@ -58,12 +58,8 @@ pub(crate) fn build_cli_command() -> ClapCommand {
         .version(FFHN_VERSION)
         .about(FFHN_DESCRIPTION)
         .subcommand_required(true)
-        .subcommand(build_operation_subcommand(
-            cli_operation(CLI_OPERATION_RUN_ID).expect("run operation"),
-        ))
-        .subcommand(build_operation_subcommand(
-            cli_operation(CLI_OPERATION_STATUS_ID).expect("status operation"),
-        ))
+        .subcommand(build_operation_subcommand(run_operation()))
+        .subcommand(build_operation_subcommand(status_operation()))
 }
 
 pub(crate) fn parse_cli<I, T>(args: I) -> Result<Cli, ClapError>
@@ -88,7 +84,7 @@ pub(crate) fn matches_to_cli(matches: &ArgMatches) -> Result<Cli, ClapError> {
                     .expect("run watch-root default")
                     .clone(),
                 targets: submatches
-                    .get_many::<String>(CLI_ARGUMENT_TARGET_ID)
+                    .get_many::<TargetId>(CLI_ARGUMENT_TARGET_ID)
                     .map(|targets| targets.cloned().collect())
                     .unwrap_or_default(),
                 all: submatches.get_flag(CLI_ARGUMENT_ALL_ID),
@@ -110,7 +106,7 @@ pub(crate) fn matches_to_cli(matches: &ArgMatches) -> Result<Cli, ClapError> {
                     .expect("status watch-root default")
                     .clone(),
                 target: submatches
-                    .get_one::<String>(CLI_ARGUMENT_TARGET_ID)
+                    .get_one::<TargetId>(CLI_ARGUMENT_TARGET_ID)
                     .expect("status target")
                     .clone(),
             }),
@@ -162,7 +158,13 @@ fn build_argument(argument: &CliArgumentContract) -> Arg {
     match argument.value_kind {
         CliArgumentValueKind::Flag => arg.action(ArgAction::SetTrue),
         CliArgumentValueKind::Path => arg.value_parser(clap::value_parser!(PathBuf)),
-        CliArgumentValueKind::String => arg.value_parser(clap::value_parser!(String)),
+        CliArgumentValueKind::String => {
+            if argument.id == CLI_ARGUMENT_TARGET_ID {
+                arg.value_parser(clap::value_parser!(TargetId))
+            } else {
+                arg.value_parser(clap::value_parser!(String))
+            }
+        }
         CliArgumentValueKind::PositiveInteger => arg.value_parser(clap::value_parser!(String)),
     }
 }
@@ -181,4 +183,36 @@ fn parse_jobs(raw: &str) -> Result<usize, ClapError> {
         ));
     }
     Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_target_string_arguments_use_plain_string_parsing() {
+        let command = ClapCommand::new("ffhn").arg(build_argument(&CliArgumentContract {
+            id: "label",
+            long_name: "label",
+            display_label: "Label",
+            value_name: Some("VALUE"),
+            help_summary: "Arbitrary label.",
+            value_kind: CliArgumentValueKind::String,
+            repeatable: false,
+            required: true,
+            required_unless_present: None,
+            conflicts_with: &[],
+            default_value: None,
+        }));
+
+        let matches = command
+            .try_get_matches_from(["ffhn", "--label", "Demo"])
+            .expect("parse custom string argument");
+        assert_eq!(
+            matches
+                .get_one::<String>("label")
+                .expect("string value parsed"),
+            "Demo"
+        );
+    }
 }

@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+
 use super::*;
 use ffhn_core::{BatchRunReport, NotificationPayload, RunReport, StateDocument, StatusReport};
 
@@ -11,21 +13,36 @@ fn seed_paths(dir: &Path) -> Vec<PathBuf> {
     seeds
 }
 
+fn is_intentionally_invalid_seed(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(OsStr::to_str)
+        .is_some_and(|stem| stem.contains("invalid"))
+}
+
 #[test]
 fn maintained_report_and_target_seed_files_stay_valid() {
     let repo_root = repo_root();
 
     for path in seed_paths(&repo_root.join("fuzz/corpus/target_toml_documents")) {
         let document = fs::read_to_string(&path).expect("read target seed");
-        let target: TargetDocument = toml::from_str(&document).expect("parse target seed");
-        if path
-            .file_stem()
-            .and_then(OsStr::to_str)
-            .is_some_and(|stem| stem.contains("invalid"))
-        {
-            assert!(target.validate().is_err(), "{}", path.display());
+        let parsed = toml::from_str::<TargetDocument>(&document);
+        if is_intentionally_invalid_seed(&path) {
+            assert!(
+                match parsed.as_ref() {
+                    Ok(target) => target.validate().is_err(),
+                    Err(_) => true,
+                },
+                "{}",
+                path.display()
+            );
         } else {
-            assert!(target.validate().is_ok(), "{}", path.display());
+            assert!(
+                parsed
+                    .as_ref()
+                    .is_ok_and(|target| target.validate().is_ok()),
+                "{}",
+                path.display()
+            );
         }
     }
 
@@ -41,6 +58,10 @@ fn maintained_report_and_target_seed_files_stay_valid() {
                 .is_ok_and(|report| report.validate().is_ok())
             || serde_json::from_str::<StatusReport>(&document)
                 .is_ok_and(|report| report.validate().is_ok());
-        assert!(valid, "{}", path.display());
+        if is_intentionally_invalid_seed(&path) {
+            assert!(!valid, "{}", path.display());
+        } else {
+            assert!(valid, "{}", path.display());
+        }
     }
 }

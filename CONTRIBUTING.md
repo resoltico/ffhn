@@ -1,13 +1,3 @@
----
-afad: "3.5"
-version: "3.0.1"
-domain: CONTRIBUTING
-updated: "2026-04-23"
-route:
-  keywords: [contributing, workflow, docs sync, check.sh, fuzz seeds, release hygiene]
-  questions: ["how should I contribute to ffhn?", "which docs do I update when ffhn behavior changes?", "what should I run before asking for review?"]
----
-
 # Contributing
 
 FFHN treats `ffhn-core` as the product and `ffhn-cli` as a renderer. Contributions should preserve that split.
@@ -35,7 +25,7 @@ If you change production behavior, add a public-facing note under `## [Unrelease
 
 Whenever you touch a runnable Markdown snippet or example README, execute that documented flow in a disposable temp directory instead of only editing the prose.
 
-Every public Markdown file in FFHN carries AFAD frontmatter, and those frontmatter versions are validated against the canonical protocol metadata in [.codex/PROTOCOL_AFAD.md](.codex/PROTOCOL_AFAD.md). Public Markdown local links and maintained repo-file path mentions, the checked-in target examples, the generated CLI catalog sections in [README.md](README.md) and [docs/cli.md](docs/cli.md), and the internal agent-parity entrypoints in [.claude/CLAUDE.md](.claude/CLAUDE.md) and [.gemini/GEMINI.md](.gemini/GEMINI.md) are also validated by the automated test suite. Treat those files as maintained contract surfaces, not prose-only references.
+AFAD-managed docs under [docs/](docs), [examples/](examples), and [fuzz/](fuzz) carry AFAD frontmatter, and those frontmatter versions are validated against the canonical protocol metadata in [.codex/PROTOCOL_AFAD.md](.codex/PROTOCOL_AFAD.md). The root [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [changelog.md](changelog.md) stay human-first special docs instead of carrying enforced AFAD metadata. Public Markdown local links and maintained repo-file path mentions, the checked-in target examples, the generated CLI catalog sections in [README.md](README.md) and [docs/cli.md](docs/cli.md), and the internal agent-parity entrypoints in [.codex/AGENTS.md](.codex/AGENTS.md), [.claude/CLAUDE.md](.claude/CLAUDE.md), and [.gemini/GEMINI.md](.gemini/GEMINI.md) are also validated by the automated test suite. Treat those files as maintained contract surfaces, not prose-only references.
 
 ## Fixture And Seed Expectations
 

@@ -157,6 +157,63 @@ fn refresh_semver_baseline_reports_missing_git_refs() {
 }
 
 #[test]
+fn refresh_semver_baseline_rejects_non_utf8_workspace_manifests_from_git() {
+    let repo_root = tempdir().expect("tempdir");
+    fs::create_dir_all(
+        repo_root
+            .path()
+            .join("crates")
+            .join("ffhn-core")
+            .join("src"),
+    )
+    .expect("create ffhn-core src");
+    fs::write(
+        repo_root.path().join("Cargo.toml"),
+        b"[workspace.package]\nversion = \"2.0.0\"\n\xff\n",
+    )
+    .expect("write invalid Cargo.toml");
+    fs::write(
+        repo_root
+            .path()
+            .join("crates")
+            .join("ffhn-core")
+            .join("Cargo.toml"),
+        "[package]\nname = \"ffhn-core\"\nversion.workspace = true\nedition = \"2024\"\n",
+    )
+    .expect("write ffhn-core manifest");
+    fs::write(
+        repo_root
+            .path()
+            .join("crates")
+            .join("ffhn-core")
+            .join("src")
+            .join("lib.rs"),
+        "pub const RELEASE_LINE: &str = \"published\";\n",
+    )
+    .expect("write ffhn-core lib");
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed invalid manifest"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    let error = refresh_semver_baseline(repo_root.path(), "v2.0.0")
+        .expect_err("non-UTF-8 manifest should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("git returned non-UTF-8 contents for Cargo.toml")
+    );
+}
+
+#[test]
 fn workspace_version_reads_from_repo_manifest() {
     let repo_root = tempdir().expect("tempdir");
     fs::write(

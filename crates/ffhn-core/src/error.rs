@@ -29,9 +29,15 @@ pub enum CoreError {
     /// Time parsing failed.
     #[error("time parsing error: {0}")]
     TimeParse(#[from] time::error::Parse),
-    /// HTMLCut returned a contract-level failure that could not be represented structurally.
+    /// FFHN rejected contract data before a structured document could be emitted.
+    #[error("contract error: {0}")]
+    Contract(String),
+    /// FFHN could not complete the HTMLCut interoperability boundary safely.
     #[error("htmlcut interop error: {0}")]
-    Htmlcut(String),
+    HtmlcutInterop(String),
+    /// FFHN hit an internal invariant failure.
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl CoreError {
@@ -43,8 +49,18 @@ impl CoreError {
         }
     }
 
-    /// Builds one HTMLCut contract error.
-    pub fn htmlcut(message: impl Into<String>) -> Self {
-        Self::Htmlcut(message.into())
+    /// Builds one FFHN contract error.
+    pub fn contract(message: impl Into<String>) -> Self {
+        Self::Contract(message.into())
+    }
+
+    /// Builds one HTMLCut interoperability error.
+    pub fn htmlcut_interop(message: impl Into<String>) -> Self {
+        Self::HtmlcutInterop(message.into())
+    }
+
+    /// Builds one internal FFHN invariant error.
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(message.into())
     }
 }

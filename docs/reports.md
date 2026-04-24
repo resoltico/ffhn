@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: REPORTS
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [reports, ffhn.state, ffhn.extraction_record, ffhn.notification_payload, ffhn.status_report, snapshot references, snapshot artifacts, state document]
   questions: ["what do ffhn state and status documents mean?", "what is stored in ffhn.state?", "what is stored in ffhn.extraction_record?", "what is ffhn.notification_payload?", "what do ffhn snapshot artifacts mean?"]
@@ -46,7 +46,8 @@ Field semantics:
 
 1. `last_run_at`, `last_run_outcome`, and `last_reason_code` describe the most recent attempted live run that reached state persistence, not only the most recent success
 2. `current_snapshot` and `snapshot_history` are `SnapshotReference` objects that carry `slot`, digests, relative artifact paths, and `captured_at`
-3. `snapshot_history` is ordered newest first
+3. snapshot artifact paths are FFHN-owned forward-slash relative paths beneath the target directory; absolute Unix paths, Windows drive prefixes, UNC paths, empty segments, and `.` or `..` segments are invalid
+4. `snapshot_history` is ordered newest first
 
 Key invariants:
 

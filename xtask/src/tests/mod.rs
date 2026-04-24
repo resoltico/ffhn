@@ -11,7 +11,7 @@ use crate::coverage::{
 };
 use crate::model::{
     CommandSpec, CoverageCounter, CoverageDataSet, CoverageFile, CoverageFileSummary,
-    CoverageReport, TRACKED_RELATIVE_PATHS,
+    CoverageReport,
 };
 use crate::plan::{
     binary_name, check_plan, collect_shell_script_paths, is_semver_check_spec, normalize_path,
@@ -82,16 +82,32 @@ fn run_git(repo_root: &Path, args: &[&str]) {
     assert!(status.success(), "git {:?} failed with {status}", args);
 }
 
+mod app;
 mod coverage;
 mod plan;
 mod release;
 mod semver;
 
+const SEEDED_TRACKED_FILES: &[&str] = &[
+    "crates/ffhn-core/src/model/report/run.rs",
+    "crates/ffhn-cli/src/execute.rs",
+    "xtask/src/coverage.rs",
+    "xtask/src/plan/check.rs",
+];
+
+fn tracked_source() -> String {
+    let mut source = String::from("fn tracked() {\n    let _ = 1;\n}\n");
+    for _ in 0..80 {
+        source.push('\n');
+    }
+    source
+}
+
 fn seed_tracked_files(repo_root: &Path) -> BTreeMap<PathBuf, String> {
-    for relative_path in TRACKED_RELATIVE_PATHS {
+    for relative_path in SEEDED_TRACKED_FILES {
         let file_path = repo_root.join(relative_path);
         fs::create_dir_all(file_path.parent().expect("parent")).expect("create dir");
-        fs::write(&file_path, "// tracked\n").expect("write tracked file");
+        fs::write(&file_path, tracked_source()).expect("write tracked file");
     }
 
     tracked_files(repo_root).expect("tracked files")
@@ -101,7 +117,7 @@ fn tracked_subset(repo_root: &Path, relative_paths: &[&str]) -> BTreeMap<PathBuf
     for relative_path in relative_paths {
         let file_path = repo_root.join(relative_path);
         fs::create_dir_all(file_path.parent().expect("parent")).expect("create dir");
-        fs::write(&file_path, "// tracked\n").expect("write tracked file");
+        fs::write(&file_path, tracked_source()).expect("write tracked file");
     }
 
     relative_paths

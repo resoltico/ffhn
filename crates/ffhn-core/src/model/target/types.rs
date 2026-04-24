@@ -5,7 +5,7 @@ use url::Url;
 
 use super::super::{
     CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod,
-    NotificationEvent, OutputKind, RegexFlag, SelectionKind, SelectionMatch, TargetKind,
+    NotificationEvent, OutputKind, RegexFlag, SelectionKind, SelectionMatch, TargetId, TargetKind,
     WhitespaceMode,
 };
 use super::defaults::{
@@ -162,33 +162,98 @@ pub struct CanonicalizerSpec {
 
 /// Top-level FFHN target document.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawTargetDocument")]
 pub struct TargetDocument {
     /// Frozen schema identity.
-    pub schema_name: String,
+    pub(crate) schema_name: String,
     /// Frozen schema version.
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     /// Target id.
-    pub target_id: String,
+    pub(crate) target_id: TargetId,
     /// Display name.
-    pub display_name: String,
+    pub(crate) display_name: String,
     /// Enable flag.
-    pub enabled: bool,
+    pub(crate) enabled: bool,
     /// Target source section.
-    pub target: TargetSource,
+    pub(crate) target: TargetSource,
     /// Fetch section.
-    pub fetch: FetchConfig,
+    pub(crate) fetch: FetchConfig,
     /// Selection section.
-    pub selection: SelectionConfig,
+    pub(crate) selection: SelectionConfig,
     /// Compare section.
-    pub compare: CompareConfig,
+    pub(crate) compare: CompareConfig,
     /// Rolling storage policy.
     #[serde(default)]
-    pub storage: StorageConfig,
+    pub(crate) storage: StorageConfig,
     /// Notification hooks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notifications: Vec<NotificationHook>,
+    pub(crate) notifications: Vec<NotificationHook>,
     /// Reserved extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTargetDocument {
+    schema_name: String,
+    schema_version: u32,
+    target_id: String,
+    display_name: String,
+    enabled: bool,
+    target: TargetSource,
+    fetch: FetchConfig,
+    selection: SelectionConfig,
+    compare: CompareConfig,
+    #[serde(default)]
+    storage: StorageConfig,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notifications: Vec<NotificationHook>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Extensions,
+}
+
+impl TargetDocument {
+    /// Returns the target id declared by the document.
+    pub fn target_id(&self) -> &str {
+        self.target_id.as_str()
+    }
+
+    /// Returns whether the target is enabled for live runs.
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Returns the target source section.
+    pub fn target(&self) -> &TargetSource {
+        &self.target
+    }
+
+    /// Returns the fetch configuration section.
+    pub fn fetch(&self) -> &FetchConfig {
+        &self.fetch
+    }
+}
+
+impl TryFrom<RawTargetDocument> for TargetDocument {
+    type Error = crate::CoreError;
+
+    fn try_from(raw: RawTargetDocument) -> Result<Self, Self::Error> {
+        let document = Self {
+            schema_name: raw.schema_name,
+            schema_version: raw.schema_version,
+            target_id: raw.target_id.try_into()?,
+            display_name: raw.display_name,
+            enabled: raw.enabled,
+            target: raw.target,
+            fetch: raw.fetch,
+            selection: raw.selection,
+            compare: raw.compare,
+            storage: raw.storage,
+            notifications: raw.notifications,
+            extensions: raw.extensions,
+        };
+        document.validate()?;
+        Ok(document)
+    }
 }

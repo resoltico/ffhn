@@ -5,7 +5,7 @@ fn status_report_validation_enforces_state_phase_rules() {
     StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         target_status: TargetStatus::Invalid,
         reason_code: ReasonCode::ConfigInvalid,
         state_phase: None,
@@ -23,7 +23,7 @@ fn status_report_validation_enforces_state_phase_rules() {
     let invalid = StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         target_status: TargetStatus::Ready,
         reason_code: ReasonCode::Ok,
         state_phase: None,
@@ -40,7 +40,7 @@ fn status_report_validation_enforces_state_phase_rules() {
     let wrong_target_status = StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         target_status: TargetStatus::Ready,
         reason_code: ReasonCode::ConfigInvalid,
         state_phase: None,
@@ -59,7 +59,7 @@ fn status_report_validation_enforces_state_phase_rules() {
         ..StatusReport {
             schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
             schema_version: STATUS_REPORT_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             target_status: TargetStatus::Ready,
             reason_code: ReasonCode::Ok,
             state_phase: Some(StatePhase::HasBaseline),
@@ -77,7 +77,7 @@ fn status_report_validation_enforces_state_phase_rules() {
     let mut invalid_snapshot = StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         target_status: TargetStatus::Ready,
         reason_code: ReasonCode::Ok,
         state_phase: Some(StatePhase::HasBaseline),
@@ -106,4 +106,40 @@ fn status_report_validation_enforces_state_phase_rules() {
         captured_at: "2026-04-05T10:14:30Z".to_owned(),
     }];
     invalid_snapshot.validate().expect("ready status report");
+}
+
+#[test]
+fn status_report_deserialization_revalidates_raw_documents() {
+    let report = StatusReport {
+        schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
+        schema_version: STATUS_REPORT_SCHEMA_VERSION,
+        target_id: target_id("demo"),
+        target_status: TargetStatus::Ready,
+        reason_code: ReasonCode::Ok,
+        state_phase: Some(StatePhase::HasBaseline),
+        artifacts: ArtifactStatus {
+            current_valid: true,
+            previous_valid: true,
+        },
+        current_snapshot: Some(SnapshotDigestSummary {
+            canonical_text_sha256: DIGEST.to_owned(),
+            outer_html_sha256: DIGEST.to_owned(),
+            captured_at: "2026-04-05T10:15:30Z".to_owned(),
+        }),
+        snapshot_history: vec![SnapshotDigestSummary {
+            canonical_text_sha256: DIGEST.to_owned(),
+            outer_html_sha256: DIGEST.to_owned(),
+            captured_at: "2026-04-05T10:14:30Z".to_owned(),
+        }],
+        extensions: None,
+    };
+
+    let json = serde_json::to_string(&report).expect("status json");
+    let parsed: StatusReport = serde_json::from_str(&json).expect("status report");
+    assert_eq!(parsed, report);
+
+    let mut invalid = report;
+    invalid.state_phase = None;
+    let invalid_json = serde_json::to_string(&invalid).expect("invalid status json");
+    assert!(serde_json::from_str::<StatusReport>(&invalid_json).is_err());
 }

@@ -70,9 +70,9 @@ fn file_target_example_materializer_emits_a_valid_target_document() {
     let document = fs::read_to_string(&target_file).expect("read materialized target");
     let target: TargetDocument = toml::from_str(&document).expect("parse materialized target");
     target.validate().expect("validate materialized target");
-    assert_eq!(target.target_id, "release_notes");
+    assert_eq!(target.target_id(), "release_notes");
     let file_path = target
-        .target
+        .target()
         .file_path
         .as_deref()
         .expect("materialized file path");

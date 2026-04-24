@@ -22,10 +22,12 @@
 .direnv/
 
 # OS and local scratch files
+# Agent-maintainer repo files stay versioned in Git.
+!/AGENTS.md
+!/.codex/
+!/.codex/**
 .claude/*
 !.claude/CLAUDE.md
-AGENTS.md
-!.codex/AGENTS.md
 .DS_Store
 *.swp
 *.swo

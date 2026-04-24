@@ -132,3 +132,41 @@ fn notification_payload_validation_rejects_invalid_identity_non_live_and_postdel
     };
     assert!(postdelivery.validate().is_err());
 }
+
+#[test]
+fn notification_payload_deserialization_revalidates_predelivery_live_contract() {
+    let mut run_report = valid_run_report();
+    run_report.persist.wrote_last_run = false;
+    run_report = run_report
+        .with_digest()
+        .expect("predelivery run report digest");
+
+    let payload = NotificationPayload {
+        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+        hook_name: "notify".to_owned(),
+        event: NotificationEvent::Changed,
+        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+        run_report: run_report.clone(),
+        extensions: None,
+    };
+    let json = serde_json::to_string(&payload).expect("payload json");
+    let parsed: NotificationPayload =
+        serde_json::from_str(&json).expect("deserialize notification payload");
+    assert_eq!(parsed, payload);
+
+    let invalid = NotificationPayload {
+        run_report: valid_run_report(),
+        ..NotificationPayload {
+            schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+            schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+            hook_name: "notify".to_owned(),
+            event: NotificationEvent::Changed,
+            delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+            run_report,
+            extensions: None,
+        }
+    };
+    let invalid_json = serde_json::to_string(&invalid).expect("invalid payload json");
+    assert!(serde_json::from_str::<NotificationPayload>(&invalid_json).is_err());
+}

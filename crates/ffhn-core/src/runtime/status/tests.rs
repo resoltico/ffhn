@@ -3,8 +3,9 @@ use super::*;
 use crate::{
     CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RunOutcome, SelectionConfig,
-    SelectionKind, SelectionMatch, SnapshotReference, SnapshotSlot, TargetSource, WhitespaceMode,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
+    SelectionConfig, SelectionKind, SelectionMatch, SnapshotReference, SnapshotSlot, TargetId,
+    TargetSource, WhitespaceMode,
 };
 use serde_json::json;
 #[cfg(unix)]
@@ -14,11 +15,19 @@ use url::Url;
 
 const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-fn target_document(target_id: &str) -> TargetDocument {
+fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
+
+fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
+    RelativeArtifactPath::new(path).expect("relative artifact path")
+}
+
+fn target_document(target_name: &str) -> TargetDocument {
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
-        target_id: target_id.to_owned(),
+        target_id: target_id(target_name),
         display_name: "Demo".to_owned(),
         enabled: true,
         target: TargetSource {
@@ -67,9 +76,9 @@ fn snapshot(slot: SnapshotSlot, name: &str, canonical: &str, outer: &str) -> Sna
         slot,
         canonical_text_sha256: crate::stable_json::sha256_hex(canonical.as_bytes()),
         outer_html_sha256: crate::stable_json::sha256_hex(outer.as_bytes()),
-        extraction_record_path: format!("snapshots/{name}/extraction.json"),
-        canonical_text_path: format!("snapshots/{name}/canonical.txt"),
-        outer_html_path: format!("snapshots/{name}/outer.html"),
+        extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
+        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
 }
@@ -120,7 +129,7 @@ fn write_valid_state(paths: &TargetPaths) {
         &crate::StateDocument {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::Initialized),
@@ -140,7 +149,7 @@ fn validate_target_reads_toml_and_enforces_directory_identity() {
 
     write_target(&paths, &target_document("demo"));
     let target = validate_target(&paths).expect("valid target");
-    assert_eq!(target.target_id, "demo");
+    assert_eq!(target.target_id.as_str(), "demo");
 
     assert!(validate_target_against_paths(&paths, target_document("demo")).is_ok());
     assert!(validate_target_against_paths(&paths, target_document("other")).is_err());
@@ -171,7 +180,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         &crate::StateDocument {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::NeverSucceeded,
             last_run_at: None,
             last_run_outcome: None,
@@ -190,7 +199,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         &crate::StateDocument {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: None,
             last_run_outcome: None,

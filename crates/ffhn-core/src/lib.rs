@@ -14,30 +14,33 @@ pub use canonical::apply_canonicalizers;
 pub use contract::{
     CLI_ARGUMENT_ALL_ID, CLI_ARGUMENT_DRY_RUN_ID, CLI_ARGUMENT_JOBS_ID, CLI_ARGUMENT_TARGET_ID,
     CLI_ARGUMENT_WATCH_ROOT_ID, CLI_INVOCATION_RUN_ALL_ID, CLI_INVOCATION_RUN_BATCH_ID,
-    CLI_INVOCATION_RUN_SINGLE_ID, CLI_INVOCATION_STATUS_ID, CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID,
-    CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID, CLI_LIMIT_UNIQUE_TARGET_IDS_ID, CLI_OPERATION_RUN_ID,
-    CLI_OPERATION_STATUS_ID, CliArgumentContract, CliArgumentValueKind, CliContractCatalog,
-    CliHardLimitContract, CliInvocationContract, CliOperationContract, ExecutionModeContract,
-    UserFacingDocumentContract, cli_contract, cli_document, cli_execution_mode, cli_hard_limit,
+    CLI_INVOCATION_RUN_SINGLE_ID, CLI_INVOCATION_STATUS_ID, CLI_LIMIT_DURABLE_TARGET_IDS_ID,
+    CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID, CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID,
+    CLI_LIMIT_UNIQUE_TARGET_IDS_ID, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID,
+    CliArgumentContract, CliArgumentValueKind, CliContractCatalog, CliHardLimitContract,
+    CliInvocationContract, CliOperationContract, ExecutionModeContract, UserFacingDocumentContract,
+    batch_run_report_write_error, cli_contract, cli_document, cli_execution_mode, cli_hard_limit,
     cli_operation, document_write_error, duplicate_target_ids_usage_error,
-    positive_batch_concurrency_usage_error,
+    positive_batch_concurrency_limit, positive_batch_concurrency_usage_error, run_operation,
+    run_report_document, run_report_write_error, status_operation, status_report_document,
+    status_report_write_error, unique_target_ids_limit,
 };
 pub use error::CoreError;
 pub use model::{
     ArtifactStatus, BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION,
-    BatchOutcomeCounts, BatchRunEntry, BatchRunReport, CanonicalizerKind, CanonicalizerSpec,
-    ChangeKind, CompareBasis, CompareConfig, DelimiterMode, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FailureClass, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, NOTIFICATION_PAYLOAD_SCHEMA_NAME,
-    NOTIFICATION_PAYLOAD_SCHEMA_VERSION, NotificationEvent, NotificationHook, NotificationPayload,
-    OutputKind, ProcessErrorDetail, ProcessErrorKind, RUN_REPORT_SCHEMA_NAME,
-    RUN_REPORT_SCHEMA_VERSION, ReasonCode, RegexFlag, RunChangeRegion, RunChangeSection,
-    RunCompareSection, RunExtractionSection, RunFetchSection, RunMode, RunNotificationDelivery,
-    RunOutcome, RunPersistSection, RunReport, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION,
-    STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, SelectionConfig, SelectionKind,
-    SelectionMatch, SnapshotDigestSummary, SnapshotReference, SnapshotSlot, StateDocument,
-    StatePhase, StatusReport, StorageConfig, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
-    TargetDocument, TargetSource, TargetStatus, WhitespaceMode,
+    BatchOutcomeCounts, BatchRunEntry, BatchRunReport, BatchRunReportInput, CanonicalizerKind,
+    CanonicalizerSpec, ChangeKind, CompareBasis, CompareConfig, DelimiterMode,
+    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord,
+    FailureClass, FetchConfig, FetchEngine, HTMLCUT_INTEROP_PROFILE, HttpMethod,
+    NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION, NotificationEvent,
+    NotificationHook, NotificationPayload, OutputKind, ProcessErrorDetail, ProcessErrorKind,
+    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RegexFlag, RelativeArtifactPath,
+    RunChangeRegion, RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection,
+    RunMode, RunNotificationDelivery, RunOutcome, RunPersistSection, RunReport, STATE_SCHEMA_NAME,
+    STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, SelectionConfig,
+    SelectionKind, SelectionMatch, SnapshotDigestSummary, SnapshotReference, SnapshotSlot,
+    StateDocument, StatePhase, StatusReport, StorageConfig, TARGET_SCHEMA_NAME,
+    TARGET_SCHEMA_VERSION, TargetDocument, TargetId, TargetSource, TargetStatus, WhitespaceMode,
 };
 pub use paths::TargetPaths;
 
@@ -89,7 +92,7 @@ pub fn run_once_dry_run(paths: &TargetPaths) -> Result<RunReport, CoreError> {
 /// `jobs` is zero, or when `targets` contains duplicate target ids.
 pub fn run_batch(
     watch_root: &std::path::Path,
-    targets: &[String],
+    targets: &[TargetId],
     run_mode: RunMode,
     jobs: usize,
 ) -> Result<BatchRunReport, CoreError> {

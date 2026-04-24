@@ -14,6 +14,13 @@ fn fatal_entry(target_id: &str) -> BatchRunEntry {
     }
 }
 
+fn target_ids(values: &[&str]) -> Vec<crate::TargetId> {
+    values
+        .iter()
+        .map(|value| crate::TargetId::new(*value).expect("target id"))
+        .collect()
+}
+
 #[test]
 fn batch_helpers_cover_out_of_range_missing_entry_and_closed_receiver_paths() {
     let demo = fatal_entry("demo");
@@ -26,10 +33,11 @@ fn batch_helpers_cover_out_of_range_missing_entry_and_closed_receiver_paths() {
     assert_eq!(entries[0], Some(demo.clone()));
 
     let finalized =
-        finalize_received_entries(vec![Some(demo.clone())], &["demo".to_owned()]).expect("ok");
+        finalize_received_entries(vec![Some(demo.clone())], &target_ids(&["demo"])).expect("ok");
     assert_eq!(finalized, vec![demo.clone()]);
 
-    let missing = finalize_received_entries(vec![None], &["demo".to_owned()]).expect_err("missing");
+    let missing =
+        finalize_received_entries(vec![None], &target_ids(&["demo"])).expect_err("missing");
     assert!(
         missing
             .to_string()
@@ -65,7 +73,7 @@ fn batch_worker_panic_error_covers_string_and_non_string_payloads() {
 #[test]
 fn spawn_batch_worker_returns_early_when_the_receiver_is_gone() {
     let temp = tempdir().expect("tempdir");
-    let targets = Arc::new(vec!["demo".to_owned()]);
+    let targets = Arc::new(target_ids(&["demo"]));
     let next_index = Arc::new(AtomicUsize::new(0));
     let (sender, receiver) = mpsc::channel();
     drop(receiver);

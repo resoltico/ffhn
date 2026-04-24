@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: TARGETS
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]
@@ -134,7 +134,8 @@ Additional file-only rules:
 6. `headers` must be empty
 7. local file bytes must decode as UTF-8, or FFHN returns `fetch_decode_error`
 
-Because `follow_redirects` defaults to `true`, file targets should set it explicitly to `false` in `target.toml`.
+Because `follow_redirects` defaults to `true`, file targets must set it explicitly to `false` in `target.toml`.
+Omitting that field leaves the shared default in place, so FFHN rejects the document as invalid during decode and validation.
 The remaining HTTP-only fetch knobs stay in the shared schema for compatibility with the common `[fetch]` shape, but FFHN rejects non-empty `user_agent`, non-empty `accept`, and any `timeout_ms` value other than the fixed default on file targets.
 
 ## Selection Section

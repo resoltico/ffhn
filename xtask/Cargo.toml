@@ -14,9 +14,11 @@ description = "Rust-native repository maintenance tasks for FFHN."
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+syn = { version = "2.0.117", features = ["full"] }
 toml.workspace = true
 
 [dev-dependencies]
+assert_cmd.workspace = true
 ffhn-core.workspace = true
 tempfile.workspace = true
 

@@ -7,10 +7,10 @@ use crate::stable_json::{sha256_hex, stable_json};
 use crate::{
     CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RunOutcome, RunReport,
-    STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionKind, SelectionMatch,
-    SnapshotReference, SnapshotSlot, StateDocument, StatePhase, TargetDocument, TargetPaths,
-    TargetSource, WhitespaceMode,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
+    RunReport, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionKind,
+    SelectionMatch, SnapshotReference, SnapshotSlot, StateDocument, StatePhase, TargetDocument,
+    TargetId, TargetPaths, TargetSource, WhitespaceMode,
 };
 use serde_json::json;
 use std::io;
@@ -19,11 +19,19 @@ use url::Url;
 
 const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
+
+fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
+    RelativeArtifactPath::new(path).expect("relative artifact path")
+}
+
 fn target() -> TargetDocument {
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         display_name: "Demo".to_owned(),
         enabled: true,
         target: TargetSource {
@@ -93,9 +101,9 @@ fn snapshot(slot: SnapshotSlot, name: &str, canonical: &str, outer: &str) -> Sna
         slot,
         canonical_text_sha256: sha256_hex(canonical.as_bytes()),
         outer_html_sha256: sha256_hex(outer.as_bytes()),
-        extraction_record_path: format!("snapshots/{name}/extraction.json"),
-        canonical_text_path: format!("snapshots/{name}/canonical.txt"),
-        outer_html_path: format!("snapshots/{name}/outer.html"),
+        extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
+        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     };
     SnapshotArtifacts {
@@ -115,7 +123,7 @@ fn prior_state_with(
         document: StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::Initialized),
@@ -262,6 +270,7 @@ fn persist_successful_run_rotates_current_into_history_and_prunes_to_limit() {
     assert!(
         state.snapshot_history[0]
             .canonical_text_path
+            .as_str()
             .starts_with("snapshots/history/")
     );
 }
@@ -497,7 +506,7 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
         &StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id("demo"),
             state_phase: StatePhase::HasBaseline,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::Initialized),
@@ -584,7 +593,7 @@ fn write_last_run_persists_report_json() {
         schema_name: crate::RUN_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: crate::RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: crate::RunMode::Live,

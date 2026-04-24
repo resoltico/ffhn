@@ -29,6 +29,8 @@ fn cli_contract_catalog_keeps_ids_unique() {
 
 #[test]
 fn cli_contract_lookups_cover_present_and_missing_ids() {
+    assert_eq!(run_operation().id, CLI_OPERATION_RUN_ID);
+    assert_eq!(status_operation().id, CLI_OPERATION_STATUS_ID);
     assert_eq!(
         cli_operation(CLI_OPERATION_RUN_ID)
             .expect("run operation")
@@ -49,6 +51,7 @@ fn cli_contract_lookups_cover_present_and_missing_ids() {
             .render_cli_write_error(),
         "could not write run report"
     );
+    assert_eq!(run_report_document().id, RUN_REPORT_SCHEMA_NAME);
     assert!(cli_document("ffhn.unknown_report").is_none());
 
     assert_eq!(
@@ -56,6 +59,12 @@ fn cli_contract_lookups_cover_present_and_missing_ids() {
             .expect("watch-root discovery limit")
             .display_label,
         "Immediate Watch Root Discovery"
+    );
+    assert_eq!(
+        cli_hard_limit(CLI_LIMIT_DURABLE_TARGET_IDS_ID)
+            .expect("durable target id limit")
+            .display_label,
+        "Durable Explicit Target Ids"
     );
     assert!(cli_hard_limit("bogus-limit").is_none());
 }
@@ -80,6 +89,11 @@ fn execution_modes_and_usage_errors_use_the_canonical_contract() {
         "must be a positive integer"
     );
     assert_eq!(
+        positive_batch_concurrency_limit().id,
+        CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID
+    );
+    assert_eq!(unique_target_ids_limit().id, CLI_LIMIT_UNIQUE_TARGET_IDS_ID);
+    assert_eq!(
         duplicate_target_ids_usage_error("demo"),
         "duplicate --target values are not allowed: demo"
     );
@@ -87,6 +101,13 @@ fn execution_modes_and_usage_errors_use_the_canonical_contract() {
         document_write_error(STATUS_REPORT_SCHEMA_NAME).expect("status write error"),
         "could not write status report"
     );
+    assert_eq!(status_report_document().id, STATUS_REPORT_SCHEMA_NAME);
+    assert_eq!(run_report_write_error(), "could not write run report");
+    assert_eq!(
+        batch_run_report_write_error(),
+        "could not write batch run report"
+    );
+    assert_eq!(status_report_write_error(), "could not write status report");
     assert!(document_write_error("ffhn.unknown_report").is_none());
 }
 

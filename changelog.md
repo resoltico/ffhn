@@ -1,13 +1,3 @@
----
-afad: "3.5"
-version: "3.0.1"
-domain: HISTORY
-updated: "2026-04-23"
-route:
-  keywords: [changelog, release history, unreleased, breaking changes, version timeline]
-  questions: ["what changed in ffhn 3.0.1?", "what is unreleased in ffhn right now?", "where is ffhn's release history documented?"]
----
-
 # Changelog
 
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -15,6 +5,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Bumped the unreleased workspace line to `4.0.0` because `ffhn-core` now intentionally breaks its previously published public surface: generic document bags validate on deserialize, durable `target_id` and snapshot-artifact paths are carried by validated value types instead of raw strings, aggregate batch helpers now construct through validated APIs instead of public invalid-state bags, and the structured process-error taxonomy split `htmlcut` into `contract`, `htmlcut_interop`, and `internal`.
+- Bumped `htmlcut-core` from `v4.4.1` to `v5.0.0`, refreshed the maintained lockfiles, and verified that FFHN's current frozen `htmlcut-v1` interop integration still passes the full maintained gate suite unchanged.
+- Hardened FFHN's contract boundaries by validating top-level documents during deserialize, rejecting Windows drive-letter and UNC snapshot artifact paths, enforcing durable `target_id` parsing at the CLI boundary, splitting process-error kinds into `contract` / `htmlcut_interop` / `internal`, and aligning the maintained docs plus fuzz seeds with those stricter rules.
+- Made the repository root `AGENTS.md` the documented agent entrypoint, added parity redirect stubs for other agent surfaces, and aligned the maintainer contract checks plus docs with that single source of truth.
+- Made the root `AGENTS.md` and `.codex/` files explicitly trackable in Git while keeping that maintainer-only agent configuration out of FFHN-owned source release assets through `git archive` `export-ignore`.
+- Updated the maintained documentation set to the AFAD `4.0` protocol model while keeping the root `README.md`, `CONTRIBUTING.md`, and changelog human-first special documents instead of forcing AFAD frontmatter onto them.
+- Hardened CLI output boundaries so failed top-level help/version writes and report/status document writes now surface as fatal process failures instead of silently exiting successfully.
+- Replaced the curated Rust coverage allowlist with a derived maintained-source inventory, fixed the llvm-cov scorer so multiline statements and non-executable module-barrel files are interpreted correctly, and made the strict `nextest` gate run without fail-fast so documentation or contract drift no longer hides later failures.
+- Broke up the remaining `xtask` app/plan god-files into focused modules and kept the maintainer gate/docs/fuzz coverage aligned with that new structure.
+- Made `Focused Fragment History Notifier` the canonical public expansion of FFHN in the reader-facing overview and docs index while keeping the CLI/package description focused on product behavior rather than acronym expansion.
 - Made the `CI` workflow's manual-dispatch recovery path explicit in the maintainer docs, clarified that GitHub may surface Dependabot as `app/dependabot`, and documented that cancelled sibling release reruns are not authoritative when another run already converged the published release object.
 
 ## [3.0.1] - 2026-04-23

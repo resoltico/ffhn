@@ -127,6 +127,18 @@ fn check_plan_includes_all_strict_gates() {
             .windows(2)
             .any(|window| window == ["--release-type", "major"])
     }));
+    assert!(plan.iter().any(|spec| {
+        spec.args
+            == [
+                "nextest",
+                "run",
+                "--no-fail-fast",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+            ]
+    }));
     let semver_spec = plan
         .iter()
         .find(|spec| is_semver_check_spec(spec))
@@ -216,8 +228,8 @@ fn tracked_files_canonicalize_the_expected_maintained_sources() {
 
     let tracked = tracked_files(repo_root.path()).expect("tracked files");
 
-    assert_eq!(tracked.len(), TRACKED_RELATIVE_PATHS.len());
-    for relative_path in TRACKED_RELATIVE_PATHS {
+    assert_eq!(tracked.len(), SEEDED_TRACKED_FILES.len());
+    for relative_path in SEEDED_TRACKED_FILES {
         let absolute_path =
             normalize_path(repo_root.path(), &repo_root.path().join(relative_path)).expect("path");
         assert_eq!(

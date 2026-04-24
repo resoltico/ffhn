@@ -1,14 +1,16 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: DOCS
 updated: "2026-04-23"
 route:
   keywords: [docs index, architecture, cli contract, target schema, reports, process errors, operations, platform support, quality gates, release protocol, versioning policy]
-  questions: ["where is the ffhn documentation index?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is ffhn's structured process-error detail documented?", "where is the ffhn release process documented?"]
+  questions: ["where is the ffhn documentation index?", "what does ffhn stand for?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is ffhn's structured process-error detail documented?", "where is the ffhn release process documented?"]
 ---
 
 # FFHN Docs
+
+FFHN stands for `Focused Fragment History Notifier`.
 
 Use this page as the routing index for the maintained FFHN documentation set.
 

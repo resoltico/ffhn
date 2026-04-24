@@ -9,46 +9,6 @@ pub type DynResult<T> = Result<T, Box<dyn Error>>;
 pub(crate) type BranchSpan = (u64, u64, u64, u64);
 pub(crate) type BranchCounts = (u64, u64);
 pub(crate) type BranchCoverageByFile = BTreeMap<PathBuf, BTreeMap<BranchSpan, BranchCounts>>;
-
-pub(crate) const TRACKED_RELATIVE_PATHS: &[&str] = &[
-    "crates/ffhn-core/src/canonical.rs",
-    "crates/ffhn-core/src/contract/catalog.rs",
-    "crates/ffhn-core/src/contract/types.rs",
-    "crates/ffhn-core/src/fetch.rs",
-    "crates/ffhn-core/src/fetch/file.rs",
-    "crates/ffhn-core/src/fetch/http.rs",
-    "crates/ffhn-core/src/model/extraction.rs",
-    "crates/ffhn-core/src/model/report/batch.rs",
-    "crates/ffhn-core/src/model/report/checks.rs",
-    "crates/ffhn-core/src/model/report/notification.rs",
-    "crates/ffhn-core/src/model/report/run.rs",
-    "crates/ffhn-core/src/model/report/status.rs",
-    "crates/ffhn-core/src/model/state.rs",
-    "crates/ffhn-core/src/model/target/defaults.rs",
-    "crates/ffhn-core/src/model/target/types.rs",
-    "crates/ffhn-core/src/model/target/validation.rs",
-    "crates/ffhn-core/src/model/validate.rs",
-    "crates/ffhn-core/src/model/vocab.rs",
-    "crates/ffhn-core/src/runtime/interop.rs",
-    "crates/ffhn-core/src/runtime/lock.rs",
-    "crates/ffhn-core/src/runtime/persist/snapshot_store.rs",
-    "crates/ffhn-core/src/runtime/persist/state_update.rs",
-    "crates/ffhn-core/src/runtime/persist/successful.rs",
-    "crates/ffhn-core/src/runtime/run/batch.rs",
-    "crates/ffhn-core/src/runtime/run/execute.rs",
-    "crates/ffhn-core/src/runtime/run/failures.rs",
-    "crates/ffhn-core/src/runtime/run/outcome.rs",
-    "crates/ffhn-core/src/runtime/state.rs",
-    "crates/ffhn-core/src/runtime/status.rs",
-    "crates/ffhn-core/src/runtime/storage.rs",
-    "crates/ffhn-core/src/stable_json.rs",
-    "crates/ffhn-cli/src/args.rs",
-    "crates/ffhn-cli/src/execute.rs",
-    "xtask/src/model.rs",
-    "xtask/src/plan.rs",
-    "xtask/src/coverage.rs",
-    "xtask/src/repo_contract/mod.rs",
-];
 pub(crate) const COVERAGE_TOOLCHAIN: &str = "+nightly";
 
 /// One external command in the maintenance plan.

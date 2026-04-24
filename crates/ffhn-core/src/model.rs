@@ -8,17 +8,17 @@ mod schema;
 mod state;
 mod target;
 mod validate;
+mod value;
 mod vocab;
 
 type Extensions = Option<BTreeMap<String, Value>>;
 
 pub use extraction::{ExtractionRecord, SnapshotReference};
-pub(crate) use report::validate_batch_request_contract;
 pub use report::{
-    ArtifactStatus, BatchOutcomeCounts, BatchRunEntry, BatchRunReport, NotificationPayload,
-    ProcessErrorDetail, ProcessErrorKind, RunChangeRegion, RunChangeSection, RunCompareSection,
-    RunExtractionSection, RunFetchSection, RunNotificationDelivery, RunPersistSection, RunReport,
-    SnapshotDigestSummary, StatusReport,
+    ArtifactStatus, BatchOutcomeCounts, BatchRunEntry, BatchRunReport, BatchRunReportInput,
+    NotificationPayload, ProcessErrorDetail, ProcessErrorKind, RunChangeRegion, RunChangeSection,
+    RunCompareSection, RunExtractionSection, RunFetchSection, RunNotificationDelivery,
+    RunPersistSection, RunReport, SnapshotDigestSummary, StatusReport,
 };
 pub use schema::{
     BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, EXTRACTION_RECORD_SCHEMA_NAME,
@@ -32,6 +32,7 @@ pub use target::{
     CanonicalizerSpec, CompareConfig, FetchConfig, NotificationHook, SelectionConfig,
     StorageConfig, TargetDocument, TargetSource,
 };
+pub use value::{RelativeArtifactPath, TargetId};
 pub use vocab::{
     CanonicalizerKind, ChangeKind, CompareBasis, DelimiterMode, FailureClass, FetchEngine,
     HttpMethod, NotificationEvent, OutputKind, ReasonCode, RegexFlag, RunMode, RunOutcome,

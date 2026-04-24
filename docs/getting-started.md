@@ -1,6 +1,6 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: GETTING_STARTED
 updated: "2026-04-23"
 route:
@@ -36,7 +36,7 @@ Maintained builds are pinned to Rust `1.95.0` through [../rust-toolchain.toml](.
 ### macOS Or Linux
 
 ```bash
-VERSION="<published-version>" # for example: 3.0.1
+VERSION="<published-version>" # for example: 4.0.0
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) TARGET="aarch64-apple-darwin" ;;
   Darwin/x86_64) TARGET="x86_64-apple-darwin" ;;
@@ -64,7 +64,7 @@ ffhn --help
 ### Windows PowerShell
 
 ```powershell
-$Version = "<published-version>" # for example: 3.0.1
+$Version = "<published-version>" # for example: 4.0.0
 $Target = "x86_64-pc-windows-msvc"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-$Target.zip" -OutFile "ffhn-$Version-$Target.zip"
 Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-checksums.txt" -OutFile "ffhn-$Version-checksums.txt"

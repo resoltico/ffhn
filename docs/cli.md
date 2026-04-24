@@ -1,8 +1,8 @@
 ---
-afad: "3.5"
-version: "3.0.1"
+afad: "4.0"
+version: "4.0.0"
 domain: CLI
-updated: "2026-04-23"
+updated: "2026-04-24"
 route:
   keywords: [cli, run command, status command, watch root discovery, exit codes, stdout json]
   questions: ["what does ffhn run emit?", "how does ffhn --all discover targets?", "which exit codes does the ffhn CLI use?"]
@@ -44,7 +44,8 @@ Hard limitations:
 
 1. `--jobs` must be a positive integer; `0` is invalid CLI usage.
 2. Repeated `--target` values must be unique within one request.
-3. `--all` only discovers immediate subdirectories of the watch root.
+3. `--target <ID>` must satisfy FFHN's durable `target_id` contract before any filesystem work begins.
+4. `--all` only discovers immediate subdirectories of the watch root.
 <!-- contract:cli-catalog:end -->
 
 Angle-bracket fragments in the catalog above are metavariables that describe the command shape. They are not literal tokens to type.
@@ -74,7 +75,7 @@ That long help includes the `run` and `status` operations, Clap's built-in `help
 One directory is included when:
 
 1. it contains a `target.toml` path, that target validates, and `enabled = true`
-2. it contains a `target.toml` path, but that target does not validate
+2. it contains a `target.toml` path, but the directory label or target document violates FFHN's contract
 
 One directory is excluded when:
 
@@ -82,6 +83,7 @@ One directory is excluded when:
 2. its `target.toml` validates and `enabled = false`
 
 This means `run --all` still surfaces invalid target directories as batch failures instead of silently dropping them.
+When the discovered directory name itself violates FFHN's durable `target_id` rules, FFHN keeps that raw directory label in `requested_targets` and emits a per-entry `fatal_error.kind = contract` instead of rewriting or ignoring it.
 
 Live explicit runs on disabled targets return `skipped_disabled`. Dry-run is intentionally different: `run --target <id> --dry-run` still validates, fetches, extracts, and compares an explicitly named disabled target, while `run --all` continues to exclude valid disabled directories before batch execution starts.
 

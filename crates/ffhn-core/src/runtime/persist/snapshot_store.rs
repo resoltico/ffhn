@@ -4,12 +4,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::canonical::normalize_line_endings;
 use crate::stable_json::sha256_hex;
-use crate::{CoreError, SnapshotReference, SnapshotSlot, TargetPaths};
+use crate::{CoreError, RelativeArtifactPath, SnapshotReference, SnapshotSlot, TargetPaths};
 
 use super::super::state::SnapshotArtifacts;
 use super::super::storage::{now_utc, write_exact_text};
 
 static SNAPSHOT_WORK_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn relative_artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
+    RelativeArtifactPath::new(path).expect("hard-coded FFHN artifact paths must be valid")
+}
 
 pub(super) fn clear_dir_if_exists(path: &Path) -> Result<(), CoreError> {
     if path.exists() {
@@ -27,9 +31,9 @@ pub(super) fn current_snapshot_reference(
         slot: SnapshotSlot::Current,
         canonical_text_sha256: sha256_hex(canonical_text.as_bytes()),
         outer_html_sha256: sha256_hex(outer_html.as_bytes()),
-        extraction_record_path: "snapshots/current/extraction.json".to_owned(),
-        canonical_text_path: "snapshots/current/canonical.txt".to_owned(),
-        outer_html_path: "snapshots/current/outer.html".to_owned(),
+        extraction_record_path: relative_artifact_path("snapshots/current/extraction.json"),
+        canonical_text_path: relative_artifact_path("snapshots/current/canonical.txt"),
+        outer_html_path: relative_artifact_path("snapshots/current/outer.html"),
         captured_at: captured_at.to_owned(),
     }
 }
@@ -60,15 +64,23 @@ pub(super) fn archive_current_snapshot(
         slot: SnapshotSlot::History,
         canonical_text_sha256: current.reference.canonical_text_sha256.clone(),
         outer_html_sha256: current.reference.outer_html_sha256.clone(),
-        extraction_record_path: format!("snapshots/history/{snapshot_key}/extraction.json"),
-        canonical_text_path: format!("snapshots/history/{snapshot_key}/canonical.txt"),
-        outer_html_path: format!("snapshots/history/{snapshot_key}/outer.html"),
+        extraction_record_path: relative_artifact_path(format!(
+            "snapshots/history/{snapshot_key}/extraction.json"
+        )),
+        canonical_text_path: relative_artifact_path(format!(
+            "snapshots/history/{snapshot_key}/canonical.txt"
+        )),
+        outer_html_path: relative_artifact_path(format!(
+            "snapshots/history/{snapshot_key}/outer.html"
+        )),
         captured_at: current.reference.captured_at.clone(),
     })
 }
 
 pub(super) fn snapshot_reference_dir(target_dir: &Path, reference: &SnapshotReference) -> PathBuf {
-    let relative_dir = Path::new(&reference.canonical_text_path)
+    let relative_dir = reference
+        .canonical_text_path
+        .as_path()
         .parent()
         .unwrap_or_else(|| Path::new(""));
     target_dir.join(relative_dir)
