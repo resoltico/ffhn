@@ -5,10 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 
-use crate::model::validate_batch_request_contract;
 use crate::{
-    BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BatchOutcomeCounts,
-    BatchRunEntry, BatchRunReport, CoreError, ProcessErrorDetail, RunOutcome, TargetPaths,
+    BatchRunEntry, BatchRunReport, BatchRunReportInput, CoreError, ProcessErrorDetail, TargetId,
+    TargetPaths,
 };
 
 use super::super::storage::now_utc;
@@ -16,62 +15,27 @@ use super::execute::{RunOptions, run_once_with_options};
 
 pub(crate) fn run_batch(
     watch_root: &Path,
-    targets: &[String],
+    targets: &[TargetId],
     options: RunOptions,
     jobs: usize,
 ) -> Result<BatchRunReport, CoreError> {
-    validate_batch_request_contract(targets, jobs)?;
     let run_started_at = now_utc()?;
     let max_concurrency = jobs;
     let entries = collect_batch_entries(watch_root, targets, options, jobs)?;
-
-    let mut outcome_counts = BatchOutcomeCounts {
-        initialized: 0,
-        changed: 0,
-        unchanged: 0,
-        failed_transient: 0,
-        failed_permanent: 0,
-        skipped_disabled: 0,
-        persist_error: 0,
-        fatal_error: 0,
-    };
-    for entry in &entries {
-        match entry.run_report.as_ref().map(|report| report.run_outcome) {
-            Some(RunOutcome::Initialized) => outcome_counts.initialized += 1,
-            Some(RunOutcome::Changed) => outcome_counts.changed += 1,
-            Some(RunOutcome::Unchanged) => outcome_counts.unchanged += 1,
-            Some(RunOutcome::FailedTransient) => outcome_counts.failed_transient += 1,
-            Some(RunOutcome::FailedPermanent) => outcome_counts.failed_permanent += 1,
-            Some(RunOutcome::SkippedDisabled) => outcome_counts.skipped_disabled += 1,
-            None => outcome_counts.fatal_error += 1,
-        }
-        if entry.run_report.as_ref().is_some_and(|report| {
-            report.reason_code == crate::ReasonCode::PersistError || report.persist.error.is_some()
-        }) {
-            outcome_counts.persist_error += 1;
-        }
-    }
-
-    let report = BatchRunReport {
-        schema_name: BATCH_RUN_REPORT_SCHEMA_NAME.to_owned(),
-        schema_version: BATCH_RUN_REPORT_SCHEMA_VERSION,
-        run_mode: options.mode,
-        watch_root: watch_root.to_string_lossy().into_owned(),
-        requested_targets: targets.to_vec(),
+    BatchRunReport::new(BatchRunReportInput::new(
+        options.mode,
+        watch_root.to_string_lossy().into_owned(),
+        targets.iter().map(ToString::to_string).collect(),
         run_started_at,
-        run_finished_at: now_utc()?,
+        now_utc()?,
         max_concurrency,
         entries,
-        outcome_counts,
-        extensions: None,
-    };
-    report.validate()?;
-    Ok(report)
+    )?)
 }
 
 fn collect_batch_entries(
     watch_root: &Path,
-    targets: &[String],
+    targets: &[TargetId],
     options: RunOptions,
     jobs: usize,
 ) -> Result<Vec<BatchRunEntry>, CoreError> {
@@ -120,14 +84,14 @@ fn record_received_entry(
 
 fn finalize_received_entries(
     entries: Vec<Option<BatchRunEntry>>,
-    requested_targets: &[String],
+    requested_targets: &[TargetId],
 ) -> Result<Vec<BatchRunEntry>, CoreError> {
     entries
         .into_iter()
         .enumerate()
         .map(|(index, entry)| {
             entry.ok_or_else(|| {
-                CoreError::htmlcut(format!(
+                CoreError::internal(format!(
                     "batch worker channel closed before target result {} was emitted",
                     requested_targets[index]
                 ))
@@ -138,7 +102,7 @@ fn finalize_received_entries(
 
 fn spawn_batch_worker(
     watch_root: PathBuf,
-    targets: Arc<Vec<String>>,
+    targets: Arc<Vec<TargetId>>,
     next_index: Arc<AtomicUsize>,
     sender: mpsc::Sender<(usize, BatchRunEntry)>,
     options: RunOptions,
@@ -169,21 +133,14 @@ fn send_batch_entry(
 
 fn batch_entry_for_target(
     watch_root: &Path,
-    target_id: String,
+    target_id: TargetId,
     options: RunOptions,
 ) -> BatchRunEntry {
     let paths = TargetPaths::new(watch_root, target_id.clone());
     match run_once_with_options(&paths, options) {
-        Ok(run_report) => BatchRunEntry {
-            target_id,
-            run_report: Some(run_report),
-            fatal_error: None,
-        },
-        Err(error) => BatchRunEntry {
-            target_id,
-            run_report: None,
-            fatal_error: Some(ProcessErrorDetail::from(&error)),
-        },
+        Ok(run_report) => BatchRunEntry::from_run_report(run_report),
+        Err(error) => BatchRunEntry::fatal(target_id, ProcessErrorDetail::from(&error))
+            .expect("fatal batch entries should accept validated explicit target ids"),
     }
 }
 
@@ -193,12 +150,12 @@ pub(super) fn join_batch_handle(handle: thread::JoinHandle<()>) -> Result<(), Co
 
 fn batch_worker_panic_error(payload: Box<dyn Any + Send>) -> CoreError {
     if let Some(message) = payload.downcast_ref::<&str>() {
-        return CoreError::htmlcut(format!("batch worker panicked: {message}"));
+        return CoreError::internal(format!("batch worker panicked: {message}"));
     }
     if let Some(message) = payload.downcast_ref::<String>() {
-        return CoreError::htmlcut(format!("batch worker panicked: {message}"));
+        return CoreError::internal(format!("batch worker panicked: {message}"));
     }
-    CoreError::htmlcut("batch worker panicked with a non-string payload")
+    CoreError::internal("batch worker panicked with a non-string payload")
 }
 
 #[cfg(test)]

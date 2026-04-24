@@ -35,14 +35,16 @@ pub(crate) fn validate_batch_request_contract(
     max_concurrency: usize,
 ) -> Result<(), CoreError> {
     if max_concurrency == 0 {
-        return Err(CoreError::htmlcut("batch.max_concurrency must be positive"));
+        return Err(CoreError::contract(
+            "batch.max_concurrency must be positive",
+        ));
     }
 
     let mut seen = BTreeSet::new();
     for target_id in requested_targets {
-        validate_target_id(target_id)?;
+        require_non_empty("batch.requested_targets entry", target_id)?;
         if !seen.insert(target_id.as_str()) {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "batch.requested_targets values must be unique",
             ));
         }
@@ -53,7 +55,7 @@ pub(crate) fn validate_batch_request_contract(
 
 pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(), CoreError> {
     if change.current_line_count == 0 && change.current_text_bytes > 0 {
-        return Err(CoreError::htmlcut(
+        return Err(CoreError::contract(
             "run_report.change current_line_count must be positive when text exists",
         ));
     }
@@ -61,7 +63,7 @@ pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(
         && change.previous_text_bytes.unwrap_or(0) > 0
         && previous_line_count == 0
     {
-        return Err(CoreError::htmlcut(
+        return Err(CoreError::contract(
             "run_report.change previous_line_count must be positive when previous text exists",
         ));
     }
@@ -74,7 +76,7 @@ pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(
             ),
             (true, Some(_), None)
         ) {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "run_report.change changed_region current excerpts require a digest",
             ));
         }
@@ -86,7 +88,7 @@ pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(
             ),
             (true, Some(_), None)
         ) {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "run_report.change changed_region previous excerpts require a digest",
             ));
         }
@@ -110,13 +112,13 @@ pub(super) fn validate_notification_delivery(
     require_non_empty("notifications.hook_name", &delivery.hook_name)?;
     match (delivery.delivered, delivery.timed_out, delivery.exit_code) {
         (true, true, _) => {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "notifications cannot be both delivered and timed_out",
             ));
         }
         (true, false, Some(0)) | (false, _, _) => {}
         (true, false, _) => {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::contract(
                 "delivered notifications must exit with code 0",
             ));
         }

@@ -3,8 +3,8 @@ use std::time::Instant;
 use crate::{
     CompareBasis, CoreError, FailureClass, ProcessErrorDetail, RUN_REPORT_SCHEMA_NAME,
     RUN_REPORT_SCHEMA_VERSION, RunChangeSection, RunCompareSection, RunExtractionSection,
-    RunFetchSection, RunMode, RunOutcome, RunPersistSection, RunReport, StateDocument, TargetPaths,
-    TargetStatus,
+    RunFetchSection, RunMode, RunOutcome, RunPersistSection, RunReport, StateDocument, TargetId,
+    TargetPaths, TargetStatus,
 };
 
 use super::super::persist::{persist_state_only, write_last_run};
@@ -39,7 +39,7 @@ pub(super) fn invalid_target_run_report(
         schema_name: RUN_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
-        target_id: paths.target_id().to_owned(),
+        target_id: TargetId::new(paths.target_id()).expect("validated path target id"),
         run_started_at: run_started_at.to_owned(),
         run_finished_at: String::new(),
         run_mode,

@@ -29,6 +29,8 @@ pub const CLI_ARGUMENT_DRY_RUN_ID: &str = "dry_run";
 pub const CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID: &str = "positive_batch_concurrency";
 /// Canonical CLI hard-limit id for unique repeated `--target` values.
 pub const CLI_LIMIT_UNIQUE_TARGET_IDS_ID: &str = "unique_target_ids";
+/// Canonical CLI hard-limit id for durable explicit `--target` values.
+pub const CLI_LIMIT_DURABLE_TARGET_IDS_ID: &str = "durable_target_ids";
 /// Canonical CLI hard-limit id for immediate watch-root discovery depth.
 pub const CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID: &str = "immediate_discovery_depth";
 
@@ -224,6 +226,13 @@ const HARD_LIMITS: &[CliHardLimitContract] = &[
         cli_usage_error_template: "duplicate --target values are not allowed: {detail}",
     },
     CliHardLimitContract {
+        id: CLI_LIMIT_DURABLE_TARGET_IDS_ID,
+        operation_id: Some(CLI_OPERATION_RUN_ID),
+        display_label: "Durable Explicit Target Ids",
+        summary: "`--target <ID>` must satisfy FFHN's durable `target_id` contract before any filesystem work begins.",
+        cli_usage_error_template: "`--target <ID>` must satisfy FFHN's durable `target_id` contract",
+    },
+    CliHardLimitContract {
         id: CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID,
         operation_id: Some(CLI_OPERATION_RUN_ID),
         display_label: "Immediate Watch Root Discovery",
@@ -275,6 +284,16 @@ pub fn cli_contract() -> &'static CliContractCatalog {
     &CLI_CONTRACT
 }
 
+/// Returns the canonical `ffhn run` operation contract.
+pub fn run_operation() -> &'static CliOperationContract {
+    &OPERATIONS[0]
+}
+
+/// Returns the canonical `ffhn status` operation contract.
+pub fn status_operation() -> &'static CliOperationContract {
+    &OPERATIONS[1]
+}
+
 /// Looks up one canonical CLI operation by id.
 pub fn cli_operation(id: &str) -> Option<&'static CliOperationContract> {
     cli_contract()
@@ -291,12 +310,37 @@ pub fn cli_execution_mode(mode: RunMode) -> &'static ExecutionModeContract {
     }
 }
 
+/// Returns the canonical positive-batch-concurrency hard limit.
+pub fn positive_batch_concurrency_limit() -> &'static CliHardLimitContract {
+    &HARD_LIMITS[0]
+}
+
+/// Returns the canonical unique-explicit-target-ids hard limit.
+pub fn unique_target_ids_limit() -> &'static CliHardLimitContract {
+    &HARD_LIMITS[1]
+}
+
 /// Looks up one canonical CLI hard limit by id.
 pub fn cli_hard_limit(id: &str) -> Option<&'static CliHardLimitContract> {
     cli_contract()
         .hard_limits
         .iter()
         .find(|limit| limit.id == id)
+}
+
+/// Returns the canonical run-report document contract.
+pub fn run_report_document() -> &'static UserFacingDocumentContract {
+    &DOCUMENTS[3]
+}
+
+/// Returns the canonical batch-run-report document contract.
+pub fn batch_run_report_document() -> &'static UserFacingDocumentContract {
+    &DOCUMENTS[5]
+}
+
+/// Returns the canonical status-report document contract.
+pub fn status_report_document() -> &'static UserFacingDocumentContract {
+    &DOCUMENTS[6]
 }
 
 /// Looks up one registered user-facing document id.
@@ -312,16 +356,27 @@ pub fn document_write_error(document_id: &str) -> Option<String> {
     cli_document(document_id).map(|document| document.render_cli_write_error())
 }
 
+/// Returns the canonical CLI write-failure error for `ffhn.run_report`.
+pub fn run_report_write_error() -> String {
+    run_report_document().render_cli_write_error()
+}
+
+/// Returns the canonical CLI write-failure error for `ffhn.batch_run_report`.
+pub fn batch_run_report_write_error() -> String {
+    batch_run_report_document().render_cli_write_error()
+}
+
+/// Returns the canonical CLI write-failure error for `ffhn.status_report`.
+pub fn status_report_write_error() -> String {
+    status_report_document().render_cli_write_error()
+}
+
 /// Returns the canonical CLI-usage error for invalid batch concurrency.
 pub fn positive_batch_concurrency_usage_error() -> &'static str {
-    cli_hard_limit(CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID)
-        .expect("positive batch concurrency limit")
-        .cli_usage_error_template
+    positive_batch_concurrency_limit().cli_usage_error_template
 }
 
 /// Returns the canonical CLI-usage error for duplicate explicit target ids.
 pub fn duplicate_target_ids_usage_error(duplicate_target_id: &str) -> String {
-    cli_hard_limit(CLI_LIMIT_UNIQUE_TARGET_IDS_ID)
-        .expect("unique explicit target ids limit")
-        .render_cli_usage_error(Some(duplicate_target_id))
+    unique_target_ids_limit().render_cli_usage_error(Some(duplicate_target_id))
 }

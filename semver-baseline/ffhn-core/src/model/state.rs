@@ -2,36 +2,75 @@ use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
 
+use super::TargetId;
 use super::schema::{STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION};
-use super::validate::{validate_identity, validate_target_id, validate_timestamp};
+use super::validate::{validate_identity, validate_timestamp};
 use super::{Extensions, ReasonCode, RunOutcome, SnapshotReference, SnapshotSlot, StatePhase};
 
 /// Persisted FFHN state schema.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawStateDocument")]
 pub struct StateDocument {
     /// Frozen schema identity.
-    pub schema_name: String,
+    pub(crate) schema_name: String,
     /// Frozen schema version.
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     /// Target id.
-    pub target_id: String,
+    pub(crate) target_id: TargetId,
     /// Current state phase.
-    pub state_phase: StatePhase,
+    pub(crate) state_phase: StatePhase,
     /// Most recent attempted run time.
-    pub last_run_at: Option<String>,
+    pub(crate) last_run_at: Option<String>,
     /// Most recent attempted run outcome.
-    pub last_run_outcome: Option<RunOutcome>,
+    pub(crate) last_run_outcome: Option<RunOutcome>,
     /// Most recent attempted run reason.
-    pub last_reason_code: Option<ReasonCode>,
+    pub(crate) last_reason_code: Option<ReasonCode>,
     /// Current snapshot ref.
-    pub current_snapshot: Option<SnapshotReference>,
+    pub(crate) current_snapshot: Option<SnapshotReference>,
     /// Older retained snapshots, newest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub snapshot_history: Vec<SnapshotReference>,
+    pub(crate) snapshot_history: Vec<SnapshotReference>,
     /// Reserved extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStateDocument {
+    schema_name: String,
+    schema_version: u32,
+    target_id: String,
+    state_phase: StatePhase,
+    last_run_at: Option<String>,
+    last_run_outcome: Option<RunOutcome>,
+    last_reason_code: Option<ReasonCode>,
+    current_snapshot: Option<SnapshotReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    snapshot_history: Vec<SnapshotReference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Extensions,
+}
+
+impl TryFrom<RawStateDocument> for StateDocument {
+    type Error = CoreError;
+
+    fn try_from(raw: RawStateDocument) -> Result<Self, Self::Error> {
+        let document = Self {
+            schema_name: raw.schema_name,
+            schema_version: raw.schema_version,
+            target_id: raw.target_id.try_into()?,
+            state_phase: raw.state_phase,
+            last_run_at: raw.last_run_at,
+            last_run_outcome: raw.last_run_outcome,
+            last_reason_code: raw.last_reason_code,
+            current_snapshot: raw.current_snapshot,
+            snapshot_history: raw.snapshot_history,
+            extensions: raw.extensions,
+        };
+        document.validate()?;
+        Ok(document)
+    }
 }
 
 impl StateDocument {
@@ -45,26 +84,25 @@ impl StateDocument {
             schema_version,
             STATE_SCHEMA_VERSION,
         )?;
-        validate_target_id(&self.target_id)?;
         if let Some(last_run_at) = &self.last_run_at {
             validate_timestamp(last_run_at)?;
         }
         match self.state_phase {
             StatePhase::NeverSucceeded => {
                 if self.current_snapshot.is_some() {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "state_phase never_succeeded requires null snapshots",
                     ));
                 }
                 if !self.snapshot_history.is_empty() {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "state_phase never_succeeded requires null snapshots",
                     ));
                 }
             }
             StatePhase::HasBaseline => {
                 if self.current_snapshot.is_none() {
-                    return Err(CoreError::htmlcut(
+                    return Err(CoreError::contract(
                         "state_phase has_baseline requires current_snapshot",
                     ));
                 }
@@ -73,13 +111,13 @@ impl StateDocument {
         if let Some(snapshot) = &self.current_snapshot {
             snapshot.validate()?;
             if snapshot.slot != SnapshotSlot::Current {
-                return Err(CoreError::htmlcut("current_snapshot.slot must be current"));
+                return Err(CoreError::contract("current_snapshot.slot must be current"));
             }
         }
         for snapshot in &self.snapshot_history {
             snapshot.validate()?;
             if snapshot.slot != SnapshotSlot::History {
-                return Err(CoreError::htmlcut(
+                return Err(CoreError::contract(
                     "snapshot_history entries must use slot = history",
                 ));
             }
@@ -91,7 +129,7 @@ impl StateDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION};
+    use crate::{RelativeArtifactPath, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, TargetId};
 
     const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -100,11 +138,27 @@ mod tests {
             slot,
             canonical_text_sha256: DIGEST.to_owned(),
             outer_html_sha256: DIGEST.to_owned(),
-            extraction_record_path: format!("snapshots/{}/extraction.json", slot_name(slot)),
-            canonical_text_path: format!("snapshots/{}/canonical.txt", slot_name(slot)),
-            outer_html_path: format!("snapshots/{}/outer.html", slot_name(slot)),
+            extraction_record_path: RelativeArtifactPath::new(format!(
+                "snapshots/{}/extraction.json",
+                slot_name(slot)
+            ))
+            .expect("relative path"),
+            canonical_text_path: RelativeArtifactPath::new(format!(
+                "snapshots/{}/canonical.txt",
+                slot_name(slot)
+            ))
+            .expect("relative path"),
+            outer_html_path: RelativeArtifactPath::new(format!(
+                "snapshots/{}/outer.html",
+                slot_name(slot)
+            ))
+            .expect("relative path"),
             captured_at: "2026-04-05T10:15:30Z".to_owned(),
         }
+    }
+
+    fn target_id() -> TargetId {
+        TargetId::new("demo").expect("target id")
     }
 
     fn slot_name(slot: SnapshotSlot) -> &'static str {
@@ -119,7 +173,7 @@ mod tests {
         StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id(),
             state_phase: StatePhase::NeverSucceeded,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::SkippedDisabled),
@@ -134,7 +188,7 @@ mod tests {
         StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id(),
             state_phase: StatePhase::HasBaseline,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::Initialized),
@@ -149,7 +203,7 @@ mod tests {
         StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id(),
             state_phase: StatePhase::NeverSucceeded,
             last_run_at: None,
             last_run_outcome: None,
@@ -167,7 +221,7 @@ mod tests {
         let invalid_identity = StateDocument {
             schema_name: "wrong".to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id(),
             state_phase: StatePhase::NeverSucceeded,
             last_run_at: None,
             last_run_outcome: None,
@@ -181,7 +235,7 @@ mod tests {
         let mut state = StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
-            target_id: "demo".to_owned(),
+            target_id: target_id(),
             state_phase: StatePhase::NeverSucceeded,
             last_run_at: None,
             last_run_outcome: None,

@@ -2,7 +2,12 @@ use super::*;
 
 #[test]
 fn run_report_validation_accepts_a_digest_checked_success_report() {
-    valid_run_report().validate().expect("run report");
+    let report = valid_run_report();
+    assert_eq!(report.run_mode(), RunMode::Live);
+    assert_eq!(report.run_outcome(), RunOutcome::Changed);
+    assert_eq!(report.reason_code(), ReasonCode::Ok);
+    assert_eq!(report.target_id(), "demo");
+    report.validate().expect("run report");
 }
 
 #[test]

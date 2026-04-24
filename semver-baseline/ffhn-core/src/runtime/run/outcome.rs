@@ -10,7 +10,7 @@ pub(super) fn required_outer_html(result: &InteropResult) -> Result<String, Core
         .as_deref()
         .map(normalize_line_endings)
         .ok_or_else(|| {
-            CoreError::htmlcut(
+            CoreError::htmlcut_interop(
                 "htmlcut.result selected_match.outer_html is required for persistence",
             )
         })

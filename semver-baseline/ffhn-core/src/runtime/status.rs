@@ -1,6 +1,6 @@
 use crate::{
     ArtifactStatus, CoreError, ReasonCode, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION,
-    StatePhase, StatusReport, TargetDocument, TargetPaths, TargetStatus,
+    StatePhase, StatusReport, TargetDocument, TargetId, TargetPaths, TargetStatus,
 };
 
 use super::lock::lock_shared;
@@ -31,7 +31,7 @@ fn invalid_target_status_report(paths: &TargetPaths) -> StatusReport {
     StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
-        target_id: paths.target_id().to_owned(),
+        target_id: TargetId::new(paths.target_id()).expect("validated path target id"),
         target_status: TargetStatus::Invalid,
         reason_code: ReasonCode::ConfigInvalid,
         state_phase: None,
@@ -50,8 +50,8 @@ pub(crate) fn validate_target_against_paths(
     target: TargetDocument,
 ) -> Result<TargetDocument, CoreError> {
     target.validate()?;
-    if target.target_id != paths.target_id() {
-        return Err(CoreError::htmlcut(
+    if target.target_id.as_str() != paths.target_id() {
+        return Err(CoreError::contract(
             "target.toml target_id does not match its directory name",
         ));
     }

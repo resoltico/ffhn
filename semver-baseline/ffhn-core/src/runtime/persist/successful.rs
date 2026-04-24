@@ -59,7 +59,7 @@ pub(crate) fn persist_successful_run(
                 .unwrap_or_default(),
         ),
         RunOutcome::FailedTransient | RunOutcome::FailedPermanent | RunOutcome::SkippedDisabled => {
-            return Err(CoreError::htmlcut(
+            return Err(CoreError::internal(
                 "persist_successful_run only supports successful outcomes",
             ));
         }

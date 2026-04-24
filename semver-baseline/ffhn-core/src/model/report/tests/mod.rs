@@ -1,12 +1,16 @@
 use super::*;
 use crate::{
     HTMLCUT_INTEROP_PROFILE, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
-    STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION,
+    STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, TargetId,
 };
 
 pub(super) use super::checks::{validate_notification_delivery, validate_run_change_section};
 
 pub(super) const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+pub(super) fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
 
 pub(super) fn valid_process_error() -> ProcessErrorDetail {
     ProcessErrorDetail {
@@ -21,7 +25,7 @@ pub(super) fn valid_run_report() -> RunReport {
         schema_name: RUN_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: RunMode::Live,

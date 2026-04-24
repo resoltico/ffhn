@@ -2,7 +2,8 @@ use super::super::storage::{write_exact_text, write_json};
 use super::*;
 use crate::{
     EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE,
-    OutputKind, ReasonCode, RunOutcome, SelectionKind, SelectionMatch, SnapshotSlot,
+    OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome, SelectionKind, SelectionMatch,
+    SnapshotSlot, TargetId,
 };
 use serde_json::json;
 #[cfg(unix)]
@@ -11,14 +12,25 @@ use tempfile::tempdir;
 
 const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
+
+fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
+    RelativeArtifactPath::new(path).expect("relative artifact path")
+}
+
 fn snapshot(slot: SnapshotSlot, canonical_text: &str, outer_html: &str) -> SnapshotReference {
     SnapshotReference {
         slot,
         canonical_text_sha256: sha256_hex(normalize_line_endings(canonical_text).as_bytes()),
         outer_html_sha256: sha256_hex(normalize_line_endings(outer_html).as_bytes()),
-        extraction_record_path: format!("snapshots/{}/extraction.json", slot_name(slot)),
-        canonical_text_path: format!("snapshots/{}/canonical.txt", slot_name(slot)),
-        outer_html_path: format!("snapshots/{}/outer.html", slot_name(slot)),
+        extraction_record_path: artifact_path(format!(
+            "snapshots/{}/extraction.json",
+            slot_name(slot)
+        )),
+        canonical_text_path: artifact_path(format!("snapshots/{}/canonical.txt", slot_name(slot))),
+        outer_html_path: artifact_path(format!("snapshots/{}/outer.html", slot_name(slot))),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
 }
@@ -81,7 +93,7 @@ fn state_document(
     StateDocument {
         schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
         schema_version: crate::STATE_SCHEMA_VERSION,
-        target_id: "demo".to_owned(),
+        target_id: target_id("demo"),
         state_phase: if current.is_some() {
             StatePhase::HasBaseline
         } else {
@@ -217,7 +229,7 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     write_json(
         paths.state_file(),
         &StateDocument {
-            target_id: "other".to_owned(),
+            target_id: target_id("other"),
             ..state_document(Some(current.clone()), vec![previous.clone()])
         },
     )

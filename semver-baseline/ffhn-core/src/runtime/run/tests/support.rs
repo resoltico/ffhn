@@ -23,11 +23,11 @@ pub(super) use crate::{
     ChangeKind, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
     HTMLCUT_INTEROP_PROFILE, HttpMethod, NotificationEvent, NotificationHook, OutputKind,
-    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RunChangeSection,
-    RunCompareSection, RunExtractionSection, RunFetchSection, RunMode, RunOutcome,
-    RunPersistSection, RunReport, SelectionConfig, SelectionKind, SelectionMatch,
-    SnapshotReference, SnapshotSlot, StatePhase, TargetDocument, TargetPaths, TargetSource,
-    TargetStatus, WhitespaceMode,
+    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RelativeArtifactPath,
+    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection, RunMode,
+    RunOutcome, RunPersistSection, RunReport, SelectionConfig, SelectionKind, SelectionMatch,
+    SnapshotReference, SnapshotSlot, StatePhase, TargetDocument, TargetId, TargetPaths,
+    TargetSource, TargetStatus, WhitespaceMode,
 };
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
 pub(super) use serde_json::json;
@@ -45,6 +45,18 @@ pub(super) use tempfile::tempdir;
 pub(super) use url::Url;
 
 pub(super) const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+pub(super) fn target_id(value: &str) -> TargetId {
+    TargetId::new(value).expect("target id")
+}
+
+pub(super) fn target_ids(values: &[&str]) -> Vec<TargetId> {
+    values.iter().map(|value| target_id(value)).collect()
+}
+
+pub(super) fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
+    RelativeArtifactPath::new(path).expect("relative artifact path")
+}
 
 pub(super) struct TestResponse {
     pub(super) status_line: &'static str,
@@ -93,12 +105,12 @@ pub(super) fn exit_status(code: i32) -> ExitStatus {
 
 pub(super) fn noop_abort() {}
 
-pub(super) fn live_success_report(target_id: &str) -> RunReport {
+pub(super) fn live_success_report(target_name: &str) -> RunReport {
     RunReport {
         schema_name: RUN_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
-        target_id: target_id.to_owned(),
+        target_id: target_id(target_name),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: RunMode::Live,
@@ -231,7 +243,7 @@ pub(super) fn serve_once_with_accept_signal(
 }
 
 pub(super) fn target_document(
-    target_id: &str,
+    target_name: &str,
     enabled: bool,
     source_url: Url,
     selector: &str,
@@ -240,7 +252,7 @@ pub(super) fn target_document(
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
-        target_id: target_id.to_owned(),
+        target_id: target_id(target_name),
         display_name: "Demo".to_owned(),
         enabled,
         target: TargetSource {
@@ -302,9 +314,9 @@ pub(super) fn snapshot_reference(
         slot,
         canonical_text_sha256: sha256_hex(canonical.as_bytes()),
         outer_html_sha256: sha256_hex(outer.as_bytes()),
-        extraction_record_path: format!("snapshots/{name}/extraction.json"),
-        canonical_text_path: format!("snapshots/{name}/canonical.txt"),
-        outer_html_path: format!("snapshots/{name}/outer.html"),
+        extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
+        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
 }
@@ -345,7 +357,7 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
         &crate::StateDocument {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
-            target_id: paths.target_id().to_owned(),
+            target_id: target_id(paths.target_id()),
             state_phase: StatePhase::HasBaseline,
             last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
             last_run_outcome: Some(RunOutcome::Initialized),

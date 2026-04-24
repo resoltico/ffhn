@@ -179,10 +179,20 @@ fn process_error_detail_conversions_cover_each_error_kind_and_validation_edges()
     assert_eq!(parse_detail.kind, ProcessErrorKind::TimeParse);
     assert!(parse_detail.path.is_none());
 
-    let htmlcut_detail = ProcessErrorDetail::from(&CoreError::htmlcut("bad plan"));
-    assert_eq!(htmlcut_detail.kind, ProcessErrorKind::Htmlcut);
-    assert_eq!(htmlcut_detail.message, "bad plan");
+    let contract_detail = ProcessErrorDetail::from(&CoreError::contract("bad plan"));
+    assert_eq!(contract_detail.kind, ProcessErrorKind::Contract);
+    assert_eq!(contract_detail.message, "bad plan");
+    assert!(contract_detail.path.is_none());
+
+    let htmlcut_detail = ProcessErrorDetail::from(&CoreError::htmlcut_interop("bad htmlcut"));
+    assert_eq!(htmlcut_detail.kind, ProcessErrorKind::HtmlcutInterop);
+    assert_eq!(htmlcut_detail.message, "bad htmlcut");
     assert!(htmlcut_detail.path.is_none());
+
+    let internal_detail = ProcessErrorDetail::from(&CoreError::internal("bad state"));
+    assert_eq!(internal_detail.kind, ProcessErrorKind::Internal);
+    assert_eq!(internal_detail.message, "bad state");
+    assert!(internal_detail.path.is_none());
 
     assert!(
         ProcessErrorDetail {
