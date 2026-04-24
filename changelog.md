@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-04-24
+
 - Bumped the unreleased workspace line to `4.0.0` because `ffhn-core` now intentionally breaks its previously published public surface: generic document bags validate on deserialize, durable `target_id` and snapshot-artifact paths are carried by validated value types instead of raw strings, aggregate batch helpers now construct through validated APIs instead of public invalid-state bags, and the structured process-error taxonomy split `htmlcut` into `contract`, `htmlcut_interop`, and `internal`.
 - Bumped `htmlcut-core` from `v4.4.1` to `v5.0.0`, refreshed the maintained lockfiles, and verified that FFHN's current frozen `htmlcut-v1` interop integration still passes the full maintained gate suite unchanged.
 - Hardened FFHN's contract boundaries by validating top-level documents during deserialize, rejecting Windows drive-letter and UNC snapshot artifact paths, enforcing durable `target_id` parsing at the CLI boundary, splitting process-error kinds into `contract` / `htmlcut_interop` / `internal`, and aligning the maintained docs plus fuzz seeds with those stricter rules.
