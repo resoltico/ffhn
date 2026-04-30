@@ -428,7 +428,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-core"
 version = "5.0.0"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v5.0.0#2cf36873b1526901a01870ae2108c32e1d31d581"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v6.0.0#d25368bd390bea88e672a3b2cfc387ec4c501dcb"
 dependencies = [
  "ego-tree",
  "regex",
