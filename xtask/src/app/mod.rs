@@ -8,11 +8,13 @@ mod check;
 mod command;
 mod semver;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use check::{run_check, run_coverage, run_semver_check};
+#[cfg(all(test, unix))]
+pub(crate) use command::run_spec;
 #[cfg(test)]
 pub(crate) use command::{
-    TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root, run_spec,
+    TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root,
 };
 #[cfg(test)]
 pub(crate) use semver::refresh_semver_baseline;
