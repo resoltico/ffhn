@@ -4,10 +4,11 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use super::*;
-use crate::app::{
-    TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root, run_check,
-    run_coverage, run_semver_check, run_spec,
-};
+use crate::app::{TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root};
+
+#[cfg(unix)]
+use crate::app::{run_check, run_coverage, run_semver_check, run_spec};
+#[cfg(unix)]
 use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratch_dir};
 
 #[cfg(unix)]
@@ -259,12 +260,14 @@ fn run_semver_check_prepares_the_isolated_target_tree_before_launch() {
     assert!(!semver_scratch_dir(repo_root.path()).exists());
 }
 
+#[cfg(unix)]
 fn write_tracked_barrels(repo_root: &Path) {
     write_tracked_source(repo_root, "crates/ffhn-core/src/lib.rs", "mod report;\n");
     write_tracked_source(repo_root, "crates/ffhn-cli/src/lib.rs", "mod help;\n");
     write_tracked_source(repo_root, "xtask/src/lib.rs", "mod app;\n");
 }
 
+#[cfg(unix)]
 fn write_tracked_source(repo_root: &Path, relative_path: &str, source: impl AsRef<str>) {
     let file_path = repo_root.join(relative_path);
     fs::create_dir_all(file_path.parent().expect("parent")).expect("create source dir");

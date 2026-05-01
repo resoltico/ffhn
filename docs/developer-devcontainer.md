@@ -104,6 +104,9 @@ Build and validate the committed contributor image:
 ./scripts/validate-devcontainer.sh
 ```
 
+The maintained validator avoids Bash-4-only builtins, so stock macOS `/bin/bash` is enough for
+this entrypoint as long as Docker and the Dev Container client are installed.
+
 That script:
 
 1. builds the contributor image from [../.devcontainer/Dockerfile](../.devcontainer/Dockerfile)

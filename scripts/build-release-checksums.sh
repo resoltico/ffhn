@@ -88,7 +88,11 @@ main() {
     mkdir -p "${output_dir}"
     : > "${manifest_path}"
 
-    mapfile -t expected_assets < <(release_asset_names_for_version "${version}")
+    local expected_assets=()
+    local asset_name
+    while IFS= read -r asset_name; do
+        expected_assets+=("${asset_name}")
+    done < <(release_asset_names_for_version "${version}")
     (( ${#expected_assets[@]} > 0 )) || ffhn_die "release asset inventory is empty"
 
     local missing_assets=()

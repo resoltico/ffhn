@@ -354,3 +354,32 @@ fn build_release_checksums_reports_missing_inventory_with_actionable_prerequisit
     assert!(stderr.contains("./scripts/build-release-source-archives.sh"));
     assert!(stderr.contains("./scripts/build-release-artifact.sh <target-triple>"));
 }
+
+#[test]
+fn build_release_checksums_keeps_the_actionable_missing_inventory_error_under_system_bash() {
+    let system_bash = Path::new("/bin/bash");
+    if !system_bash.is_file() {
+        return;
+    }
+
+    let repo = seed_release_script_repo();
+    let repo_root = repo.path();
+
+    let output = std::process::Command::new(system_bash)
+        .arg(release_script_argument(
+            repo_root,
+            "build-release-checksums.sh",
+        ))
+        .current_dir(repo_root)
+        .output()
+        .expect("run checksum builder with system bash");
+
+    assert!(
+        !output.status.success(),
+        "checksum builder should fail without assets"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(stderr.contains("Populate ./dist with the full inventory first:"));
+    assert!(stderr.contains("ffhn-source-9.9.9.zip"));
+    assert!(stderr.contains("ffhn-9.9.9-aarch64-apple-darwin.tar.gz"));
+}

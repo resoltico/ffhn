@@ -62,6 +62,8 @@ The maintained local release entrypoints fail closed on tracked checkout drift.
 `build-release-source-archives.sh`, `build-release-artifact.sh`, `build-release-checksums.sh`,
 `publish-github-release.sh`, and `verify-github-release.sh` therefore must run from a clean
 tracked checkout or a clean release worktree.
+Those maintained Bash entrypoints intentionally avoid Bash-4-only builtins, so stock macOS
+`/bin/bash` is a supported host shell for the local release protocol.
 
 If the primary checkout has unpublished local work, decide before the release whether that work is real or stale. Real work must move onto a named branch or exported patch before closeout. Stale work must be dropped. Never leave the primary checkout on stale `main` plus unpublished overlays.
 

@@ -37,6 +37,8 @@ pub(super) use std::net::TcpListener;
 pub(super) use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 pub(super) use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+pub(super) use std::os::windows::process::ExitStatusExt;
 pub(super) use std::process::{Command, ExitStatus, Stdio};
 pub(super) use std::sync::mpsc;
 pub(super) use std::thread;
@@ -101,6 +103,11 @@ impl NotificationProcess for FakeNotificationProcess {
 #[cfg(unix)]
 pub(super) fn exit_status(code: i32) -> ExitStatus {
     ExitStatus::from_raw(code << 8)
+}
+
+#[cfg(windows)]
+pub(super) fn exit_status(code: i32) -> ExitStatus {
+    ExitStatus::from_raw(code as u32)
 }
 
 pub(super) fn noop_abort() {}

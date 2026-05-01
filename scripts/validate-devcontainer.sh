@@ -153,6 +153,7 @@ main() {
 
     cleanup() {
         local devcontainer_ids=()
+        local devcontainer_id
 
         set +e
         if [[ "${volume_mode}" == "isolated" ]]; then
@@ -165,9 +166,10 @@ main() {
             docker image rm -f "${FFHN_VALIDATE_IMAGE_TAG}" >/dev/null 2>&1 || true
         fi
 
-        mapfile -t devcontainer_ids < <(
-            docker ps -aq --filter "label=devcontainer.local_folder=${FFHN_VALIDATE_REPO_ROOT}"
-        )
+        while IFS= read -r devcontainer_id; do
+            [[ -n "${devcontainer_id}" ]] || continue
+            devcontainer_ids+=("${devcontainer_id}")
+        done < <(docker ps -aq --filter "label=devcontainer.local_folder=${FFHN_VALIDATE_REPO_ROOT}")
         if ((${#devcontainer_ids[@]} > 0)); then
             docker rm -f "${devcontainer_ids[@]}" >/dev/null 2>&1 || true
         fi
