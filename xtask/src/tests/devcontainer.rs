@@ -212,6 +212,8 @@ fn validate_devcontainer_repairs_workspace_volumes_and_exercises_client_path() {
     assert!(script.contains("scripts/devcontainer-cli-helper.Dockerfile"));
     assert!(script.contains("--build-arg \"BASE_IMAGE=${image_tag}\""));
     assert!(script.contains("readonly FFHN_VALIDATE_REPO_ROOT"));
+    assert!(script.contains("--volume \"${repo_root}:/workspaces/ffhn\""));
+    assert!(!script.contains("--volume \"${repo_root}:/workspaces/ffhn:ro\""));
     assert!(script.contains("devcontainer up --remove-existing-container"));
     assert!(script.contains("devcontainer exec --workspace-folder"));
 }

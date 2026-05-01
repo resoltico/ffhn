@@ -256,7 +256,7 @@ main() {
 
     printf 'devcontainer validation: repair mounts and probe the raw contributor image\n'
     docker run --rm \
-        --volume "${repo_root}:/workspaces/ffhn:ro" \
+        --volume "${repo_root}:/workspaces/ffhn" \
         --volume "${cargo_registry_volume}:/home/vscode/.cargo/registry" \
         --volume "${cargo_git_volume}:/home/vscode/.cargo/git" \
         --volume "${user_cache_volume}:/home/vscode/.cache" \
