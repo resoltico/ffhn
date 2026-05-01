@@ -5,4 +5,13 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
-cargo run --quiet -p xtask -- check
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<'EOF'
+Usage: ./check.sh
+
+Run FFHN's maintained local quality gate through `cargo xtask check`.
+EOF
+    exit 0
+fi
+
+cargo run -p xtask -- check

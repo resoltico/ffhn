@@ -319,7 +319,7 @@ edition = "2024"
 serde = "1.0.228"
 
 [workspace.lints.rust]
-unsafe_code = "warn"
+unsafe_code = "deny"
 "#;
     let updated = with_workspace_stub("[package]\nname = \"ffhn-core\"\n", workspace_manifest)
         .expect("workspace stub");
@@ -335,7 +335,7 @@ unsafe_code = "warn"
     assert!(updated.contains("[workspace.dependencies]"));
     assert!(updated.contains("serde = \"1.0.228\""));
     assert!(updated.contains("[workspace.lints.rust]"));
-    assert!(updated.contains("unsafe_code = \"warn\""));
+    assert!(updated.contains("unsafe_code = \"deny\""));
     assert_eq!(
         unchanged,
         "[package]\nname = \"ffhn-core\"\n\n[workspace]\n"

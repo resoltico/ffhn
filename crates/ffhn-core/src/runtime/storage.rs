@@ -2,13 +2,14 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::de::DeserializeOwned;
 use tempfile::NamedTempFile;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::CoreError;
 use crate::stable_json::stable_json;
 
+#[cfg(test)]
+use serde::de::DeserializeOwned;
 #[cfg(test)]
 use std::cell::RefCell;
 #[cfg(test)]
@@ -18,6 +19,7 @@ pub(crate) fn now_utc() -> Result<String, CoreError> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
 
+#[cfg(test)]
 pub(crate) fn read_toml<T: DeserializeOwned>(path: &Path) -> Result<T, CoreError> {
     let text = read_text(path)?;
     Ok(toml::from_str(&text)?)

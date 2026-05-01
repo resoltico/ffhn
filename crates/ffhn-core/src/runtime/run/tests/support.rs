@@ -9,12 +9,12 @@ pub(super) use super::super::change::{
     build_change_section, common_suffix_len, excerpt_from_lines, split_lines,
 };
 pub(super) use super::super::notifications::{
-    NotificationProcess, deliver_notification, notification_event, wait_for_notification_process,
+    NotificationProcess, deliver_notification, wait_for_notification_process,
     write_child_notification_payload_or_failure, write_notification_payload_or_failure,
 };
 pub(super) use super::super::outcome::{
     failure_run_outcome, reason_code_for_htmlcut_error, required_outer_html,
-    run_outcome_from_digests,
+    required_selected_match, run_outcome_from_digests,
 };
 pub(super) use super::super::reporting::finish_report;
 pub(super) use super::super::{RunOptions, run_batch, run_once, run_once_with_options};
@@ -22,12 +22,12 @@ pub(super) use crate::stable_json::sha256_hex;
 pub(super) use crate::{
     ChangeKind, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, NotificationEvent, NotificationHook, OutputKind,
-    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RelativeArtifactPath,
-    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection, RunMode,
-    RunOutcome, RunPersistSection, RunReport, SelectionConfig, SelectionKind, SelectionMatch,
-    SnapshotReference, SnapshotSlot, StatePhase, TargetDocument, TargetId, TargetPaths,
-    TargetSource, TargetStatus, WhitespaceMode,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, NetworkFetchConfig, NotificationHook, OutputKind,
+    PersistWriteStatus, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode,
+    RelativeArtifactPath, RunChangeSection, RunCompareSection, RunExtractionSection,
+    RunFetchSection, RunMode, RunOutcome, RunPersistSection, RunReport, SelectionConfig,
+    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
+    StatePhase, TargetDocument, TargetId, TargetPaths, TargetSource, TargetStatus, WhitespaceMode,
 };
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
 pub(super) use serde_json::json;
@@ -105,6 +105,14 @@ pub(super) fn exit_status(code: i32) -> ExitStatus {
 
 pub(super) fn noop_abort() {}
 
+pub(super) fn persist_section(
+    duration_ms: u64,
+    state_write: PersistWriteStatus,
+    last_run_write: PersistWriteStatus,
+) -> RunPersistSection {
+    RunPersistSection::from_writes(duration_ms, state_write, last_run_write)
+}
+
 pub(super) fn live_success_report(target_name: &str) -> RunReport {
     RunReport {
         schema_name: RUN_REPORT_SCHEMA_NAME.to_owned(),
@@ -117,6 +125,7 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
         run_outcome: RunOutcome::Changed,
         reason_code: ReasonCode::Ok,
         failure_class: None,
+        error_detail: None,
         target_status_after_run: TargetStatus::Ready,
         compare_basis: CompareBasis::CanonicalTextSha256,
         previous_compare_digest_sha256: Some(DIGEST.to_owned()),
@@ -159,12 +168,11 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
             common_suffix_lines: 0,
             changed_region: None,
         }),
-        persist: RunPersistSection {
-            duration_ms: 2,
-            wrote_state: true,
-            wrote_last_run: false,
-            error: None,
-        },
+        persist: persist_section(
+            2,
+            PersistWriteStatus::Written,
+            PersistWriteStatus::NotAttempted,
+        ),
         notifications: Vec::new(),
         extensions: None,
     }
@@ -249,42 +257,37 @@ pub(super) fn target_document(
     selector: &str,
     selection_match: SelectionMatch,
 ) -> TargetDocument {
+    let selection_mode = match selection_match {
+        SelectionMatch::Single => SelectionModeConfig::Single,
+        SelectionMatch::First => SelectionModeConfig::First,
+        SelectionMatch::Nth => SelectionModeConfig::Nth {
+            index: std::num::NonZeroUsize::new(1).expect("non-zero index"),
+        },
+    };
+
     TargetDocument {
         schema_name: crate::TARGET_SCHEMA_NAME.to_owned(),
         schema_version: crate::TARGET_SCHEMA_VERSION,
         target_id: target_id(target_name),
         display_name: "Demo".to_owned(),
         enabled,
-        target: TargetSource {
-            kind: crate::model::TargetKind::Http,
-            source_url: Some(source_url),
-            file_path: None,
-        },
-        fetch: FetchConfig {
-            engine: FetchEngine::Http,
+        target: TargetSource::Http { source_url },
+        fetch: FetchConfig::Http(NetworkFetchConfig {
             method: HttpMethod::GET,
             timeout_ms: 15_000,
             max_bytes: 2_000_000,
-            user_agent: "ffhn/2.0.0".to_owned(),
+            user_agent: "ffhn/example".to_owned(),
             follow_redirects: true,
             accept: "text/html".to_owned(),
             headers: Default::default(),
             extensions: None,
-        },
-        selection: SelectionConfig {
-            kind: SelectionKind::CssSelector,
-            r#match: selection_match,
-            index: None,
+        }),
+        selection: SelectionConfig::CssSelector {
+            selection_mode,
             output: OutputKind::OuterHtml,
             whitespace: WhitespaceMode::Normalize,
             rewrite_urls: false,
-            selector: Some(selector.to_owned()),
-            start: None,
-            end: None,
-            mode: None,
-            include_start: None,
-            include_end: None,
-            flags: Vec::new(),
+            selector: selector.to_owned(),
         },
         compare: CompareConfig {
             basis: CompareBasis::CanonicalTextSha256,

@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "4.0.0"
 domain: PLATFORM
-updated: "2026-04-23"
+updated: "2026-04-30"
 route:
   keywords: [platform support, release targets, standalone packages, deployment floors, target matrix]
   questions: ["which standalone targets does FFHN release?", "what platforms are maintained for FFHN?", "where is the FFHN release target policy defined?"]
@@ -48,6 +47,8 @@ Each standalone package contains:
 - the platform binary
 - `README.md`
 - `LICENSE`
+- `NOTICE`
+- `PATENTS.md`
 - `changelog.md`
 
 ## Deployment Floors
@@ -85,7 +86,7 @@ GitHub release builds currently run on:
 - `ubuntu-24.04` for `x86_64-unknown-linux-musl`
 - `windows-2022` for `x86_64-pc-windows-msvc`
 
-GitHub CI also runs release-target smoke on that same target matrix before the aggregate required check reports success.
+GitHub CI also runs a cross-platform Rust gate on macOS arm64 and Windows x64, plus release-target smoke on the full standalone target matrix, before the aggregate required check reports success.
 GitHub release automation also emits build provenance attestations for the source archives, standalone packages, and checksum manifest; those attestations are workflow metadata rather than additional FFHN-owned release assets.
 
 GitHub also renders auto-generated `Source code (zip)` and `Source code (tar.gz)` links on release pages. Those links are GitHub-provided convenience downloads and are not part of FFHN's maintained asset inventory.
@@ -97,6 +98,7 @@ The target policy is implemented in:
 - `scripts/release-targets.sh`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
+- `scripts/build-release-source-archives.sh`
 - `scripts/build-release-artifact.sh`
 - `scripts/build-release-checksums.sh`
 - `scripts/smoke-release-artifact.sh`

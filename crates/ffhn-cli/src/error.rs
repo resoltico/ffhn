@@ -4,6 +4,6 @@ use std::io::{self, Write};
 pub const CLI_OUTPUT_WRITE_ERROR: &str = "could not write CLI output";
 
 /// Writes one human-readable CLI error line to stderr.
-pub fn write_cli_error(stderr: &mut impl Write, message: &str) -> io::Result<()> {
+pub fn write_cli_error(stderr: &mut (impl Write + ?Sized), message: &str) -> io::Result<()> {
     writeln!(stderr, "{message}")
 }

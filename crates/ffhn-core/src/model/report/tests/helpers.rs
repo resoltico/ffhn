@@ -36,32 +36,21 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     region.previous_excerpt_sha256 = None;
     validate_run_change_section(&optional_excerpts).expect("excerpts can be omitted");
 
-    validate_notification_delivery(&RunNotificationDelivery {
-        hook_name: "notify".to_owned(),
-        event: NotificationEvent::Changed,
-        delivered: false,
-        timed_out: false,
-        exit_code: Some(7),
-        duration_ms: 1,
-        error: Some("hook exited with status 7".to_owned()),
-    })
-    .expect("non-delivered hook can carry a nonzero exit code");
+    validate_notification_delivery(&failed_notification(Some(7), "hook exited with status 7"))
+        .expect("non-delivered hook can carry a nonzero exit code");
+    assert!(
+        validate_notification_delivery(&failed_notification(Some(0), "hook exited with status 0"))
+            .is_err()
+    );
 
-    validate_notification_delivery(&RunNotificationDelivery {
-        hook_name: "notify".to_owned(),
-        event: NotificationEvent::Changed,
-        delivered: true,
-        timed_out: false,
-        exit_code: Some(0),
-        duration_ms: 1,
-        error: None,
-    })
-    .expect("delivered hook with exit code 0 is valid");
+    validate_notification_delivery(&delivered_notification())
+        .expect("delivered hook with exit code 0 is valid");
 
     let transient_reason_mismatch = RunReport {
         run_outcome: RunOutcome::FailedTransient,
         reason_code: ReasonCode::ConfigInvalid,
         failure_class: Some(FailureClass::Transient),
+        error_detail: Some(valid_process_error()),
         current_compare_digest_sha256: None,
         change: None,
         ..valid_run_report()
@@ -74,6 +63,7 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
         run_outcome: RunOutcome::FailedPermanent,
         reason_code: ReasonCode::FetchTimeout,
         failure_class: Some(FailureClass::Permanent),
+        error_detail: Some(valid_process_error()),
         current_compare_digest_sha256: None,
         change: None,
         ..valid_run_report()
@@ -84,12 +74,11 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
 
     let dry_run_last_run = RunReport {
         run_mode: RunMode::DryRun,
-        persist: RunPersistSection {
-            duration_ms: 1,
-            wrote_state: false,
-            wrote_last_run: true,
-            error: None,
-        },
+        persist: persist_section(
+            1,
+            PersistWriteStatus::NotAttempted,
+            PersistWriteStatus::Written,
+        ),
         ..valid_run_report()
     }
     .with_digest()
@@ -98,21 +87,12 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
 
     let dry_run_notification = RunReport {
         run_mode: RunMode::DryRun,
-        persist: RunPersistSection {
-            duration_ms: 1,
-            wrote_state: false,
-            wrote_last_run: false,
-            error: None,
-        },
-        notifications: vec![RunNotificationDelivery {
-            hook_name: "notify".to_owned(),
-            event: NotificationEvent::Changed,
-            delivered: false,
-            timed_out: false,
-            exit_code: Some(7),
-            duration_ms: 1,
-            error: Some("failed".to_owned()),
-        }],
+        persist: persist_section(
+            1,
+            PersistWriteStatus::NotAttempted,
+            PersistWriteStatus::NotAttempted,
+        ),
+        notifications: vec![failed_notification(Some(7), "failed")],
         ..valid_run_report()
     }
     .with_digest()
@@ -121,12 +101,13 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
 
     let dry_run_persist_error = RunReport {
         run_mode: RunMode::DryRun,
-        persist: RunPersistSection {
-            duration_ms: 1,
-            wrote_state: false,
-            wrote_last_run: false,
-            error: Some(valid_process_error()),
-        },
+        persist: persist_section(
+            1,
+            PersistWriteStatus::Failed {
+                error: valid_process_error(),
+            },
+            PersistWriteStatus::NotAttempted,
+        ),
         ..valid_run_report()
     }
     .with_digest()
@@ -134,35 +115,76 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     assert!(dry_run_persist_error.validate().is_err());
 
     let invalid_persist_error = RunReport {
-        persist: RunPersistSection {
-            duration_ms: 1,
-            wrote_state: true,
-            wrote_last_run: true,
-            error: Some(valid_process_error()),
-        },
+        persist: persist_section(
+            1,
+            PersistWriteStatus::Failed {
+                error: valid_process_error(),
+            },
+            PersistWriteStatus::Written,
+        ),
         ..valid_run_report()
     }
     .with_digest()
     .expect("invalid persist error digest");
     assert!(invalid_persist_error.validate().is_err());
+
+    let invalid_persist_reason = RunReport {
+        run_outcome: RunOutcome::FailedTransient,
+        reason_code: ReasonCode::FetchTimeout,
+        failure_class: Some(FailureClass::Transient),
+        error_detail: Some(valid_process_error()),
+        current_compare_digest_sha256: None,
+        change: None,
+        persist: persist_section(
+            1,
+            PersistWriteStatus::Failed {
+                error: valid_process_error(),
+            },
+            PersistWriteStatus::NotAttempted,
+        ),
+        ..valid_run_report()
+    }
+    .with_digest()
+    .expect("invalid persist reason digest");
+    assert!(invalid_persist_reason.validate().is_err());
+
+    let invalid_persist_failure_class = RunReport {
+        run_outcome: RunOutcome::FailedTransient,
+        reason_code: ReasonCode::PersistError,
+        failure_class: Some(FailureClass::Permanent),
+        error_detail: Some(valid_process_error()),
+        current_compare_digest_sha256: None,
+        change: None,
+        persist: persist_section(
+            1,
+            PersistWriteStatus::Failed {
+                error: valid_process_error(),
+            },
+            PersistWriteStatus::NotAttempted,
+        ),
+        ..valid_run_report()
+    }
+    .with_digest()
+    .expect("invalid persist failure-class digest");
+    assert!(invalid_persist_failure_class.validate().is_err());
 }
 
 #[test]
 fn process_error_detail_conversions_cover_each_error_kind_and_validation_edges() {
     let json_error = serde_json::from_str::<serde_json::Value>("{").expect_err("json error");
     let json_detail = ProcessErrorDetail::from(&CoreError::from(json_error));
-    assert_eq!(json_detail.kind, ProcessErrorKind::Json);
-    assert!(json_detail.path.is_none());
+    assert_eq!(json_detail.kind(), ProcessErrorKind::Json);
+    assert!(json_detail.path().is_none());
 
     let toml_error = toml::from_str::<toml::Value>("=").expect_err("toml error");
     let toml_detail = ProcessErrorDetail::from(&CoreError::from(toml_error));
-    assert_eq!(toml_detail.kind, ProcessErrorKind::Toml);
-    assert!(toml_detail.path.is_none());
+    assert_eq!(toml_detail.kind(), ProcessErrorKind::Toml);
+    assert!(toml_detail.path().is_none());
 
     let url_error = Url::parse("not a url").expect_err("url error");
     let url_detail = ProcessErrorDetail::from(&CoreError::from(url_error));
-    assert_eq!(url_detail.kind, ProcessErrorKind::Url);
-    assert!(url_detail.path.is_none());
+    assert_eq!(url_detail.kind(), ProcessErrorKind::Url);
+    assert!(url_detail.path().is_none());
 
     let offset_only = time::format_description::parse("[offset_hour]").expect("format description");
     let format_error = Date::from_calendar_date(2026, Month::April, 5)
@@ -171,28 +193,28 @@ fn process_error_detail_conversions_cover_each_error_kind_and_validation_edges()
         .format(&offset_only)
         .expect_err("format error");
     let format_detail = ProcessErrorDetail::from(&CoreError::from(format_error));
-    assert_eq!(format_detail.kind, ProcessErrorKind::TimeFormat);
-    assert!(format_detail.path.is_none());
+    assert_eq!(format_detail.kind(), ProcessErrorKind::TimeFormat);
+    assert!(format_detail.path().is_none());
 
     let parse_error = OffsetDateTime::parse("not-a-timestamp", &Rfc3339).expect_err("parse error");
     let parse_detail = ProcessErrorDetail::from(&CoreError::from(parse_error));
-    assert_eq!(parse_detail.kind, ProcessErrorKind::TimeParse);
-    assert!(parse_detail.path.is_none());
+    assert_eq!(parse_detail.kind(), ProcessErrorKind::TimeParse);
+    assert!(parse_detail.path().is_none());
 
     let contract_detail = ProcessErrorDetail::from(&CoreError::contract("bad plan"));
-    assert_eq!(contract_detail.kind, ProcessErrorKind::Contract);
-    assert_eq!(contract_detail.message, "bad plan");
-    assert!(contract_detail.path.is_none());
+    assert_eq!(contract_detail.kind(), ProcessErrorKind::Contract);
+    assert_eq!(contract_detail.message(), "bad plan");
+    assert!(contract_detail.path().is_none());
 
     let htmlcut_detail = ProcessErrorDetail::from(&CoreError::htmlcut_interop("bad htmlcut"));
-    assert_eq!(htmlcut_detail.kind, ProcessErrorKind::HtmlcutInterop);
-    assert_eq!(htmlcut_detail.message, "bad htmlcut");
-    assert!(htmlcut_detail.path.is_none());
+    assert_eq!(htmlcut_detail.kind(), ProcessErrorKind::HtmlcutInterop);
+    assert_eq!(htmlcut_detail.message(), "bad htmlcut");
+    assert!(htmlcut_detail.path().is_none());
 
     let internal_detail = ProcessErrorDetail::from(&CoreError::internal("bad state"));
-    assert_eq!(internal_detail.kind, ProcessErrorKind::Internal);
-    assert_eq!(internal_detail.message, "bad state");
-    assert!(internal_detail.path.is_none());
+    assert_eq!(internal_detail.kind(), ProcessErrorKind::Internal);
+    assert_eq!(internal_detail.message(), "bad state");
+    assert!(internal_detail.path().is_none());
 
     assert!(
         ProcessErrorDetail {

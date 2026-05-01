@@ -240,8 +240,30 @@ fn run_treats_help_and_version_output_write_failures_as_fatal() {
 
 fn root_help_output() -> String {
     let mut stdout = Vec::new();
-    let handled = crate::help::try_handle_top_level_request(&["ffhn".to_owned()], &mut stdout)
-        .expect("root help");
+    let handled =
+        crate::help::try_handle_top_level_request(&[std::ffi::OsString::from("ffhn")], &mut stdout)
+            .expect("root help");
     assert!(handled);
     String::from_utf8(stdout).expect("root help utf8")
+}
+
+#[cfg(unix)]
+#[test]
+fn run_accepts_non_utf8_watch_root_arguments_without_panicking() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (exit_code, stdout, stderr) = run_vec(vec![
+        OsString::from("ffhn"),
+        OsString::from("status"),
+        OsString::from("--watch-root"),
+        OsString::from_vec(vec![
+            b'/', b't', b'm', b'p', b'/', b'f', b'f', b'h', b'n', b'-', 0xff,
+        ]),
+        OsString::from("--target"),
+        OsString::from("demo"),
+    ]);
+    assert_eq!(exit_code, EXIT_CODE_FATAL);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("watch root does not exist"));
 }

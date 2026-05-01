@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "4.0.0"
 domain: OPERATIONS
-updated: "2026-04-23"
+updated: "2026-04-30"
 route:
   keywords: [operations, check.sh, release scripts, ci workflow, dist profile, github release, supported targets, release packages, checksum manifest]
   questions: ["how do I operate ffhn locally?", "how do the ffhn release scripts work?", "which standalone targets does ffhn publish?", "which FFHN release assets are published?"]
@@ -37,18 +36,23 @@ Compatibility wrapper:
 Targeted maintainer commands:
 
 ```bash
+cargo xtask semver-check
 cargo xtask coverage
 cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
+./scripts/validate-devcontainer.sh
+./scripts/run-devcontainer-check.sh
 ```
 
 ## CI Workflows
 
-`/.github/workflows/ci.yml` uses one helper job, two work lanes, and one aggregate required-check job:
+`/.github/workflows/ci.yml` uses one helper job, four work lanes, and one aggregate required-check job:
 
 1. `release-target-matrix`: computes the standalone release-target matrix
 2. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
-3. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
-4. `check`: aggregate success job used for branch protection
+3. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; the validator side covers both the raw image contract and the real Dev Container client path before the warmed contributor image is reused for the full gate
+4. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64
+5. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
+6. `check`: aggregate success job used for branch protection
 
 `CI` also exposes `workflow_dispatch` so maintainers can rerun the exact aggregate `Check` against a branch when GitHub fails to attach the `pull_request` workflow on the initial PR open.
 
@@ -63,6 +67,23 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 ## Supported Standalone Release Targets
 
 The maintained target inventory comes from [`scripts/release-targets.sh`](../scripts/release-targets.sh).
+
+## Contributor Container
+
+FFHN now maintains one contributor container under [../.devcontainer/](../.devcontainer/).
+
+That surface is for repository work only:
+
+1. edit, lint, test, fuzz, and run `./check.sh` inside one pinned Linux environment
+2. keep the public release contract on native standalone binaries rather than on a runtime image
+3. validate the contributor container through [`validate-devcontainer.sh`](../scripts/validate-devcontainer.sh)
+4. run the full maintainer gate headlessly through [`run-devcontainer-check.sh`](../scripts/run-devcontainer-check.sh)
+
+That contributor workflow keeps Cargo caches, the workspace `target/` tree, and the standalone
+fuzz package `fuzz/target/` tree on named Docker volumes rather than on the repository bind
+mount.
+
+The contributor container is not a published artifact and not part of the release-asset inventory.
 
 | Target triple | Notes |
 | --- | --- |
@@ -88,24 +109,34 @@ Each standalone package contains:
 1. the platform `ffhn` binary
 2. `README.md`
 3. `LICENSE`
-4. `changelog.md`
+4. `NOTICE`
+5. `PATENTS.md`
+6. `changelog.md`
 
-Local package builds land under `dist/` through [`scripts/build-release-artifact.sh`](../scripts/build-release-artifact.sh). The checksum manifest is assembled by [`scripts/build-release-checksums.sh`](../scripts/build-release-checksums.sh).
+Local source archives land under `dist/` through [`scripts/build-release-source-archives.sh`](../scripts/build-release-source-archives.sh). Local standalone packages land under `dist/` through [`scripts/build-release-artifact.sh`](../scripts/build-release-artifact.sh). The checksum manifest is assembled by [`scripts/build-release-checksums.sh`](../scripts/build-release-checksums.sh) after the full maintained asset inventory is present.
 GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest. Those attestations are workflow metadata, not additional FFHN-owned release assets.
 
 ## Release Scripts
 
 The maintained release scripts are:
 
-1. [`build-release-artifact.sh`](../scripts/build-release-artifact.sh): build one packaged `ffhn` release artifact into `dist/`
-2. [`build-release-checksums.sh`](../scripts/build-release-checksums.sh): assemble the single checksum manifest for the maintained asset inventory
-3. [`smoke-release-artifact.sh`](../scripts/smoke-release-artifact.sh): extract a packaged artifact and execute the packaged binary
-4. [`publish-github-release.sh`](../scripts/publish-github-release.sh): create or reuse a draft release, upload missing assets, and publish only after the full asset set exists
-5. [`qa-gate.sh`](../scripts/qa-gate.sh): wrapper around `./check.sh`
-6. [`release-targets.sh`](../scripts/release-targets.sh): target inventory and asset-name helpers used by CI and scripts
-7. [`verify-github-release.sh`](../scripts/verify-github-release.sh): assert the published release is non-draft, non-prerelease, and asset-complete
-8. [`workspace-package-field.sh`](../scripts/workspace-package-field.sh): robustly extract one string field from `[workspace.package]` in `Cargo.toml`
-9. [`workspace-version.sh`](../scripts/workspace-version.sh): compatibility wrapper around `workspace-package-field.sh version`
+1. [`validate-devcontainer.sh`](../scripts/validate-devcontainer.sh): build and smoke the committed contributor container, then prove the actual Dev Container client path against the committed `devcontainer.json`
+2. [`run-devcontainer-check.sh`](../scripts/run-devcontainer-check.sh): build or reuse the committed contributor container image and run the full `./check.sh` gate inside it with the canonical persistent cache volumes
+3. [`build-release-source-archives.sh`](../scripts/build-release-source-archives.sh): build the maintained source zip and source tarball into `dist/`
+4. [`build-release-artifact.sh`](../scripts/build-release-artifact.sh): build one packaged `ffhn` standalone artifact into `dist/`
+5. [`build-release-checksums.sh`](../scripts/build-release-checksums.sh): assemble the single checksum manifest for the maintained asset inventory once `dist/` is complete
+6. [`smoke-release-artifact.sh`](../scripts/smoke-release-artifact.sh): extract a packaged artifact and execute the packaged binary
+7. [`publish-github-release.sh`](../scripts/publish-github-release.sh): create or reuse a draft release, upload missing assets, and publish only after the full asset set exists
+8. [`qa-gate.sh`](../scripts/qa-gate.sh): wrapper around `./check.sh`
+9. [`release-targets.sh`](../scripts/release-targets.sh): target inventory and asset-name helpers used by CI and scripts
+10. [`verify-github-release.sh`](../scripts/verify-github-release.sh): assert the published release is non-draft, non-prerelease, and asset-complete
+11. [`workspace-package-field.sh`](../scripts/workspace-package-field.sh): robustly extract one string field from `[workspace.package]` in `Cargo.toml`
+12. [`workspace-version.sh`](../scripts/workspace-version.sh): compatibility wrapper around `workspace-package-field.sh version`
+
+Each maintained release helper supports `--help` for local inspection instead of requiring source reading first.
+
+The three local asset builders refuse tracked checkout drift. Use a clean checkout or a clean
+release worktree before building source archives, standalone packages, or the checksum manifest.
 
 ## Release Preconditions
 

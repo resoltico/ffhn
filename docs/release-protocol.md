@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "4.0.0"
 domain: RELEASE
-updated: "2026-04-24"
+updated: "2026-05-01"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -59,6 +58,11 @@ cd "$RELEASE_WORKTREE"
 
 Use a Git worktree, not a disconnected clone, whenever possible. A worktree shares refs with the primary checkout and makes post-release reconciliation mechanically obvious. A separate clone is a last resort and, if used, must still be reconciled back into the primary checkout before the release session ends.
 
+The maintained local release entrypoints fail closed on tracked checkout drift.
+`build-release-source-archives.sh`, `build-release-artifact.sh`, `build-release-checksums.sh`,
+`publish-github-release.sh`, and `verify-github-release.sh` therefore must run from a clean
+tracked checkout or a clean release worktree.
+
 If the primary checkout has unpublished local work, decide before the release whether that work is real or stale. Real work must move onto a named branch or exported patch before closeout. Stale work must be dropped. Never leave the primary checkout on stale `main` plus unpublished overlays.
 
 If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${VERSION}`. The release branch is for the final changelog dating, tag-triggering, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
@@ -97,6 +101,11 @@ cargo xtask check
 ```
 
 That gate must succeed before any final release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
+
+If the host checkout lives on a fragile or slow filesystem, the maintained host-native gate and
+the release-artifact builder both honor a caller-provided `CARGO_TARGET_DIR`. Pointing that at an
+OS-temp directory is supported and keeps heavy Cargo output off the repository mount while leaving
+the maintained commands unchanged.
 
 Then verify:
 
@@ -179,7 +188,7 @@ Do not continue until the required job in workflow `CI` is green:
 
 - `Check`
 
-`Check` is the aggregate branch-protection gate. It must reflect both the Rust maintainer gate and the release-target smoke matrix.
+`Check` is the aggregate branch-protection gate. It must reflect the Linux maintainer gate, the cross-platform Rust gate, and the release-target smoke matrix.
 
 If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
 
@@ -318,7 +327,7 @@ Workflow success is not authoritative. The release object and its assets are aut
 GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest, but this protocol's blocking verification keys on the release object and the maintained asset inventory rather than those separate attestation records.
 
 GitHub will also render `Source code (zip)` and `Source code (tar.gz)` links on the release page. Those links are GitHub-generated convenience downloads and are not part of FFHN's maintained asset inventory.
-The maintained `ffhn-source-*` assets are built via `git archive`, and `.gitattributes export-ignore` keeps maintainer-only agent and automation configuration out of those shipped source archives even when that configuration is committed in the repository.
+The maintained `ffhn-source-*` assets are built through [`scripts/build-release-source-archives.sh`](../scripts/build-release-source-archives.sh), which uses `git archive` so `.gitattributes export-ignore` keeps maintainer-only agent and automation configuration out of those shipped source archives even when that configuration is committed in the repository.
 
 ## 9. Verify the public binary
 

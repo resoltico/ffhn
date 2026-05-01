@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "4.0.0"
 domain: CORE
-updated: "2026-04-23"
+updated: "2026-04-30"
 route:
   keywords: [core runtime, validate_target, status, run_once, run_once_dry_run, run_batch, locking, dry run]
   questions: ["what operations does ffhn-core expose?", "what does ffhn dry-run skip?", "how does ffhn-core classify successful and failed runs?"]
@@ -24,9 +23,10 @@ route:
 
 It:
 
-1. reads one `target.toml`
-2. validates the frozen `ffhn.target` schema and all section-specific rules
-3. verifies that `target_id` matches the containing directory name
+1. verifies that the configured watch root already exists and is a directory
+2. reads one `target.toml`
+3. validates the frozen `ffhn.target` schema and all section-specific rules
+4. verifies that `target_id` matches the containing directory name
 
 It returns `CoreError` instead of a structured report when FFHN could not read the target directory, decode valid TOML, or satisfy the target-contract invariants.
 
@@ -54,7 +54,7 @@ The main differences are in locking and side effects.
 3. treat unreadable or invalid stored state as a structured permanent failure
 4. treat snapshot-integrity mismatch as a structured permanent failure
 5. persist live state and snapshot artifacts on successful runs, and state-only updates when applicable
-6. surface live persistence failures after a reportable outcome as structured `persist_error` reports and/or `persist.error` detail
+6. surface live persistence failures after a reportable outcome as structured `persist_error` reports whose persist section records the failing durable write
 7. attempt notification hooks that match the final run outcome
 8. keep notification delivery failures in `notifications[]` and leave `run_outcome` unchanged
 9. attempt the final `last_run.json` write after notification delivery results are known
@@ -78,7 +78,7 @@ Fatal errors sit outside the structured run-outcome vocabulary. They only occur 
 
 ## Dry Runs
 
-`run_once_dry_run` and dry-run `run_batch` preserve validation, fetch, extraction, and compare behavior, but they take the shared per-target run lock first and then skip all live mutations:
+`run_once_dry_run` and dry-run `run_batch` preserve validation, fetch, extraction, and compare behavior, but they take the shared per-target run lock first, wait behind active live runs when necessary, and then skip all live mutations:
 
 1. no exclusive run lock
 2. no snapshot writes
@@ -104,12 +104,11 @@ Its guarantees are:
 6. idle workers pull the next target immediately instead of waiting on chunk barriers
 7. each entry contains either one `run_report` or one structured `fatal_error` object
 8. `outcome_counts` are derived from the actual entry contents and must match them exactly
-
-Notification-delivery failures are intentionally outside `outcome_counts`, so callers that care about hook success must inspect `run_report.notifications`.
+9. `outcome_counts.notification_failure` counts entries whose notification delivery outcome is not `delivered`
 
 ## Status Behavior
 
-`status` validates the target first, then acquires a shared lock for valid targets and returns a `ffhn.status_report`. Target-load filesystem faults stay fatal instead of being flattened into structured `config_invalid`.
+`status` validates the watch root and target first, then acquires a shared lock for valid targets and returns a `ffhn.status_report`. Target-load filesystem faults stay fatal instead of being flattened into structured `config_invalid`.
 
 It reports:
 
@@ -119,4 +118,4 @@ It reports:
 
 When FFHN can still decode the stored state enough to recover its declared phase, invalid `status` reports preserve that parsed `state_phase` instead of flattening everything to `never_succeeded`. Unreadable state falls back to `never_succeeded`.
 
-`status` never mutates `state.json` or snapshot artifacts, but valid targets may lazily create `lock/run.lock` so shared locking has a filesystem anchor. Valid dry-runs use that same shared-lock anchor.
+`status` never mutates `state.json` or snapshot artifacts, but valid targets may lazily create `lock/run.lock` so shared locking has a filesystem anchor. Valid dry-runs use that same shared-lock anchor, and both operations wait behind an active live run rather than failing on transient shared-lock contention.

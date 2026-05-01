@@ -1,7 +1,9 @@
 use url::Url;
 
 use crate::model::TargetKind;
-use crate::{FetchEngine, ReasonCode, RunFetchSection, TargetDocument};
+use crate::{
+    FetchEngine, ProcessErrorDetail, ProcessErrorKind, ReasonCode, RunFetchSection, TargetDocument,
+};
 
 mod file;
 mod http;
@@ -34,21 +36,31 @@ pub struct FetchSuccess {
 pub struct FetchFailure {
     /// FFHN reason code for the failure.
     pub reason_code: ReasonCode,
+    /// Structured detail for the failure.
+    pub error_detail: ProcessErrorDetail,
     /// Structured fetch report section.
     pub report: RunFetchSection,
 }
 
+pub(crate) type FetchResult<T> = Result<T, Box<FetchFailure>>;
+
 /// Fetches one configured FFHN target.
-pub fn fetch_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailure> {
-    match target.target.kind {
+pub fn fetch_target(target: &TargetDocument) -> FetchResult<FetchSuccess> {
+    match target.target.kind() {
         TargetKind::Http => fetch_http_target(target),
         TargetKind::File => fetch_file_target(target),
     }
 }
 
-fn config_invalid_failure(engine: FetchEngine, duration_ms: u64) -> FetchFailure {
-    FetchFailure {
+fn config_invalid_failure(engine: FetchEngine, duration_ms: u64) -> Box<FetchFailure> {
+    Box::new(FetchFailure {
         reason_code: ReasonCode::ConfigInvalid,
+        error_detail: ProcessErrorDetail::new(
+            ProcessErrorKind::Contract,
+            "target fetch configuration is invalid for the selected target kind",
+            None,
+        )
+        .expect("config-invalid fetch detail"),
         report: RunFetchSection {
             engine,
             final_url: None,
@@ -57,7 +69,7 @@ fn config_invalid_failure(engine: FetchEngine, duration_ms: u64) -> FetchFailure
             bytes_read: None,
             duration_ms,
         },
-    }
+    })
 }
 
 #[cfg(test)]

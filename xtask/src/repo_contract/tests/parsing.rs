@@ -1,12 +1,12 @@
 use std::ffi::OsStr;
 
 use super::*;
+use crate::repo_files::maintained_repo_owned_paths;
 
 #[test]
 fn afad_managed_markdown_frontmatter_stays_on_the_protocol_version() {
     let repo_root = repo_root();
     let protocol_afad_version = protocol_afad_version(&repo_root).expect("protocol AFAD version");
-    let workspace_version = workspace_version(&repo_root).expect("workspace version");
     let paths = afad_managed_markdown_paths(&repo_root).expect("markdown paths");
 
     for path in paths {
@@ -15,9 +15,6 @@ fn afad_managed_markdown_frontmatter_stays_on_the_protocol_version() {
             .expect("frontmatter parse")
             .unwrap_or_else(|| panic!("{path_display} is missing AFAD frontmatter"));
         assert_eq!(frontmatter.afad, protocol_afad_version, "{path_display}");
-        if let Some(version) = frontmatter.version {
-            assert_eq!(version, workspace_version, "{path_display}");
-        }
     }
 }
 
@@ -62,13 +59,22 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     fs::create_dir_all(repo_root.join("xtask/src")).expect("create xtask src dir");
     fs::create_dir_all(repo_root.join(".codex")).expect("create codex dir");
 
+    fs::write(repo_root.join("AGENTS.md"), "# agents\n").expect("write AGENTS.md");
     fs::write(repo_root.join("README.md"), "# ffhn\n").expect("write README");
     fs::write(repo_root.join("CONTRIBUTING.md"), "# contribute\n").expect("write CONTRIBUTING");
     fs::write(repo_root.join("changelog.md"), "# changelog\n").expect("write changelog");
     fs::write(repo_root.join("examples/note.txt"), "ignore").expect("write ignored example");
+    fs::write(repo_root.join("examples/.DS_Store"), "ignore").expect("write ignored metadata");
+    fs::write(repo_root.join("examples/._release-notes.html"), "ignore")
+        .expect("write ignored appledouble metadata");
+    fs::write(
+        repo_root.join("examples/file-example/release-notes.html"),
+        "<main>demo</main>\n",
+    )
+    .expect("write maintained html example");
     fs::write(
         repo_root.join("examples/file-example/README.md"),
-        "---\nafad: \"4.0\"\nversion: \"2.0.0\"\n---\n",
+        "---\nafad: \"4.0\"\n---\n",
     )
     .expect("write example markdown");
     fs::write(repo_root.join("watchlist/file.txt"), "ignore")
@@ -98,9 +104,26 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     .expect("write example target");
     fs::write(
         repo_root.join("watchlist/demo/target.toml"),
-        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nfollow_redirects = false\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
+        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
     )
     .expect("write watchlist target");
+    fs::create_dir_all(repo_root.join("watchlist/demo/lock")).expect("create watchlist lock dir");
+    fs::create_dir_all(repo_root.join("watchlist/demo/snapshots/current"))
+        .expect("create watchlist snapshots dir");
+    fs::write(repo_root.join("watchlist/demo/state.json"), "{}\n")
+        .expect("write ignored watchlist state");
+    fs::write(repo_root.join("watchlist/demo/last_run.json"), "{}\n")
+        .expect("write ignored watchlist last run");
+    fs::write(
+        repo_root.join("watchlist/demo/lock/run.lock"),
+        "ignored runtime artifact\n",
+    )
+    .expect("write ignored watchlist lock");
+    fs::write(
+        repo_root.join("watchlist/demo/snapshots/current/outer.html"),
+        "<main>runtime</main>\n",
+    )
+    .expect("write ignored watchlist snapshot");
     fs::write(
         repo_root.join(".codex/PROTOCOL_AFAD.md"),
         "Protocol: `AGENT_FIRST_DOCUMENTATION`\nVersion: `4.0`\n",
@@ -149,6 +172,21 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
         ]
     );
 
+    let maintained_paths =
+        maintained_repo_owned_paths(repo_root).expect("maintained repo-owned paths");
+    assert!(maintained_paths.contains(&repo_root.join("AGENTS.md")));
+    assert!(maintained_paths.contains(&repo_root.join("examples/file-example/README.md")));
+    assert!(maintained_paths.contains(&repo_root.join("examples/file-example/release-notes.html")));
+    assert!(maintained_paths.contains(&repo_root.join("watchlist/demo/target.toml")));
+    assert!(!maintained_paths.contains(&repo_root.join("examples/.DS_Store")));
+    assert!(!maintained_paths.contains(&repo_root.join("examples/._release-notes.html")));
+    assert!(!maintained_paths.contains(&repo_root.join("watchlist/demo/state.json")));
+    assert!(!maintained_paths.contains(&repo_root.join("watchlist/demo/last_run.json")));
+    assert!(!maintained_paths.contains(&repo_root.join("watchlist/demo/lock/run.lock")));
+    assert!(
+        !maintained_paths.contains(&repo_root.join("watchlist/demo/snapshots/current/outer.html"))
+    );
+
     fs::write(repo_root.join(".codex/PROTOCOL_AFAD.md"), "Version:\n")
         .expect("write invalid protocol");
     assert!(protocol_afad_version(repo_root).is_err());
@@ -167,20 +205,11 @@ fn parse_afad_frontmatter_handles_missing_and_malformed_blocks() {
     );
 
     assert!(parse_afad_frontmatter("---\nafad: \"4.0\"\nversion: \"2.0.0\"\n").is_err());
-
-    assert_eq!(
-        parse_afad_frontmatter("---\nafad: \"4.0\"\nversion: \"2.0.0\"\n---\n")
-            .expect("frontmatter"),
-        Some(AfadFrontmatter {
-            afad: "4.0".to_owned(),
-            version: Some("2.0.0".to_owned()),
-        })
-    );
+    assert!(parse_afad_frontmatter("---\nafad: \"4.0\"\nversion: \"2.0.0\"\n---\n").is_err());
     assert_eq!(
         parse_afad_frontmatter("---\nafad: \"4.0\"\n---\n").expect("frontmatter"),
         Some(AfadFrontmatter {
             afad: "4.0".to_owned(),
-            version: None,
         })
     );
     assert!(parse_afad_frontmatter("---\nversion: \"2.0.0\"\n---\n").is_err());
@@ -194,6 +223,11 @@ fn parse_afad_frontmatter_handles_missing_and_malformed_blocks() {
         parse_protocol_afad_version("PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION: 3.5\n")
             .expect("legacy protocol version"),
         "3.5"
+    );
+    assert_eq!(
+        parse_protocol_afad_version("**Version:** 4.0\n**Updated:** 2026-04-24\n")
+            .expect("markdown protocol version"),
+        "4.0"
     );
     assert!(parse_protocol_afad_version("VERSION:\n").is_err());
     assert!(parse_protocol_afad_version("Protocol: `AGENT_FIRST_DOCUMENTATION`\n").is_err());

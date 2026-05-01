@@ -10,7 +10,6 @@ file_path = "/tmp/demo.html"
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]

@@ -1,72 +1,77 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::super::{
     CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod,
-    NotificationEvent, OutputKind, RegexFlag, SelectionKind, SelectionMatch, TargetId, TargetKind,
+    OutputKind, RegexFlag, RunOutcome, SelectionKind, SelectionMatch, TargetId, TargetKind,
     WhitespaceMode,
 };
-use super::defaults::{
-    default_fetch_max_bytes, default_fetch_method, default_fetch_timeout_ms,
-    default_follow_redirects, default_history_limit, default_notification_shell,
-    default_notification_timeout_ms,
-};
+use super::defaults::default_history_limit;
+
+mod access;
+mod wire;
 
 /// Target source section.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct TargetSource {
-    /// Source kind.
-    pub kind: TargetKind,
-    /// Absolute source URL.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<Url>,
-    /// Absolute local file path.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_path: Option<String>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TargetSource {
+    /// HTTP or HTTPS source.
+    Http {
+        /// Absolute source URL.
+        source_url: Url,
+    },
+    /// Absolute local file source.
+    File {
+        /// Absolute local file path.
+        file_path: String,
+    },
 }
 
 /// Fetch section.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct FetchConfig {
-    /// Fetch engine.
-    pub engine: FetchEngine,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FetchConfig {
+    /// Raw HTTP fetch.
+    Http(NetworkFetchConfig),
+    /// Local file read.
+    File(FileFetchConfig),
+}
+
+/// Shared network-fetch settings used by HTTP source acquisition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NetworkFetchConfig {
     /// HTTP method.
-    #[serde(default = "default_fetch_method")]
-    pub method: HttpMethod,
+    pub(crate) method: HttpMethod,
     /// Timeout in milliseconds.
-    #[serde(default = "default_fetch_timeout_ms")]
-    pub timeout_ms: u64,
+    pub(crate) timeout_ms: u64,
     /// Maximum body size in bytes.
-    #[serde(default = "default_fetch_max_bytes")]
-    pub max_bytes: usize,
+    pub(crate) max_bytes: usize,
     /// User-Agent header.
-    #[serde(default)]
-    pub user_agent: String,
+    pub(crate) user_agent: String,
     /// Redirect policy.
-    #[serde(default = "default_follow_redirects")]
-    pub follow_redirects: bool,
+    pub(crate) follow_redirects: bool,
     /// Accept header.
-    #[serde(default)]
-    pub accept: String,
+    pub(crate) accept: String,
     /// Optional extra headers.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub headers: BTreeMap<String, String>,
+    pub(crate) headers: BTreeMap<String, String>,
     /// Reserved extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Extensions,
+    pub(crate) extensions: Extensions,
+}
+
+/// File-fetch settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FileFetchConfig {
+    /// Maximum body size in bytes.
+    pub(crate) max_bytes: usize,
+    /// Reserved extensions.
+    pub(crate) extensions: Extensions,
 }
 
 /// Rolling snapshot retention policy.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct StorageConfig {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StorageConfig {
     /// Total successful snapshots retained, including `snapshots/current`.
-    #[serde(default = "default_history_limit")]
-    pub history_limit: usize,
+    pub(crate) history_limit: usize,
 }
 
 impl Default for StorageConfig {
@@ -77,92 +82,98 @@ impl Default for StorageConfig {
     }
 }
 
-/// Best-effort shell notification hook.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct NotificationHook {
+/// Best-effort process notification hook.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NotificationHook {
     /// Stable hook label used in reports.
-    pub name: String,
-    /// Event filter for the hook.
-    pub on: Vec<NotificationEvent>,
-    /// Shell path used to execute the command.
-    #[serde(default = "default_notification_shell")]
-    pub shell: String,
-    /// Shell command executed with the run report on stdin.
-    pub command: String,
+    pub(crate) name: String,
+    /// Run outcomes that should trigger the hook.
+    pub(crate) on: Vec<RunOutcome>,
+    /// Executable path used to deliver the notification.
+    pub(crate) program: String,
+    /// Exact argument vector passed to the executable.
+    pub(crate) args: Vec<String>,
     /// Maximum runtime in milliseconds.
-    #[serde(default = "default_notification_timeout_ms")]
-    pub timeout_ms: u64,
+    pub(crate) timeout_ms: u64,
+}
+
+/// Candidate selection mode inside one extraction strategy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SelectionModeConfig {
+    /// Exactly one candidate must match.
+    Single,
+    /// Choose the first candidate.
+    First,
+    /// Choose one explicit one-based candidate index.
+    Nth {
+        /// One-based candidate index.
+        index: NonZeroUsize,
+    },
 }
 
 /// Selection section.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct SelectionConfig {
-    /// Strategy discriminator.
-    pub kind: SelectionKind,
-    /// Selection mode.
-    #[serde(rename = "match")]
-    pub r#match: SelectionMatch,
-    /// One-based index for `match = "nth"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub index: Option<usize>,
-    /// Output payload.
-    pub output: OutputKind,
-    /// Extraction-time whitespace mode.
-    pub whitespace: WhitespaceMode,
-    /// Extraction-time URL rewriting.
-    pub rewrite_urls: bool,
-    /// CSS selector when `kind = "css_selector"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub selector: Option<String>,
-    /// Start delimiter when `kind = "delimiter_pair"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start: Option<String>,
-    /// End delimiter when `kind = "delimiter_pair"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end: Option<String>,
-    /// Delimiter mode when `kind = "delimiter_pair"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode: Option<DelimiterMode>,
-    /// Include start boundary when `kind = "delimiter_pair"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_start: Option<bool>,
-    /// Include end boundary when `kind = "delimiter_pair"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_end: Option<bool>,
-    /// Regex flags when delimiter mode is regex.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub flags: Vec<RegexFlag>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SelectionConfig {
+    /// CSS selector extraction.
+    CssSelector {
+        /// Candidate selection mode.
+        selection_mode: SelectionModeConfig,
+        /// Output payload.
+        output: OutputKind,
+        /// Extraction-time whitespace mode.
+        whitespace: WhitespaceMode,
+        /// Extraction-time URL rewriting.
+        rewrite_urls: bool,
+        /// CSS selector query.
+        selector: String,
+    },
+    /// Delimiter-pair extraction.
+    DelimiterPair {
+        /// Candidate selection mode.
+        selection_mode: SelectionModeConfig,
+        /// Output payload.
+        output: OutputKind,
+        /// Extraction-time whitespace mode.
+        whitespace: WhitespaceMode,
+        /// Extraction-time URL rewriting.
+        rewrite_urls: bool,
+        /// Start delimiter.
+        start: String,
+        /// End delimiter.
+        end: String,
+        /// Delimiter matching mode.
+        mode: DelimiterMode,
+        /// Whether the start delimiter is included in the match.
+        include_start: bool,
+        /// Whether the end delimiter is included in the match.
+        include_end: bool,
+        /// Regex flags when delimiter mode is `regex`.
+        flags: Vec<RegexFlag>,
+    },
 }
 
 /// Compare section.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct CompareConfig {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CompareConfig {
     /// Compare basis.
-    pub basis: CompareBasis,
+    pub(crate) basis: CompareBasis,
     /// Ordered canonicalization pipeline.
-    pub canonicalization: Vec<CanonicalizerSpec>,
+    pub(crate) canonicalization: Vec<CanonicalizerSpec>,
 }
 
 /// One canonicalizer specification.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CanonicalizerSpec {
     /// Canonicalizer kind.
-    pub kind: CanonicalizerKind,
+    pub(crate) kind: CanonicalizerKind,
     /// Regex pattern for `strip_regex`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pattern: Option<String>,
+    pub(crate) pattern: Option<String>,
     /// Regex flags for `strip_regex`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub flags: Vec<RegexFlag>,
+    pub(crate) flags: Vec<RegexFlag>,
 }
 
 /// Top-level FFHN target document.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "RawTargetDocument")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetDocument {
     /// Frozen schema identity.
     pub(crate) schema_name: String,
@@ -183,77 +194,13 @@ pub struct TargetDocument {
     /// Compare section.
     pub(crate) compare: CompareConfig,
     /// Rolling storage policy.
-    #[serde(default)]
     pub(crate) storage: StorageConfig,
     /// Notification hooks.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) notifications: Vec<NotificationHook>,
     /// Reserved extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) extensions: Extensions,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawTargetDocument {
-    schema_name: String,
-    schema_version: u32,
-    target_id: String,
-    display_name: String,
-    enabled: bool,
-    target: TargetSource,
-    fetch: FetchConfig,
-    selection: SelectionConfig,
-    compare: CompareConfig,
-    #[serde(default)]
-    storage: StorageConfig,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    notifications: Vec<NotificationHook>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    extensions: Extensions,
-}
-
-impl TargetDocument {
-    /// Returns the target id declared by the document.
-    pub fn target_id(&self) -> &str {
-        self.target_id.as_str()
-    }
-
-    /// Returns whether the target is enabled for live runs.
-    pub fn enabled(&self) -> bool {
-        self.enabled
-    }
-
-    /// Returns the target source section.
-    pub fn target(&self) -> &TargetSource {
-        &self.target
-    }
-
-    /// Returns the fetch configuration section.
-    pub fn fetch(&self) -> &FetchConfig {
-        &self.fetch
-    }
-}
-
-impl TryFrom<RawTargetDocument> for TargetDocument {
-    type Error = crate::CoreError;
-
-    fn try_from(raw: RawTargetDocument) -> Result<Self, Self::Error> {
-        let document = Self {
-            schema_name: raw.schema_name,
-            schema_version: raw.schema_version,
-            target_id: raw.target_id.try_into()?,
-            display_name: raw.display_name,
-            enabled: raw.enabled,
-            target: raw.target,
-            fetch: raw.fetch,
-            selection: raw.selection,
-            compare: raw.compare,
-            storage: raw.storage,
-            notifications: raw.notifications,
-            extensions: raw.extensions,
-        };
-        document.validate()?;
-        Ok(document)
-    }
-}
+/// Public read-only projection of one notification hook.
+#[derive(Clone, Copy, Debug)]
+pub struct NotificationHookView<'a>(pub(crate) &'a NotificationHook);

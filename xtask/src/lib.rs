@@ -1,10 +1,13 @@
 //! Shared maintenance helpers behind `cargo xtask`.
+#![cfg_attr(not(test), forbid(unsafe_code))]
 #![deny(missing_docs)]
 
 mod app;
 mod coverage;
 mod model;
 mod plan;
+#[cfg(test)]
+mod release;
 #[cfg(test)]
 mod repo_contract;
 mod repo_files;

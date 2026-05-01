@@ -1,0 +1,37 @@
+{
+  "name": "FFHN Contributor",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "workspaceFolder": "/workspaces/ffhn",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/ffhn,type=bind,consistency=cached",
+  "mounts": [
+    "source=ffhn-cargo-registry,target=/home/vscode/.cargo/registry,type=volume",
+    "source=ffhn-cargo-git,target=/home/vscode/.cargo/git,type=volume",
+    "source=ffhn-user-cache,target=/home/vscode/.cache,type=volume",
+    "source=ffhn-target,target=/workspaces/ffhn/target,type=volume",
+    "source=ffhn-fuzz-target,target=/workspaces/ffhn/fuzz/target,type=volume"
+  ],
+  "containerEnv": {
+    "CARGO_HOME": "/home/vscode/.cargo",
+    "FFHN_DEVCONTAINER": "1"
+  },
+  "postStartCommand": "./scripts/devcontainer-prepare-user-home.sh",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.cargo.features": "all",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}

@@ -6,11 +6,11 @@ use super::*;
 use crate::stable_json::{sha256_hex, stable_json};
 use crate::{
     CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
+    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HTMLCUT_INTEROP_PROFILE,
+    HttpMethod, NetworkFetchConfig, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
     RunReport, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionKind,
-    SelectionMatch, SnapshotReference, SnapshotSlot, StateDocument, StatePhase, TargetDocument,
-    TargetId, TargetPaths, TargetSource, WhitespaceMode,
+    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StateDocument,
+    StatePhase, TargetDocument, TargetId, TargetPaths, TargetSource, WhitespaceMode,
 };
 use serde_json::json;
 use std::io;
@@ -34,36 +34,25 @@ fn target() -> TargetDocument {
         target_id: target_id("demo"),
         display_name: "Demo".to_owned(),
         enabled: true,
-        target: TargetSource {
-            kind: crate::model::TargetKind::Http,
-            source_url: Some(Url::parse("https://example.com/page").expect("url")),
-            file_path: None,
+        target: TargetSource::Http {
+            source_url: Url::parse("https://example.com/page").expect("url"),
         },
-        fetch: FetchConfig {
-            engine: FetchEngine::Http,
+        fetch: FetchConfig::Http(NetworkFetchConfig {
             method: HttpMethod::GET,
             timeout_ms: 15_000,
             max_bytes: 2_000_000,
-            user_agent: "ffhn/2.0.0".to_owned(),
+            user_agent: "ffhn/example".to_owned(),
             follow_redirects: true,
             accept: "text/html".to_owned(),
             headers: Default::default(),
             extensions: None,
-        },
-        selection: SelectionConfig {
-            kind: SelectionKind::CssSelector,
-            r#match: SelectionMatch::Single,
-            index: None,
+        }),
+        selection: SelectionConfig::CssSelector {
+            selection_mode: SelectionModeConfig::Single,
             output: OutputKind::OuterHtml,
             whitespace: WhitespaceMode::Normalize,
             rewrite_urls: false,
-            selector: Some("main".to_owned()),
-            start: None,
-            end: None,
-            mode: None,
-            include_start: None,
-            include_end: None,
-            flags: Vec::new(),
+            selector: "main".to_owned(),
         },
         compare: CompareConfig {
             basis: CompareBasis::CanonicalTextSha256,
@@ -600,6 +589,7 @@ fn write_last_run_persists_report_json() {
         run_outcome: RunOutcome::Initialized,
         reason_code: ReasonCode::Ok,
         failure_class: None,
+        error_detail: None,
         target_status_after_run: crate::TargetStatus::Ready,
         compare_basis: CompareBasis::CanonicalTextSha256,
         previous_compare_digest_sha256: None,
@@ -619,12 +609,11 @@ fn write_last_run_persists_report_json() {
             common_suffix_lines: 0,
             changed_region: None,
         }),
-        persist: crate::RunPersistSection {
-            duration_ms: 1,
-            wrote_state: true,
-            wrote_last_run: false,
-            error: None,
-        },
+        persist: crate::RunPersistSection::from_writes(
+            1,
+            crate::PersistWriteStatus::Written,
+            crate::PersistWriteStatus::NotAttempted,
+        ),
         notifications: Vec::new(),
         extensions: None,
     }

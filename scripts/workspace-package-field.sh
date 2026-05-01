@@ -2,17 +2,44 @@
 
 set -euo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd -- "${script_dir}/.." && pwd)"
-field_name="${1:-}"
-manifest_path="${2:-${repo_root}/Cargo.toml}"
+# shellcheck source=scripts/common.sh
+. "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
 
-if [[ -z "${field_name}" ]]; then
-    printf 'error: workspace.package field name is required\n' >&2
-    exit 1
-fi
+print_usage() {
+    local command_name="$1"
 
-awk -v field_name="${field_name}" '
+    cat <<EOF
+Usage: ${command_name} <field-name> [manifest-path]
+
+Print one string field from [workspace.package] in a Cargo manifest.
+
+Inputs:
+  field-name           Required field name such as version or description.
+  manifest-path        Optional path to a Cargo.toml file. Defaults to ./Cargo.toml at the
+                       repository root.
+EOF
+}
+
+main() {
+    local command_name="${BASH_SOURCE[0]}"
+
+    if ffhn_is_help_flag "${1:-}"; then
+        print_usage "${command_name}"
+        return 0
+    fi
+
+    local script_dir
+    script_dir="$(ffhn_resolve_script_dir "${BASH_SOURCE[0]}")"
+    local repo_root
+    repo_root="$(ffhn_repo_root_from_script_dir "${script_dir}")"
+    local field_name="${1:-}"
+    local manifest_path="${2:-${repo_root}/Cargo.toml}"
+
+    [[ -n "${field_name}" ]] || ffhn_usage_error \
+        "${command_name}" \
+        "workspace.package field name is required"
+
+    awk -v field_name="${field_name}" '
 BEGIN {
     in_workspace_package = 0
     found = 0
@@ -52,3 +79,8 @@ END {
     }
 }
 ' "${manifest_path}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

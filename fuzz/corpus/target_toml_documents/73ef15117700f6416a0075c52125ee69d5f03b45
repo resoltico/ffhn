@@ -13,7 +13,6 @@ engine = "file"
 timeout_ms = 20000
 user_agent = "bogus-agent"
 accept = "text/html"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]
