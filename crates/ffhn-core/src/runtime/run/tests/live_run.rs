@@ -224,17 +224,10 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         &fetch_paths,
         &target_document("demo", true, url, "main", SelectionMatch::Single),
     );
-    let fetch_state_path = fetch_paths.state_file();
-    let fetch_state_conflict = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(20));
-        std::fs::remove_file(&fetch_state_path).expect("remove fetch state file");
-        std::fs::create_dir(&fetch_state_path).expect("fetch state dir conflict");
+    let fetch_report = with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
+        run_once(&fetch_paths).expect("fetch persist failure")
     });
-    let fetch_report = run_once(&fetch_paths).expect("fetch persist failure");
     fetch_handle.join().expect("fetch join");
-    fetch_state_conflict
-        .join()
-        .expect("fetch state conflict join");
     assert_eq!(fetch_report.reason_code, ReasonCode::PersistError);
     assert_eq!(fetch_report.run_outcome, RunOutcome::FailedTransient);
     assert!(fetch_report.fetch.is_some());
@@ -258,17 +251,11 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         &extraction_paths,
         &target_document("demo", true, url, "main", SelectionMatch::Single),
     );
-    let extraction_state_path = extraction_paths.state_file();
-    let extraction_state_conflict = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(20));
-        std::fs::remove_file(&extraction_state_path).expect("remove extraction state file");
-        std::fs::create_dir(&extraction_state_path).expect("extraction state dir conflict");
-    });
-    let extraction_report = run_once(&extraction_paths).expect("extraction persist failure");
+    let extraction_report =
+        with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
+            run_once(&extraction_paths).expect("extraction persist failure")
+        });
     extraction_handle.join().expect("extraction join");
-    extraction_state_conflict
-        .join()
-        .expect("extraction state conflict join");
     assert_eq!(extraction_report.reason_code, ReasonCode::PersistError);
     assert_eq!(extraction_report.run_outcome, RunOutcome::FailedTransient);
     assert!(extraction_report.fetch.is_some());

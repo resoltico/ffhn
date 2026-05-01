@@ -2,7 +2,7 @@ pub(super) use super::super::super::lock::{
     try_lock_exclusive, with_exclusive_lock_error_injected,
 };
 pub(super) use super::super::super::storage::{
-    read_json, write_exact_text, write_json, write_text,
+    read_json, with_write_error_injected, write_exact_text, write_json, write_text,
 };
 pub(super) use super::super::batch::join_batch_handle;
 pub(super) use super::super::change::{
