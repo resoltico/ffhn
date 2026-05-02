@@ -237,3 +237,24 @@ fn ci_workflow_runs_the_full_headless_devcontainer_gate() {
     assert!(contributor_job.contains("FFHN_DEVCONTAINER_VOLUME_MODE: shared-ci"));
     assert!(contributor_job.contains("FFHN_DEVCONTAINER_SKIP_BUILD: 1"));
 }
+
+#[test]
+fn ci_workflow_gives_the_cross_platform_gate_enough_time_for_windows() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
+
+    let cross_platform_job = workflow
+        .split("cross-platform-rust-gate:")
+        .nth(1)
+        .and_then(|section| section.split("release-target-smoke:").next())
+        .expect("cross-platform-rust-gate section");
+
+    assert!(cross_platform_job.contains("timeout-minutes: 60"));
+    assert!(!cross_platform_job.contains("timeout-minutes: 30"));
+    assert!(cross_platform_job.contains("- id: windows-x64"));
+    assert!(cross_platform_job.contains("cargo nextest run --no-fail-fast"));
+    assert!(cross_platform_job.contains("cargo xtask semver-check"));
+}
