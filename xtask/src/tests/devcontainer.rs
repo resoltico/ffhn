@@ -252,7 +252,8 @@ fn ci_workflow_gives_the_cross_platform_gate_enough_time_for_windows() {
         .and_then(|section| section.split("release-target-smoke:").next())
         .expect("cross-platform-rust-gate section");
 
-    assert!(cross_platform_job.contains("timeout-minutes: 60"));
+    assert!(cross_platform_job.contains("timeout-minutes: 90"));
+    assert!(!cross_platform_job.contains("timeout-minutes: 60"));
     assert!(!cross_platform_job.contains("timeout-minutes: 30"));
     assert!(cross_platform_job.contains("- id: windows-x64"));
     assert!(cross_platform_job.contains("cargo nextest run --no-fail-fast"));

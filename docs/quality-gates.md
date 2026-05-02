@@ -113,7 +113,7 @@ under `/Volumes/...`.
 
 GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
 GitHub CI also runs a separate cross-platform Rust gate on macOS arm64 and Windows x64 for formatting, Clippy, tests, dependency freshness, advisory/license policy, and the maintained semver lane.
-That cross-platform job carries a `60`-minute budget because the hosted Windows runner needs room to finish the full `cargo nextest`, dependency-policy, and semver lanes instead of timing out partway through a healthy run.
+That cross-platform job carries a `90`-minute budget because the hosted Windows runner needs room to finish the full `cargo nextest`, dependency-policy, and semver lanes instead of timing out partway through a healthy run.
 GitHub CI also runs a dedicated contributor-devcontainer gate on Linux so the committed `.devcontainer/` contract, the validator's raw-image plus Dev Container client proof, and the full headless `./check.sh` path through `./scripts/run-devcontainer-check.sh` cannot drift away from the documented preferred workflow.
 Those workflows install the same pinned Rust `1.95.0` toolchain rather than following the moving `stable` channel, and they wrap `rustup` setup in retries so transient runner bootstrap failures do not masquerade as product regressions.
 

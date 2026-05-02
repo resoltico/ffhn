@@ -110,7 +110,7 @@ jobs:
   cross-platform-rust-gate:
     name: Cross-platform Rust gate (${{ matrix.id }})
     runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
