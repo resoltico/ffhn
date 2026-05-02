@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: TARGETS
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]

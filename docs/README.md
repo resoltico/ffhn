@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: DOCS
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [docs index, architecture, cli contract, target schema, reports, process errors, operations, platform support, quality gates, release protocol, versioning policy]
   questions: ["where is the ffhn documentation index?", "what does ffhn stand for?", "which ffhn doc explains the CLI contract?", "where are the target and report contracts documented?", "where is ffhn's structured process-error detail documented?", "where is the ffhn release process documented?"]

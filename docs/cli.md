@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: CLI
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [cli, run command, status command, watch root discovery, exit codes, stdout json]
   questions: ["what does ffhn run emit?", "how does ffhn --all discover targets?", "which exit codes does the ffhn CLI use?"]

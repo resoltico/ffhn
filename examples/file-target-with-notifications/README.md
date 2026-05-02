@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: EXAMPLES
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [example, file target, notifications, materialize target, absolute path]
   questions: ["how do I run the ffhn file-target example?", "why does the file-target example use a materializer script?", "where is the runnable file-target example?"]

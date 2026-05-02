@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: RUN_REPORTS
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [run report, batch run report, process errors, reason codes, notification delivery, persist error]
   questions: ["what does ffhn.run_report mean?", "what does ffhn.batch_run_report mean?", "which reason codes can ffhn emit?", "what is the shared ffhn process-error shape?"]

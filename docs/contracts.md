@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: CONTRACTS
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, notification payload, process errors, snapshot layout]
   questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch root layout?", "where is ffhn's structured process-error shape documented?"]

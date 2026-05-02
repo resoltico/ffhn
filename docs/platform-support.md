@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: PLATFORM
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [platform support, release targets, standalone packages, deployment floors, target matrix]
   questions: ["which standalone targets does FFHN release?", "what platforms are maintained for FFHN?", "where is the FFHN release target policy defined?"]

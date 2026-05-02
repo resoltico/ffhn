@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: GETTING_STARTED
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [getting started, install, quick start, release package, sample page, windows]
   questions: ["how do I install ffhn?", "how do I try ffhn quickly?", "what is the fastest verified ffhn sample flow?", "where are the packaged install commands?"]

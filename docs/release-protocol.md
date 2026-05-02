@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: RELEASE
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]

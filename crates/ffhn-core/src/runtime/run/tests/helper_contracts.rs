@@ -94,6 +94,6 @@ fn required_outer_html_enforces_the_persisted_artifact_contract() {
         "<main>Hello</main>"
     );
 
-    result.selected_match.outer_html = None;
+    result.selected_matches[0].outer_html = None;
     assert!(required_outer_html(&result).is_err());
 }
