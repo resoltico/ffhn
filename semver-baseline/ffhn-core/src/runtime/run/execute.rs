@@ -141,17 +141,18 @@ pub(crate) fn run_once_with_options(
     let extraction_duration_ms = extraction_started.elapsed().as_millis() as u64;
 
     let selected_outer_html = required_outer_html(&htmlcut_result)?;
-    let comparison_input_text =
-        normalize_line_endings(&htmlcut_result.selected_match.comparison_input_text);
+    // required_outer_html already confirmed selected_matches is non-empty via its own first() check.
+    let selected_match = &htmlcut_result.selected_matches[0];
+    let comparison_input_text = normalize_line_endings(&selected_match.comparison_input_text);
     let comparison_input_sha256 = sha256_hex(comparison_input_text.as_bytes());
     let outer_html_sha256 = sha256_hex(selected_outer_html.as_bytes());
     let warning_codes = htmlcut_result
         .diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.level == DiagnosticLevel::Warning)
-        .map(|diagnostic| diagnostic.code.clone())
+        .map(|diagnostic| diagnostic.code.to_string())
         .collect::<Vec<_>>();
-    let match_metadata = serde_json::to_value(&htmlcut_result.selected_match.metadata)?;
+    let match_metadata = serde_json::to_value(&selected_match.metadata)?;
     let extraction_record = ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
@@ -162,9 +163,9 @@ pub(crate) fn run_once_with_options(
         outer_html_sha256: outer_html_sha256.clone(),
         strategy_kind: map_strategy_kind(&htmlcut_result)?,
         selection_mode: map_selection_mode(&htmlcut_result)?,
-        output_kind: map_output_kind(htmlcut_result.selected_match.value_kind),
+        output_kind: map_output_kind(selected_match.value_kind),
         candidate_count: htmlcut_result.candidate_count,
-        selected_candidate_index: htmlcut_result.selected_match.candidate_index.get(),
+        selected_candidate_index: selected_match.candidate_index.get(),
         match_metadata,
         warning_codes: warning_codes.clone(),
         created_at: now_utc()?,

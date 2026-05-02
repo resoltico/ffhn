@@ -5,9 +5,9 @@ use crate::{CoreError, FailureClass, RunOutcome};
 
 pub(super) fn required_outer_html(result: &InteropResult) -> Result<String, CoreError> {
     result
-        .selected_match
-        .outer_html
-        .as_deref()
+        .selected_matches
+        .first()
+        .and_then(|m| m.outer_html.as_deref())
         .map(normalize_line_endings)
         .ok_or_else(|| {
             CoreError::htmlcut_interop(
