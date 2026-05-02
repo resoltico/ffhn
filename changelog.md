@@ -3,7 +3,7 @@
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [5.0.0] - 2026-05-03
 
 - Bumped `htmlcut-core` from `v5.0.0` to `v7.0.0` and refreshed the maintained lockfiles. Adapted FFHN's frozen `htmlcut-v1` interop layer to the `v7.0.0` API surface: renamed `selected_match` field access to `selected_matches` (now a Vec that holds one entry for Single/First/Nth modes after validation), converted `DiagnosticCode` values to strings at the FFHN boundary, and added an explicit rejection for the new `SelectionMode::All` variant which is outside FFHN's frozen interop profile.
 
