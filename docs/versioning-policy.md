@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: MAINTAINER
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [versioning policy, schema naming, htmlcut interop profile, semver baseline, workspace version]
   questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]

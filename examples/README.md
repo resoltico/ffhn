@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: EXAMPLES
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [examples, example index, file target, runnable example, materializer]
   questions: ["where are the ffhn examples?", "which checked-in ffhn example is runnable?", "why does ffhn keep a materializer script in examples?"]

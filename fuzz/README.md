@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: FUZZING
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
   questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]

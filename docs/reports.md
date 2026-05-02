@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: REPORTS
-updated: "2026-04-24"
+updated: "2026-05-03"
 route:
   keywords: [reports, ffhn.state, ffhn.extraction_record, ffhn.notification_payload, ffhn.status_report, snapshot references, snapshot artifacts, state document]
   questions: ["what do ffhn state and status documents mean?", "what is stored in ffhn.state?", "what is stored in ffhn.extraction_record?", "what is ffhn.notification_payload?", "what do ffhn snapshot artifacts mean?"]

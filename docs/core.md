@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: CORE
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [core runtime, validate_target, status, run_once, run_once_dry_run, run_batch, locking, dry run]
   questions: ["what operations does ffhn-core expose?", "what does ffhn dry-run skip?", "how does ffhn-core classify successful and failed runs?"]

@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: QUALITY
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [quality gates, check.sh, cargo xtask, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
   questions: ["what does ffhn check.sh run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]

@@ -1,8 +1,8 @@
 ---
 afad: "4.0"
-version: "4.0.0"
+version: "5.0.0"
 domain: ARCHITECTURE
-updated: "2026-04-23"
+updated: "2026-05-03"
 route:
   keywords: [architecture, ffhn-core, ffhn-cli, xtask, fuzz package, htmlcut boundary, watch root]
   questions: ["what are the ffhn repository boundaries?", "what does ffhn-core own versus ffhn-cli?", "how does ffhn interact with htmlcut?"]
