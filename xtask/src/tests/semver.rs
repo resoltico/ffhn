@@ -1,5 +1,9 @@
 use super::*;
 
+fn normalize_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 #[test]
 fn workspace_version_from_manifest_extracts_workspace_package_version() {
     let version = workspace_version_from_manifest(
@@ -85,7 +89,10 @@ fn refresh_semver_baseline_uses_the_requested_git_ref_instead_of_the_worktree() 
 
     assert!(baseline_manifest.contains("version = \"2.0.0\""));
     assert!(!baseline_manifest.contains("version = \"9.9.9\""));
-    assert_eq!(baseline_lib, "pub const RELEASE_LINE: &str = \"tagged\";\n");
+    assert_eq!(
+        normalize_newlines(&baseline_lib),
+        "pub const RELEASE_LINE: &str = \"tagged\";\n"
+    );
 }
 
 #[test]
@@ -122,7 +129,7 @@ fn refresh_semver_baseline_replaces_existing_baseline_artifacts() {
     let baseline_lib = fs::read_to_string(baseline_dir.join("src").join("lib.rs"))
         .expect("read refreshed baseline");
     assert_eq!(
-        baseline_lib,
+        normalize_newlines(&baseline_lib),
         "pub const RELEASE_LINE: &str = \"published\";\n"
     );
     assert!(!baseline_parent.join("ffhn-core.tar.gz").exists());

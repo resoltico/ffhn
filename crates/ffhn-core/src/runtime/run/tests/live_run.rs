@@ -330,7 +330,9 @@ fn run_once_stamps_run_finished_at_after_notification_delivery() {
         name: "delay".to_owned(),
         on: vec![RunOutcome::Initialized],
         program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "sleep 0.2".to_owned()],
+        // Notification hooks receive a newline-delimited JSON payload on stdin. The hook must
+        // drain that payload before sleeping or the writer can block indefinitely on Windows.
+        args: vec!["-c".to_owned(), "cat >/dev/null; sleep 0.2".to_owned()],
         timeout_ms: 1_000,
     }];
     write_target(&paths, &target);
