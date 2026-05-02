@@ -100,6 +100,9 @@ pub(crate) fn map_selection_mode(result: &InteropResult) -> Result<SelectionMatc
         SelectionMode::Single => Ok(SelectionMatch::Single),
         SelectionMode::First => Ok(SelectionMatch::First),
         SelectionMode::Nth => Ok(SelectionMatch::Nth),
+        SelectionMode::All => Err(CoreError::htmlcut_interop(
+            "htmlcut.result selection_mode 'all' is not part of FFHN's frozen htmlcut-v1 interop profile",
+        )),
     }
 }
 
@@ -114,7 +117,7 @@ pub(crate) const fn map_output_kind(kind: HtmlcutOutputKind) -> OutputKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use htmlcut_core::interop::v1::{HtmlInput, execute_plan, validate_plan};
+    use htmlcut_core::interop::v1::{HtmlInput, execute_plan, prepare_plan};
     use url::Url;
 
     fn target_with_css() -> TargetDocument {
@@ -168,7 +171,7 @@ mod tests {
     #[test]
     fn build_htmlcut_plan_supports_css_selector_targets() {
         let plan = build_htmlcut_plan(&target_with_css()).expect("css plan");
-        validate_plan(&plan).expect("valid css plan");
+        prepare_plan(&plan).expect("valid css plan");
     }
 
     #[test]
@@ -186,7 +189,7 @@ mod tests {
         target.selection.flags = vec![crate::RegexFlag::CaseInsensitive];
 
         let plan = build_htmlcut_plan(&target).expect("delimiter plan");
-        validate_plan(&plan).expect("valid delimiter plan");
+        prepare_plan(&plan).expect("valid delimiter plan");
     }
 
     #[test]
@@ -197,11 +200,11 @@ mod tests {
         target.selection.whitespace = crate::WhitespaceMode::Preserve;
 
         let plan = build_htmlcut_plan(&target).expect("first-match plan");
-        validate_plan(&plan).expect("valid first-match plan");
+        prepare_plan(&plan).expect("valid first-match plan");
 
         target.selection.output = crate::OutputKind::Text;
         let plan = build_htmlcut_plan(&target).expect("text plan");
-        validate_plan(&plan).expect("valid text plan");
+        prepare_plan(&plan).expect("valid text plan");
     }
 
     #[test]
@@ -353,5 +356,16 @@ mod tests {
             map_output_kind(HtmlcutOutputKind::OuterHtml),
             OutputKind::OuterHtml
         );
+    }
+
+    #[test]
+    fn map_selection_mode_rejects_selection_mode_all_as_outside_ffhn_frozen_profile() {
+        let plan = build_htmlcut_plan(&target_with_css()).expect("plan");
+        let source = HtmlInput::new("demo".to_owned(), "<main>Hello</main>".to_owned())
+            .expect("source")
+            .with_input_base_url(Url::parse("https://example.com/page").expect("base url"));
+        let mut result = execute_plan(&source, &plan).expect("result");
+        result.selection_mode = SelectionMode::All;
+        assert!(map_selection_mode(&result).is_err());
     }
 }
