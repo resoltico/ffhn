@@ -1,4 +1,6 @@
+#[allow(unused_imports)]
 use super::support::*;
+#[cfg(unix)]
 use std::collections::BTreeMap;
 use std::io::Write;
 
