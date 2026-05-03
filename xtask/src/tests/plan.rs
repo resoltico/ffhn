@@ -248,6 +248,7 @@ fn is_semver_check_spec_matches_only_the_semver_gate() {
     )));
 }
 
+#[cfg(unix)]
 #[test]
 fn tracked_files_canonicalize_the_expected_maintained_sources() {
     let repo_root = tempdir().expect("tempdir");

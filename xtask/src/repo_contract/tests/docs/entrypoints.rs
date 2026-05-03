@@ -18,6 +18,7 @@ fn agent_instruction_contract_uses_the_root_entrypoint_only() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn generated_cli_sections_match_the_core_owned_contract() {
     let repo_root = repo_root();

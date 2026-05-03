@@ -1022,10 +1022,14 @@ canonicalization = []
     }];
     assert!(target.validate().is_err());
 
+    #[cfg(unix)]
+    let valid_program = "/bin/sh";
+    #[cfg(windows)]
+    let valid_program = "C:/Windows/System32/cmd.exe";
     NotificationHook {
         name: "notify".to_owned(),
         on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
+        program: valid_program.to_owned(),
         args: vec!["-c".to_owned(), "echo changed".to_owned()],
         timeout_ms: 500,
     }

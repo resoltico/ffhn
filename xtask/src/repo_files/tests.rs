@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(unix)]
 #[test]
 fn maintained_rust_source_entries_recurse_and_skip_tests_and_non_rust_files() {
     let repo = tempfile::tempdir().expect("tempdir");

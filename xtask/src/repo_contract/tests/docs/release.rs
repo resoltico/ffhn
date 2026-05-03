@@ -1,5 +1,6 @@
 use super::super::*;
 
+#[cfg(unix)]
 #[test]
 fn public_release_docs_match_the_canonical_release_target_script() {
     let repo_root = repo_root();

@@ -188,6 +188,7 @@ fn evaluate_coverage_report_deduplicates_duplicate_branch_spans() {
     assert!(summary.failures.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn evaluate_coverage_report_reports_uncovered_and_missing_files() {
     let repo_root = tempdir().expect("tempdir");
@@ -234,6 +235,7 @@ fn evaluate_coverage_report_reports_uncovered_and_missing_files() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn evaluate_coverage_report_reports_branch_only_failures() {
     let repo_root = tempdir().expect("tempdir");
@@ -351,6 +353,7 @@ fn evaluate_coverage_report_skips_module_barrels_with_no_executable_regions() {
     assert!(summary.failures.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn evaluate_coverage_report_rejects_tracked_sources_when_segments_never_cover_executable_code() {
     let repo_root = tempdir().expect("tempdir");

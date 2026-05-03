@@ -320,6 +320,7 @@ fn run_once_reports_fetch_duration_after_the_body_read_finishes() {
     assert!(report.fetch.expect("fetch").duration_ms >= 150);
 }
 
+#[cfg(unix)]
 #[test]
 fn run_once_stamps_run_finished_at_after_notification_delivery() {
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};

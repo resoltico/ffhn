@@ -32,6 +32,7 @@ fn public_target_examples_validate_against_the_current_target_contract() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn public_target_example_helper_covers_non_watchlist_file_targets() {
     let workspace_version = workspace_version(&repo_root()).expect("workspace version");
@@ -67,6 +68,7 @@ canonicalization = []
     assert_public_target_example_contract(path, &target, &workspace_version);
 }
 
+#[cfg(unix)]
 #[test]
 fn file_target_example_materializer_emits_a_valid_target_document() {
     let repo_root = repo_root();

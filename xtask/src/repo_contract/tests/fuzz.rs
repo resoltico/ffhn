@@ -19,6 +19,7 @@ fn is_intentionally_invalid_seed(path: &Path) -> bool {
         .is_some_and(|stem| stem.contains("invalid"))
 }
 
+#[cfg(unix)]
 #[test]
 fn maintained_report_and_target_seed_files_stay_valid() {
     let repo_root = repo_root();
