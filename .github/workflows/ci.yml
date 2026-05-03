@@ -110,15 +110,17 @@ jobs:
   cross-platform-rust-gate:
     name: Cross-platform Rust gate (${{ matrix.id }})
     runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 90
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - id: macos-arm64
             runs_on: macos-15
+            timeout_minutes: 30
           - id: windows-x64
             runs_on: windows-2022
+            timeout_minutes: 150
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
