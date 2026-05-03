@@ -47,9 +47,11 @@ fn valid_target() -> TargetDocument {
 
 fn valid_file_target() -> TargetDocument {
     let mut target = valid_target();
-    target.target = TargetSource::File {
-        file_path: "/tmp/demo.html".to_owned(),
-    };
+    let file_path = std::env::temp_dir()
+        .join("demo.html")
+        .to_string_lossy()
+        .into_owned();
+    target.target = TargetSource::File { file_path };
     target.fetch = FetchConfig::File(FileFetchConfig {
         max_bytes: 2_000_000,
         extensions: None,
@@ -76,10 +78,14 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         }],
     };
     http_target.storage = StorageConfig { history_limit: 12 };
+    #[cfg(unix)]
+    let notification_program = "/bin/sh".to_owned();
+    #[cfg(windows)]
+    let notification_program = "C:/Windows/System32/cmd.exe".to_owned();
     http_target.notifications = vec![NotificationHook {
         name: "notify".to_owned(),
         on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
+        program: notification_program.clone(),
         args: vec!["-c".to_owned(), "echo changed".to_owned()],
         timeout_ms: 5_000,
     }];
@@ -155,7 +161,7 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let notification = notifications[0];
     assert_eq!(notification.name(), "notify");
     assert_eq!(notification.on(), [RunOutcome::Changed]);
-    assert_eq!(notification.program(), "/bin/sh");
+    assert_eq!(notification.program(), notification_program);
     assert_eq!(
         notification.args(),
         ["-c".to_owned(), "echo changed".to_owned()]
@@ -171,9 +177,13 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(http_round_trip.fetch().engine(), FetchEngine::Http);
 
     let file_target = valid_file_target();
+    let expected_file_path = std::env::temp_dir()
+        .join("demo.html")
+        .to_string_lossy()
+        .into_owned();
     assert_eq!(file_target.target_kind(), TargetKind::File);
     assert!(file_target.source_url().is_none());
-    assert_eq!(file_target.file_path(), Some("/tmp/demo.html"));
+    assert_eq!(file_target.file_path(), Some(expected_file_path.as_str()));
     assert_eq!(file_target.fetch_engine(), FetchEngine::File);
     assert_eq!(file_target.fetch_max_bytes(), 2_000_000);
     assert_eq!(file_target.fetch_http_method(), None);
@@ -1025,7 +1035,12 @@ canonicalization = []
 
 #[test]
 fn serde_defaults_fill_http_fetch_storage_and_notification_fields() {
-    let parsed: TargetDocument = toml::from_str(
+    #[cfg(unix)]
+    let notification_program = "/bin/sh";
+    #[cfg(windows)]
+    let notification_program = "C:/Windows/System32/cmd.exe";
+
+    let parsed: TargetDocument = toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
 schema_version = 1
@@ -1057,9 +1072,9 @@ canonicalization = []
 [[notifications]]
 name = "notify"
 on = ["changed"]
-program = "/bin/sh"
-"#,
-    )
+program = {notification_program:?}
+"#
+    ))
     .expect("parse target");
 
     match parsed.fetch() {
@@ -1072,7 +1087,7 @@ program = "/bin/sh"
         other => panic!("expected http fetch config, got {other:?}"),
     }
     assert_eq!(parsed.storage.history_limit, 10);
-    assert_eq!(parsed.notifications[0].program, "/bin/sh");
+    assert_eq!(parsed.notifications[0].program, notification_program);
     assert!(parsed.notifications[0].args.is_empty());
     assert_eq!(parsed.notifications[0].timeout_ms, 5_000);
 }
@@ -1113,7 +1128,8 @@ fn selection_config_serialization_round_trips_all_typed_shapes() {
 
 #[test]
 fn file_targets_use_the_typed_file_fetch_shape_when_deserialized() {
-    let parsed = toml::from_str::<TargetDocument>(
+    let test_file_path = std::env::temp_dir().join("demo.html");
+    let parsed = toml::from_str::<TargetDocument>(&format!(
         r#"
 schema_name = "ffhn.target"
 schema_version = 1
@@ -1123,7 +1139,7 @@ enabled = true
 
 [target]
 kind = "file"
-file_path = "/tmp/demo.html"
+file_path = {test_file_path:?}
 
 [fetch]
 engine = "file"
@@ -1139,8 +1155,8 @@ rewrite_urls = false
 [compare]
 basis = "canonical_text_sha256"
 canonicalization = []
-"#,
-    )
+"#
+    ))
     .expect("parse file target");
 
     match parsed.fetch() {

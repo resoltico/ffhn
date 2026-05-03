@@ -47,25 +47,28 @@ fn notification_helpers_cover_payload_failures_wait_paths_and_panics() {
     assert!(payload_failure.error().is_some());
     assert!(BrokenWriter.flush().is_err());
 
-    let mut child = Command::new("/bin/sh")
-        .arg("-c")
-        .arg("exec 0<&-; sleep 5")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("notification helper child");
-    thread::sleep(Duration::from_millis(100));
-    let child_payload_failure = write_child_notification_payload_or_failure(
-        "notify",
-        Instant::now(),
-        &mut child,
-        &"payload".repeat(16_384),
-    )
-    .expect("child payload failure");
-    assert!(!child_payload_failure.is_delivered());
-    assert!(child_payload_failure.error().is_some());
-    assert!(child.try_wait().expect("child try_wait").is_some());
+    #[cfg(unix)]
+    {
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("exec 0<&-; sleep 5")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("notification helper child");
+        thread::sleep(Duration::from_millis(100));
+        let child_payload_failure = write_child_notification_payload_or_failure(
+            "notify",
+            Instant::now(),
+            &mut child,
+            &"payload".repeat(16_384),
+        )
+        .expect("child payload failure");
+        assert!(!child_payload_failure.is_delivered());
+        assert!(child_payload_failure.error().is_some());
+        assert!(child.try_wait().expect("child try_wait").is_some());
+    }
 
     let success = wait_for_notification_process(
         &mut FakeNotificationProcess {
@@ -190,6 +193,9 @@ fn finish_report_and_notifications_cover_failure_paths() {
     assert!(no_target.notifications.is_empty());
     assert!(!no_target.persist.wrote_last_run());
 
+    // The remaining sub-tests spawn /bin/sh processes; skip them on non-Unix platforms.
+    #[cfg(unix)]
+    {
     // Successful hooks must drain stdin; an immediate `exit 0` races the payload write and can
     // turn a success-path test into a broken-pipe test under load.
     let delivered = deliver_notification(
@@ -319,8 +325,10 @@ fn finish_report_and_notifications_cover_failure_paths() {
             .error()
             .is_some_and(|error| error.contains("failed to serialize notification payload"))
     );
+    } // end #[cfg(unix)]
 }
 
+#[cfg(unix)]
 #[test]
 fn deliver_notification_allows_predelivery_persist_error_reports() {
     let temp = tempdir().expect("tempdir");
@@ -381,6 +389,7 @@ fn deliver_notification_allows_predelivery_persist_error_reports() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn deliver_notification_passes_documented_env_vars_and_stdin_payload() {
     let temp = tempdir().expect("tempdir");

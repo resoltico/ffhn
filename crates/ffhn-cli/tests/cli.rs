@@ -290,9 +290,11 @@ canonicalization = []
         .stdout(contains("fetch.user_agent must not be empty"))
         .stdout(contains("target.toml"));
 
+    let state_test_file_path = std::env::temp_dir().join("source.html");
     fs::write(
         target_dir.join("target.toml"),
-        r#"
+        format!(
+            r#"
 schema_name = "ffhn.target"
 schema_version = 1
 target_id = "demo"
@@ -301,7 +303,7 @@ enabled = true
 
 [target]
 kind = "file"
-file_path = "/tmp/source.html"
+file_path = {state_test_file_path:?}
 
 [fetch]
 engine = "file"
@@ -318,7 +320,8 @@ rewrite_urls = false
 [compare]
 basis = "canonical_text_sha256"
 canonicalization = []
-"#,
+"#
+        ),
     )
     .expect("rewrite valid target");
     fs::write(target_dir.join("state.json"), "{not json").expect("write invalid state");
@@ -559,6 +562,7 @@ fn explicit_single_target_commands_require_a_real_watch_root_directory() {
         .stderr(predicates::str::contains("target.toml").not());
 }
 
+#[cfg(unix)]
 #[test]
 fn readme_quick_start_file_example_flow_stays_runnable() {
     let repo_root = repo_root();

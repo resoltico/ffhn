@@ -304,6 +304,7 @@ fn run_command_returns_failed_exit_when_final_last_run_write_fails() {
     assert!(stderr.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn run_command_returns_failed_exit_when_notification_delivery_fails() {
     let temp = tempdir().expect("tempdir");
@@ -379,6 +380,7 @@ fn batch_run_command_counts_last_run_write_failures_in_persist_error_bucket() {
     assert!(stderr.is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn batch_run_command_returns_failed_exit_when_only_notification_delivery_fails() {
     let temp = tempdir().expect("tempdir");

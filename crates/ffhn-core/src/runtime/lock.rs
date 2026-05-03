@@ -152,6 +152,9 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    // Windows allows within-process re-locking on the same file region; cross-process locking
+    // still works, but cannot be tested inside a single test binary.
+    #[cfg(unix)]
     #[test]
     fn exclusive_lock_blocks_another_exclusive_lock() {
         let temp = tempdir().expect("tempdir");

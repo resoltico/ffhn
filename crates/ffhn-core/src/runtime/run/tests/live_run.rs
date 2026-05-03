@@ -39,12 +39,15 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     assert!(report.error_detail.is_some());
     std::fs::remove_file(paths.state_file()).expect("remove unreadable state");
 
-    let _lock = try_lock_exclusive(&paths).expect("lock");
-    let report = run_once(&paths).expect("lock unavailable run");
-    assert_eq!(report.reason_code, ReasonCode::LockUnavailable);
-    assert!(report.error_detail.is_some());
-
-    drop(_lock);
+    // Windows allows within-process re-locking, so the lock-contention path cannot be exercised
+    // inside a single test process on that platform.
+    #[cfg(unix)]
+    {
+        let _lock = try_lock_exclusive(&paths).expect("lock");
+        let report = run_once(&paths).expect("lock unavailable run");
+        assert_eq!(report.reason_code, ReasonCode::LockUnavailable);
+        assert!(report.error_detail.is_some());
+    }
     write_exact_text(paths.state_file(), "{not json").expect("write malformed state");
     let report = run_once(&paths).expect("malformed state run");
     assert_eq!(report.reason_code, ReasonCode::StateInvalid);
@@ -131,6 +134,9 @@ fn run_once_reports_watch_root_directory_failures_at_the_watch_root_path() {
     }
 }
 
+// Windows allows within-process re-locking, so two threads in the same test binary cannot
+// observe the lock contention that this test exercises.
+#[cfg(unix)]
 #[test]
 fn live_run_holds_the_exclusive_lock_until_the_run_finishes() {
     let temp = tempdir().expect("tempdir");

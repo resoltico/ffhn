@@ -137,7 +137,11 @@ mod tests {
         assert!(
             validate_absolute_url(&Url::parse("mailto:test@example.com").expect("mailto")).is_err()
         );
-        validate_absolute_file_path("/tmp/demo.html").expect("absolute file path");
+        #[cfg(unix)]
+        validate_absolute_file_path("/tmp/demo.html").expect("absolute file path on unix");
+        #[cfg(windows)]
+        validate_absolute_file_path("C:/Windows/Temp/demo.html")
+            .expect("absolute file path on windows");
         assert!(validate_absolute_file_path("demo.html").is_err());
     }
 
