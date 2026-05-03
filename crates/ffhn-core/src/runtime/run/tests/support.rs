@@ -21,16 +21,18 @@ pub(super) use super::super::outcome::{
 };
 pub(super) use super::super::reporting::finish_report;
 pub(super) use super::super::{RunOptions, run_batch, run_once, run_once_with_options};
+#[cfg(unix)]
+pub(super) use crate::NotificationHook;
 pub(super) use crate::stable_json::sha256_hex;
 pub(super) use crate::{
     ChangeKind, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, NetworkFetchConfig, NotificationHook, OutputKind,
-    PersistWriteStatus, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode,
-    RelativeArtifactPath, RunChangeSection, RunCompareSection, RunExtractionSection,
-    RunFetchSection, RunMode, RunOutcome, RunPersistSection, RunReport, SelectionConfig,
-    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
-    StatePhase, TargetDocument, TargetId, TargetPaths, TargetSource, TargetStatus, WhitespaceMode,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, NetworkFetchConfig, OutputKind, PersistWriteStatus,
+    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RelativeArtifactPath,
+    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection, RunMode,
+    RunOutcome, RunPersistSection, RunReport, SelectionConfig, SelectionKind, SelectionMatch,
+    SelectionModeConfig, SnapshotReference, SnapshotSlot, StatePhase, TargetDocument, TargetId,
+    TargetPaths, TargetSource, TargetStatus, WhitespaceMode,
 };
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
 pub(super) use serde_json::json;

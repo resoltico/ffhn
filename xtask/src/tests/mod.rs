@@ -132,6 +132,7 @@ mod plan;
 mod release;
 mod semver;
 
+#[cfg(unix)]
 const SEEDED_TRACKED_FILES: &[&str] = &[
     "crates/ffhn-core/src/model/report/run.rs",
     "crates/ffhn-cli/src/execute.rs",
@@ -147,6 +148,7 @@ fn tracked_source() -> String {
     source
 }
 
+#[cfg(unix)]
 fn seed_tracked_files(repo_root: &Path) -> BTreeMap<PathBuf, String> {
     for relative_path in SEEDED_TRACKED_FILES {
         let file_path = repo_root.join(relative_path);

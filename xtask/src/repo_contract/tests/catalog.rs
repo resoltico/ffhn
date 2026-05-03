@@ -4,6 +4,7 @@ use std::path::Path;
 
 use ffhn_core::{CLI_OPERATION_RUN_ID, TargetDocument, cli_contract, cli_operation};
 
+#[cfg(unix)]
 pub(super) fn render_cli_catalog_section() -> String {
     let run = cli_operation(CLI_OPERATION_RUN_ID).expect("run operation");
 
@@ -87,6 +88,7 @@ pub(super) fn assert_public_target_example_contract(
     }
 }
 
+#[cfg(unix)]
 fn command_catalog_rows() -> Vec<(String, String, String)> {
     cli_contract()
         .operations

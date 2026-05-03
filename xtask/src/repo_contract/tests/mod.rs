@@ -14,7 +14,9 @@ mod git;
 mod markdown;
 mod parsing;
 
-use catalog::{assert_public_target_example_contract, render_cli_catalog_section};
+use catalog::assert_public_target_example_contract;
+#[cfg(unix)]
+use catalog::render_cli_catalog_section;
 use git::{git_tracked_relative_paths, repo_root};
 use markdown::{
     assert_registered_document_ids, assert_registered_operation_ids, code_segments,
