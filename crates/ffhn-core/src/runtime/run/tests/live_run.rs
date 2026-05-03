@@ -20,6 +20,7 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     let report = run_once(&paths).expect("config invalid run");
     assert_eq!(report.reason_code, ReasonCode::ConfigInvalid);
     assert_eq!(report.run_outcome, RunOutcome::FailedPermanent);
+    assert!(report.error_detail.is_some());
     assert!(!paths.run_lock_file().exists());
 
     write_target(
@@ -35,16 +36,19 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     let report = run_once(&paths).expect("state unreadable run");
     assert_eq!(report.reason_code, ReasonCode::StateInvalid);
     assert_eq!(report.run_outcome, RunOutcome::FailedPermanent);
+    assert!(report.error_detail.is_some());
     std::fs::remove_file(paths.state_file()).expect("remove unreadable state");
 
     let _lock = try_lock_exclusive(&paths).expect("lock");
     let report = run_once(&paths).expect("lock unavailable run");
     assert_eq!(report.reason_code, ReasonCode::LockUnavailable);
+    assert!(report.error_detail.is_some());
 
     drop(_lock);
     write_exact_text(paths.state_file(), "{not json").expect("write malformed state");
     let report = run_once(&paths).expect("malformed state run");
     assert_eq!(report.reason_code, ReasonCode::StateInvalid);
+    assert!(report.error_detail.is_some());
 
     write_json(
         paths.state_file(),
@@ -64,6 +68,7 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     .expect("write invalid state");
     let report = run_once(&paths).expect("state invalid run");
     assert_eq!(report.reason_code, ReasonCode::StateInvalid);
+    assert!(report.error_detail.is_some());
 
     write_snapshot_state(&paths, "hello", "<main>Hello</main>");
     write_exact_text(
@@ -73,6 +78,7 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     .expect("tamper state");
     let report = run_once(&paths).expect("integrity mismatch run");
     assert_eq!(report.reason_code, ReasonCode::IntegrityMismatch);
+    assert!(report.error_detail.is_some());
 
     std::fs::remove_file(paths.state_file()).expect("remove state");
     write_target(
@@ -82,7 +88,8 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     let report = run_once(&paths).expect("disabled run");
     assert_eq!(report.run_outcome, RunOutcome::SkippedDisabled);
     assert_eq!(report.reason_code, ReasonCode::Disabled);
-    assert!(report.persist.wrote_state);
+    assert!(report.error_detail.is_none());
+    assert!(report.persist.wrote_state());
     assert!(paths.last_run_file().is_file());
 }
 
@@ -94,6 +101,34 @@ fn run_once_surfaces_target_load_io_failures_as_fatal_core_errors() {
 
     let error = run_once(&paths).expect_err("target load io error");
     assert!(matches!(error, CoreError::Io { .. }));
+}
+
+#[test]
+fn run_once_reports_watch_root_directory_failures_at_the_watch_root_path() {
+    let temp = tempdir().expect("tempdir");
+    let missing_paths = TargetPaths::new(temp.path().join("missing-watch-root"), "demo");
+    let missing_error = run_once(&missing_paths).expect_err("missing watch root");
+    match missing_error {
+        CoreError::Io { path, source } => {
+            assert_eq!(path, temp.path().join("missing-watch-root"));
+            assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            assert_eq!(source.to_string(), "watch root does not exist");
+        }
+        other => panic!("expected io error, got {other:?}"),
+    }
+
+    let watch_root_file = temp.path().join("watch-root.txt");
+    write_text(watch_root_file.clone(), "not a directory").expect("write watch-root file");
+    let file_paths = TargetPaths::new(&watch_root_file, "demo");
+    let file_error = run_once(&file_paths).expect_err("file watch root");
+    match file_error {
+        CoreError::Io { path, source } => {
+            assert_eq!(path, watch_root_file);
+            assert_eq!(source.kind(), std::io::ErrorKind::Other);
+            assert_eq!(source.to_string(), "watch root is not a directory");
+        }
+        other => panic!("expected io error, got {other:?}"),
+    }
 }
 
 #[test]
@@ -169,9 +204,9 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert_eq!(disabled_report.reason_code, ReasonCode::PersistError);
     assert_eq!(disabled_report.run_outcome, RunOutcome::FailedTransient);
     assert!(disabled_report.fetch.is_none());
-    assert!(!disabled_report.persist.wrote_state);
-    assert!(disabled_report.persist.wrote_last_run);
-    assert!(disabled_report.persist.error.is_some());
+    assert!(!disabled_report.persist.wrote_state());
+    assert!(disabled_report.persist.wrote_last_run());
+    assert!(disabled_report.persist.error().is_some());
     assert!(disabled_paths.last_run_file().is_file());
 
     let fetch_temp = tempdir().expect("fetch tempdir");
@@ -189,24 +224,17 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         &fetch_paths,
         &target_document("demo", true, url, "main", SelectionMatch::Single),
     );
-    let fetch_state_path = fetch_paths.state_file();
-    let fetch_state_conflict = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(20));
-        std::fs::remove_file(&fetch_state_path).expect("remove fetch state file");
-        std::fs::create_dir(&fetch_state_path).expect("fetch state dir conflict");
+    let fetch_report = with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
+        run_once(&fetch_paths).expect("fetch persist failure")
     });
-    let fetch_report = run_once(&fetch_paths).expect("fetch persist failure");
     fetch_handle.join().expect("fetch join");
-    fetch_state_conflict
-        .join()
-        .expect("fetch state conflict join");
     assert_eq!(fetch_report.reason_code, ReasonCode::PersistError);
     assert_eq!(fetch_report.run_outcome, RunOutcome::FailedTransient);
     assert!(fetch_report.fetch.is_some());
     assert!(fetch_report.extraction.is_none());
-    assert!(!fetch_report.persist.wrote_state);
-    assert!(fetch_report.persist.wrote_last_run);
-    assert!(fetch_report.persist.error.is_some());
+    assert!(!fetch_report.persist.wrote_state());
+    assert!(fetch_report.persist.wrote_last_run());
+    assert!(fetch_report.persist.error().is_some());
 
     let extraction_temp = tempdir().expect("extraction tempdir");
     let extraction_paths = TargetPaths::new(extraction_temp.path(), "demo");
@@ -223,24 +251,18 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         &extraction_paths,
         &target_document("demo", true, url, "main", SelectionMatch::Single),
     );
-    let extraction_state_path = extraction_paths.state_file();
-    let extraction_state_conflict = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(20));
-        std::fs::remove_file(&extraction_state_path).expect("remove extraction state file");
-        std::fs::create_dir(&extraction_state_path).expect("extraction state dir conflict");
-    });
-    let extraction_report = run_once(&extraction_paths).expect("extraction persist failure");
+    let extraction_report =
+        with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
+            run_once(&extraction_paths).expect("extraction persist failure")
+        });
     extraction_handle.join().expect("extraction join");
-    extraction_state_conflict
-        .join()
-        .expect("extraction state conflict join");
     assert_eq!(extraction_report.reason_code, ReasonCode::PersistError);
     assert_eq!(extraction_report.run_outcome, RunOutcome::FailedTransient);
     assert!(extraction_report.fetch.is_some());
     assert!(extraction_report.extraction.is_none());
-    assert!(!extraction_report.persist.wrote_state);
-    assert!(extraction_report.persist.wrote_last_run);
-    assert!(extraction_report.persist.error.is_some());
+    assert!(!extraction_report.persist.wrote_state());
+    assert!(extraction_report.persist.wrote_last_run());
+    assert!(extraction_report.persist.error().is_some());
 
     let success_temp = tempdir().expect("success tempdir");
     let success_paths = TargetPaths::new(success_temp.path(), "demo");
@@ -263,9 +285,9 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
     assert!(success_report.compare.is_some());
     assert!(success_report.change.is_some());
     assert_eq!(success_report.current_compare_digest_sha256, None);
-    assert!(!success_report.persist.wrote_state);
-    assert!(success_report.persist.wrote_last_run);
-    assert!(success_report.persist.error.is_some());
+    assert!(!success_report.persist.wrote_state());
+    assert!(success_report.persist.wrote_last_run());
+    assert!(success_report.persist.error().is_some());
     assert!(success_paths.last_run_file().is_file());
 }
 
@@ -306,9 +328,11 @@ fn run_once_stamps_run_finished_at_after_notification_delivery() {
     let mut target = target_document("demo", true, url, "main", SelectionMatch::Single);
     target.notifications = vec![NotificationHook {
         name: "delay".to_owned(),
-        on: vec![NotificationEvent::Initialized],
-        shell: "/bin/sh".to_owned(),
-        command: "sleep 0.2".to_owned(),
+        on: vec![RunOutcome::Initialized],
+        program: "/bin/sh".to_owned(),
+        // Notification hooks receive a newline-delimited JSON payload on stdin. The hook must
+        // drain that payload before sleeping or the writer can block indefinitely on Windows.
+        args: vec!["-c".to_owned(), "cat >/dev/null; sleep 0.2".to_owned()],
         timeout_ms: 1_000,
     }];
     write_target(&paths, &target);
@@ -430,7 +454,7 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
     );
     assert!(paths.last_run_file().is_file());
     let last_run: crate::RunReport = read_json(&paths.last_run_file()).expect("last run");
-    assert!(report.persist.wrote_last_run);
-    assert!(last_run.persist.wrote_last_run);
+    assert!(report.persist.wrote_last_run());
+    assert!(last_run.persist.wrote_last_run());
     assert_eq!(last_run, report);
 }

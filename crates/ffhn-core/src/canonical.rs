@@ -3,6 +3,11 @@ use regex::RegexBuilder;
 use crate::{CanonicalizerKind, CanonicalizerSpec, CoreError, RegexFlag};
 
 /// Applies one ordered canonicalization pipeline to FFHN comparison input.
+///
+/// # Errors
+///
+/// Returns [`CoreError`] when a configured canonicalizer violates FFHN's contract, such as a
+/// missing `strip_regex` pattern or a regex that fails to compile.
 pub fn apply_canonicalizers(
     input: &str,
     canonicalizers: &[CanonicalizerSpec],

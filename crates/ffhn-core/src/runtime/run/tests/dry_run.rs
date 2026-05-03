@@ -45,7 +45,7 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     handle.join().expect("dry-run join");
     assert_eq!(report.run_mode, RunMode::DryRun);
     assert_eq!(report.run_outcome, RunOutcome::Initialized);
-    assert!(!report.persist.wrote_state);
+    assert!(!report.persist.wrote_state());
     assert!(!paths.last_run_file().exists());
 
     write_target(
@@ -85,7 +85,7 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
         run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run fetch failure");
     handle.join().expect("fetch failure join");
     assert_eq!(fetch_failure.run_outcome, RunOutcome::FailedTransient);
-    assert!(!fetch_failure.persist.wrote_state);
+    assert!(!fetch_failure.persist.wrote_state());
 
     #[cfg(unix)]
     {
@@ -109,7 +109,7 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
         handle.join().expect("unreadable state join");
         assert_eq!(unreadable_state.run_outcome, RunOutcome::Initialized);
-        assert!(!unreadable_state.persist.wrote_state);
+        assert!(!unreadable_state.persist.wrote_state());
     }
 
     let (url, handle) = serve_once(TestResponse {

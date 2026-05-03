@@ -2,32 +2,8 @@
 
 set -euo pipefail
 
-die() {
-    printf 'error: %s\n' "$1" >&2
-    exit 1
-}
-
-resolve_script_dir() {
-    local source_path="${BASH_SOURCE[0]}"
-    while [[ -h "${source_path}" ]]; do
-        local source_dir
-        source_dir="$(cd -P -- "$(dirname -- "${source_path}")" && pwd)"
-        source_path="$(readlink "${source_path}")"
-        if [[ "${source_path}" != /* ]]; then
-            source_path="${source_dir}/${source_path}"
-        fi
-    done
-    cd -P -- "$(dirname -- "${source_path}")" && pwd
-}
-
-script_dir="$(resolve_script_dir)"
-readonly script_dir
-repo_root="$(cd -P -- "${script_dir}/.." && pwd)"
-readonly repo_root
-# shellcheck disable=SC1091
-. "${script_dir}/release-targets.sh"
-tag_name="${1:-${RELEASE_TAG:-${GITHUB_REF_NAME:-}}}"
-readonly tag_name
+# shellcheck source=scripts/common.sh
+. "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
 
 release_version() {
     if [[ -n "${RELEASE_VERSION:-}" ]]; then
@@ -37,14 +13,6 @@ release_version() {
 
     "${script_dir}/workspace-version.sh" "${repo_root}/Cargo.toml"
 }
-
-version="$(release_version)"
-readonly version
-readonly expected_tag="v${version}"
-
-[[ -n "${GH_TOKEN:-}" ]] || die "GH_TOKEN is required"
-[[ -n "${tag_name}" ]] || die "tag name is required"
-[[ "${tag_name}" == "${expected_tag}" ]] || die "expected tag ${expected_tag}, got ${tag_name}"
 
 release_exists() {
     gh release view "${tag_name}" >/dev/null 2>&1
@@ -82,7 +50,7 @@ ensure_release_draft_exists() {
         return
     fi
 
-    release_exists || die "failed to create draft release ${tag_name}"
+    release_exists || ffhn_die "failed to create draft release ${tag_name}"
 }
 
 ensure_release_is_uploadable() {
@@ -96,7 +64,7 @@ ensure_release_is_uploadable() {
         return
     fi
 
-    die \
+    ffhn_die \
         "release ${tag_name} is already published and missing ${asset_name}; refusing to mutate a published release"
 }
 
@@ -105,7 +73,7 @@ upload_if_missing() {
     local asset_name
     asset_name="$(basename -- "${asset_path}")"
 
-    [[ -f "${asset_path}" ]] || die "missing asset ${asset_path}"
+    [[ -f "${asset_path}" ]] || ffhn_die "missing asset ${asset_path}"
 
     if [[ "$(release_has_asset "${asset_name}")" == "true" ]]; then
         return
@@ -117,19 +85,79 @@ upload_if_missing() {
         return
     fi
 
-    [[ "$(release_has_asset "${asset_name}")" == "true" ]] || die \
+    [[ "$(release_has_asset "${asset_name}")" == "true" ]] || ffhn_die \
         "failed to upload ${asset_name} to release ${tag_name}"
 }
 
-ensure_release_draft_exists
+print_usage() {
+    local command_name="$1"
 
-mapfile -t expected_assets < <(release_asset_names_for_version "${version}")
-(( ${#expected_assets[@]} > 0 )) || die "release asset inventory is empty"
+    cat <<EOF
+Usage: ${command_name} [tag-name]
 
-for asset_name in "${expected_assets[@]}"; do
-    upload_if_missing "${repo_root}/dist/${asset_name}"
-done
+Publish or converge the GitHub release object for one maintained FFHN tag.
 
-publish_release
+This script refuses tracked checkout drift so the release tag, expected asset inventory, and
+uploaded ./dist artifacts are derived from one checkout state.
 
-printf 'GitHub release publication converged for %s\n' "${tag_name}"
+Inputs:
+  tag-name             Optional release tag such as v${version}. Defaults to
+                       RELEASE_TAG, then GITHUB_REF_NAME.
+
+Required environment:
+  GH_TOKEN             GitHub token accepted by the gh CLI.
+EOF
+}
+
+main() {
+    local command_name="${BASH_SOURCE[0]}"
+    local script_dir
+    script_dir="$(ffhn_resolve_script_dir "${BASH_SOURCE[0]}")"
+    readonly script_dir
+    local repo_root
+    repo_root="$(ffhn_repo_root_from_script_dir "${script_dir}")"
+    readonly repo_root
+    # shellcheck disable=SC1091
+    . "${script_dir}/release-targets.sh"
+    local version
+    version="$(release_version)"
+    readonly version
+
+    if ffhn_is_help_flag "${1:-}"; then
+        print_usage "${command_name}"
+        return 0
+    fi
+
+    ffhn_require_clean_tracked_checkout "${repo_root}"
+
+    local tag_name="${1:-${RELEASE_TAG:-${GITHUB_REF_NAME:-}}}"
+    readonly tag_name
+    local expected_tag="v${version}"
+    readonly expected_tag
+
+    [[ -n "${GH_TOKEN:-}" ]] || ffhn_die "GH_TOKEN is required"
+    [[ -n "${tag_name}" ]] || ffhn_die "tag name is required"
+    [[ "${tag_name}" == "${expected_tag}" ]] || ffhn_die \
+        "expected tag ${expected_tag}, got ${tag_name}"
+
+    ensure_release_draft_exists
+
+    local expected_assets=()
+    local asset_name
+    while IFS= read -r asset_name; do
+        expected_assets+=("${asset_name}")
+    done < <(release_asset_names_for_version "${version}")
+    (( ${#expected_assets[@]} > 0 )) || ffhn_die "release asset inventory is empty"
+
+    for asset_name in "${expected_assets[@]}"; do
+        upload_if_missing "${repo_root}/dist/${asset_name}"
+    done
+
+    publish_release
+
+    printf 'GitHub release publication converged for %s\n' "${tag_name}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

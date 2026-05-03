@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: ARCHITECTURE
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [architecture, ffhn-core, ffhn-cli, xtask, fuzz package, htmlcut boundary, watch root]
   questions: ["what are the ffhn repository boundaries?", "what does ffhn-core own versus ffhn-cli?", "how does ffhn interact with htmlcut?"]
@@ -22,6 +21,7 @@ xtask/
 fuzz/
 semver-baseline/
 docs/
+.devcontainer/
 examples/
 scripts/
 watchlist/
@@ -58,6 +58,10 @@ watchlist/
 
 `semver-baseline/ffhn-core` is checked-in release reference data, not a live workspace member. `cargo semver-checks` compares the current public `ffhn-core` API against that last-published baseline so the release contract stays explicit.
 
+`.devcontainer/` is a contributor-environment surface. It owns the preferred pinned Linux
+maintainer environment for editing, linting, testing, and running `./check.sh`, but it does not
+change FFHN's published runtime model or native release-target contract.
+
 ## FFHN Versus HTMLCut
 
 FFHN and HTMLCut have a hard boundary.
@@ -77,7 +81,7 @@ FFHN does not delegate fetching to HTMLCut.
 
 Live `run` uses this pipeline:
 
-1. validate `target.toml`
+1. validate the watch root and `target.toml`
 2. acquire the exclusive run lock
 3. load `state.json`
 4. fetch or read the configured source
@@ -88,7 +92,7 @@ Live `run` uses this pipeline:
 9. attempt configured notification hooks
 10. attempt the final `last_run.json` write
 
-Dry-run keeps the same validation, fetch, extraction, and comparison flow, but it acquires the shared run lock first and then intentionally skips:
+Dry-run keeps the same validation, fetch, extraction, and comparison flow, but it acquires the shared run lock first, waits behind an active live run when needed, and then intentionally skips:
 
 1. the exclusive run lock
 2. all snapshot writes

@@ -13,6 +13,11 @@ pub struct RelativeArtifactPath(String);
 
 impl RelativeArtifactPath {
     /// Parses one FFHN-owned relative artifact path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the path is empty, absolute, escapes upward, or violates
+    /// FFHN's forward-slash durable artifact-path contract.
     pub fn new(value: impl Into<String>) -> Result<Self, CoreError> {
         let value = value.into();
         validate_relative_artifact_path(&value)?;

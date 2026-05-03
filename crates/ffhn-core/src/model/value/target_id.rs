@@ -20,6 +20,11 @@ pub struct TargetId(String);
 
 impl TargetId {
     /// Parses one target id under FFHN's durable filesystem contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the input is empty, violates FFHN's durable target-id pattern,
+    /// or uses a reserved Windows device name.
     pub fn new(value: impl Into<String>) -> Result<Self, CoreError> {
         let value = value.into();
         validate_target_id_value(&value)?;

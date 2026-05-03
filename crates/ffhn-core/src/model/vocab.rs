@@ -16,9 +16,6 @@ pub enum TargetKind {
 pub enum FetchEngine {
     /// Raw HTTP fetch.
     Http,
-    /// Browser-compatible fetch. The current rewrite keeps this contract stable while
-    /// reusing the HTTP transport backend.
-    Browser,
     /// Local file read.
     File,
 }
@@ -242,21 +239,6 @@ mod tests {
         assert_eq!(ReasonCode::CompareError.as_str(), "compare_error");
         assert_eq!(ReasonCode::PersistError.as_str(), "persist_error");
         assert_eq!(ReasonCode::IntegrityMismatch.as_str(), "integrity_mismatch");
-        assert_eq!(NotificationEvent::Initialized.as_str(), "initialized");
-        assert_eq!(NotificationEvent::Changed.as_str(), "changed");
-        assert_eq!(NotificationEvent::Unchanged.as_str(), "unchanged");
-        assert_eq!(
-            NotificationEvent::FailedTransient.as_str(),
-            "failed_transient"
-        );
-        assert_eq!(
-            NotificationEvent::FailedPermanent.as_str(),
-            "failed_permanent"
-        );
-        assert_eq!(
-            NotificationEvent::SkippedDisabled.as_str(),
-            "skipped_disabled"
-        );
     }
 
     #[test]
@@ -447,37 +429,6 @@ impl ReasonCode {
             | Self::CanonicalizationError
             | Self::CompareError
             | Self::IntegrityMismatch => Some(FailureClass::Permanent),
-        }
-    }
-}
-
-/// Notification event vocabulary used in target configuration.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum NotificationEvent {
-    /// First successful baseline capture.
-    Initialized,
-    /// Successful change.
-    Changed,
-    /// Successful no-change run.
-    Unchanged,
-    /// Retry-later failure.
-    FailedTransient,
-    /// Investigate-now failure.
-    FailedPermanent,
-    /// Target disabled.
-    SkippedDisabled,
-}
-
-impl NotificationEvent {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Initialized => "initialized",
-            Self::Changed => "changed",
-            Self::Unchanged => "unchanged",
-            Self::FailedTransient => "failed_transient",
-            Self::FailedPermanent => "failed_permanent",
-            Self::SkippedDisabled => "skipped_disabled",
         }
     }
 }

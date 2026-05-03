@@ -33,10 +33,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source ./scripts/release-targets.sh
           {
             echo 'matrix<<EOF'
-            release_matrix_json
+            ./scripts/release-targets.sh matrix-json
             echo EOF
           } >> "$GITHUB_OUTPUT"
 
@@ -52,9 +51,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal --component clippy --component rustfmt --component llvm-tools-preview
-          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-          rustup default "${RUST_STABLE_VERSION}"
+          retry() {
+            local attempts="$1"
+            shift
+            local attempt
+            for attempt in $(seq 1 "${attempts}"); do
+              if "$@"; then
+                return 0
+              fi
+              if [ "${attempt}" -lt "${attempts}" ]; then
+                sleep 5
+              fi
+            done
+            return 1
+          }
+          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal --component clippy --component rustfmt --component llvm-tools-preview
+          retry 3 rustup toolchain install nightly --profile minimal --component llvm-tools-preview
+          retry 3 rustup default "${RUST_STABLE_VERSION}"
 
       - name: Install shellcheck
         shell: bash
@@ -74,6 +87,108 @@ jobs:
       - name: Run Rust workspace gate
         shell: bash
         run: ./check.sh
+
+  contributor-devcontainer-gate:
+    name: Contributor devcontainer gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FFHN_DEVCONTAINER_VOLUME_MODE: shared-ci
+      FFHN_DEVCONTAINER_SKIP_BUILD: 1
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate committed contributor devcontainer
+        shell: bash
+        run: ./scripts/validate-devcontainer.sh
+
+      - name: Run full headless contributor devcontainer gate
+        shell: bash
+        run: ./scripts/run-devcontainer-check.sh
+
+  cross-platform-rust-gate:
+    name: Cross-platform Rust gate (${{ matrix.id }})
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: macos-arm64
+            runs_on: macos-15
+          - id: windows-x64
+            runs_on: windows-2022
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          retry() {
+            local attempts="$1"
+            shift
+            local attempt
+            for attempt in $(seq 1 "${attempts}"); do
+              if "$@"; then
+                return 0
+              fi
+              if [ "${attempt}" -lt "${attempts}" ]; then
+                sleep 5
+              fi
+            done
+            return 1
+          }
+          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal --component clippy --component rustfmt
+          retry 3 rustup default "${RUST_STABLE_VERSION}"
+
+      - name: Install Rust QA tools
+        uses: taiki-e/install-action@7769b73c2ec98c38dfcf2e18c83cfd4880c038c1 # v2.75.27
+        with:
+          tool: cargo-nextest,cargo-audit,cargo-deny,cargo-semver-checks,cargo-outdated
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: cross-platform-${{ matrix.id }}
+
+      - name: Check formatting
+        shell: bash
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Run workspace tests
+        shell: bash
+        run: cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked
+
+      - name: Check root dependency freshness
+        shell: bash
+        run: cargo outdated --workspace --root-deps-only --exit-code 1
+
+      - name: Check fuzz dependency freshness
+        shell: bash
+        run: cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1
+
+      - name: Audit dependencies
+        shell: bash
+        run: cargo audit -D warnings
+
+      - name: Audit fuzz dependencies
+        shell: bash
+        run: cargo audit --file fuzz/Cargo.lock -D warnings
+
+      - name: Enforce dependency policy
+        shell: bash
+        run: cargo deny check advisories bans licenses sources
+
+      - name: Run semver gate
+        shell: bash
+        run: cargo xtask semver-check
 
   release-target-smoke:
     name: Release target smoke ${{ matrix.id }}
@@ -100,9 +215,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal
-          rustup default "${RUST_STABLE_VERSION}"
-          rustup target add "${{ matrix.target_triple }}"
+          retry() {
+            local attempts="$1"
+            shift
+            local attempt
+            for attempt in $(seq 1 "${attempts}"); do
+              if "$@"; then
+                return 0
+              fi
+              if [ "${attempt}" -lt "${attempts}" ]; then
+                sleep 5
+              fi
+            done
+            return 1
+          }
+          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal
+          retry 3 rustup default "${RUST_STABLE_VERSION}"
+          retry 3 rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -121,6 +250,8 @@ jobs:
     name: Check
     needs:
       - rust-gate
+      - contributor-devcontainer-gate
+      - cross-platform-rust-gate
       - release-target-smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 5

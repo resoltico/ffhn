@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: CLI
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [cli, run command, status command, watch root discovery, exit codes, stdout json]
   questions: ["what does ffhn run emit?", "how does ffhn --all discover targets?", "which exit codes does the ffhn CLI use?"]
@@ -20,7 +19,7 @@ route:
 | `ffhn run --target <id>` | `ffhn.run_report` | single-target execution |
 | `ffhn run --target <a> --target <b>` | `ffhn.batch_run_report` | explicit multi-target batch |
 | `ffhn run --all` | `ffhn.batch_run_report` | watch root discovery |
-| `ffhn status --target <id>` | `ffhn.status_report` | status inspection; valid targets may create `lock/run.lock` |
+| `ffhn status --target <id>` | `ffhn.status_report` | status inspection; valid targets may create `lock/run.lock` and wait behind active live runs |
 
 The maintained help text is:
 
@@ -29,16 +28,16 @@ The maintained help text is:
 
 `run` supports:
 
-1. `--watch-root <PATH>`: Watch root directory containing per-target subdirectories. Default: `watchlist`.
-2. `--target <ID>`: One or more target ids under the watch root.
-3. `--all`: Run every target directory discovered under the watch root.
+1. `--watch-root <PATH>`: Watch root directory containing per-target subdirectories with target.toml. The path must already exist and be a directory. Default: `watchlist`.
+2. `--target <ID>`: One or more target ids under the watch root. Use lowercase letters or digits, with single internal '-' or '_' separators.
+3. `--all`: Run each immediate watch-root subdirectory containing target.toml. Valid disabled targets are skipped.
 4. `--jobs <N>`: Maximum concurrent target runs. Default: `1`.
-5. `--dry-run`: Run validation, fetch, extraction, and comparison under the shared run lock without live state/report mutations.
+5. `--dry-run`: Run validation, fetch, extraction, and comparison under the shared run lock; waits behind active live runs and skips live state/report mutations.
 
 Execution modes:
 
 1. `live`: Validation, fetch, extraction, comparison, persistence, and notifications.
-2. `dry_run`: Validation, fetch, extraction, and comparison under the shared run lock without live state/report mutations.
+2. `dry_run`: Validation, fetch, extraction, and comparison under the shared run lock; waits behind active live runs and skips live state/report mutations.
 
 Hard limitations:
 
@@ -95,14 +94,27 @@ If the watch root does not exist or is not a directory, `run --all` exits fatall
 
 On every structured success or structured run failure, the CLI writes exactly one JSON document to stdout and nothing else.
 
-That includes live runs whose content outcome was otherwise successful but whose final `last_run.json` write failed. In that case stdout still carries the `ffhn.run_report`, and the CLI exits `1` because `persist.error` is populated.
+Invalid target, state, and retained-artifact reports use the same rule: FFHN emits one structured
+document with `reason_code` plus structured `error_detail` on stdout, rather than mixing human-only
+diagnostics into stderr.
 
-That also includes notification delivery failures. The run report stays structurally successful when the monitored content path succeeded, but `notifications[].delivered = false` still makes the CLI exit `1`.
+For invalid targets specifically, malformed TOML syntax stays `error_detail.kind = "toml"`,
+while structurally valid TOML that violates FFHN's target contract uses
+`error_detail.kind = "contract"`.
+
+That includes live runs that completed fetch, extraction, compare, and change classification but
+then failed one of the persist writes. In that case stdout still carries the `ffhn.run_report`,
+and the CLI exits `1` because the report is downgraded to `reason_code = persist_error` and one
+persist write result carries `status = failed`.
+
+That also includes notification delivery failures. The run report stays structurally successful
+when the monitored content path succeeded, but `notifications[].outcome.status != "delivered"`
+still makes the CLI exit `1`.
 
 Stderr is reserved for fatal process-level failures and CLI-usage errors, such as:
 
 1. argument parse failures
-2. filesystem errors before a structured report can be emitted, such as unreadable `target.toml` paths or a missing watch root
+2. filesystem errors before a structured report can be emitted, such as missing or unreadable `target.toml` paths or a missing/non-directory watch root
 3. JSON-rendering failures while writing the final document
 
 ## Exit Codes
@@ -110,8 +122,10 @@ Stderr is reserved for fatal process-level failures and CLI-usage errors, such a
 | Condition | Exit code |
 | --- | ---: |
 | successful or `skipped_disabled` single-target runs, dry-runs, batches with no failed/fatal/persist/notification-delivery failures, or status | `0` |
-| structured `failed_transient`, `failed_permanent`, live run report with `persist.error`, any run report with failed notification delivery, or batch with any failed/persist-error/fatal/notification-delivery-failed entries | `1` |
+| structured `failed_transient`, `failed_permanent`, live run report with `reason_code = persist_error`, any run report with notification delivery `outcome.status != "delivered"`, or batch with any failed/persist-error/fatal/notification-delivery-failed entries | `1` |
 | CLI misuse such as parse errors or invalid `--jobs` | `2` |
 | fatal process-level error before structured document emission | `3` |
+
+For valid targets, `status` waits behind any active live run so it can read one stable shared-lock view before emitting the final `ffhn.status_report`.
 
 `status` either exits `0` with an `ffhn.status_report` or exits `3` if FFHN could not emit a structured status document.

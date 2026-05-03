@@ -2,7 +2,5 @@
 # source packages so the files can stay versioned in Git without shipping
 # inside FFHN-owned release assets.
 /AGENTS.md export-ignore
-/.claude/** export-ignore
 /.codex/** export-ignore
-/.gemini/** export-ignore
 /.github/** export-ignore

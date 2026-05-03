@@ -13,7 +13,7 @@ engine = "http"
 method = "GET"
 timeout_ms = 73221
 max_bytes = 2000000
-user_agent = "ffhn/2.0.0"
+user_agent = "ffhn/example"
 follow_redirects = true
 accept = "text/html,application/xhtml+xml"
 

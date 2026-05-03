@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use crate::CoreError;
 use crate::model::TargetId;
@@ -41,6 +42,26 @@ impl TargetPaths {
     /// Returns the configured watch root.
     pub fn watch_root(&self) -> &Path {
         &self.watch_root
+    }
+
+    pub(crate) fn require_watch_root_directory(&self) -> Result<(), CoreError> {
+        if !self.watch_root.exists() {
+            return Err(CoreError::io(
+                &self.watch_root,
+                io::Error::new(io::ErrorKind::NotFound, "watch root does not exist"),
+            ));
+        }
+
+        let metadata = fs::metadata(&self.watch_root)
+            .map_err(|error| CoreError::io(&self.watch_root, error))?;
+        if !metadata.is_dir() {
+            return Err(CoreError::io(
+                &self.watch_root,
+                io::Error::other("watch root is not a directory"),
+            ));
+        }
+
+        Ok(())
     }
 
     /// Returns the target id this path set was created for.
@@ -107,7 +128,7 @@ impl TargetPaths {
 #[cfg(test)]
 mod tests {
     use super::TargetPaths;
-    use crate::TargetId;
+    use crate::{CoreError, TargetId};
     use tempfile::tempdir;
 
     #[test]
@@ -163,5 +184,37 @@ mod tests {
         let temp = tempdir().expect("tempdir");
 
         assert!(TargetPaths::try_new(temp.path(), "../escape").is_err());
+    }
+
+    #[test]
+    fn target_paths_require_a_real_watch_root_directory() {
+        let temp = tempdir().expect("tempdir");
+        let missing = TargetPaths::new(temp.path().join("missing"), "demo");
+        let error = missing
+            .require_watch_root_directory()
+            .expect_err("missing watch root");
+        assert!(matches!(error, CoreError::Io { .. }));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "filesystem error at {}: watch root does not exist",
+                temp.path().join("missing").display()
+            )
+        );
+
+        let file_path = temp.path().join("watch-root.txt");
+        std::fs::write(&file_path, "not a directory").expect("write watch-root file");
+        let file_paths = TargetPaths::new(&file_path, "demo");
+        let error = file_paths
+            .require_watch_root_directory()
+            .expect_err("file watch root");
+        assert!(matches!(error, CoreError::Io { .. }));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "filesystem error at {}: watch root is not a directory",
+                file_path.display()
+            )
+        );
     }
 }

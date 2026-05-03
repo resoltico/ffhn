@@ -176,13 +176,40 @@ fn check_plan_skips_shell_gates_when_no_scripts_exist() {
 }
 
 #[test]
-fn semver_scratch_dir_uses_target_tree() {
+fn semver_scratch_dir_uses_a_namespaced_os_temp_target_tree() {
     let repo_root = tempdir().expect("tempdir");
+    let other_repo_root = tempdir().expect("other tempdir");
+    let scratch_dir = semver_scratch_dir(repo_root.path());
 
-    assert_eq!(
-        semver_scratch_dir(repo_root.path()),
-        repo_root.path().join("target").join("semver-checks")
-    );
+    assert!(scratch_dir.starts_with(std::env::temp_dir()));
+    assert!(scratch_dir.ends_with("target"));
+    assert_eq!(scratch_dir, semver_scratch_dir(repo_root.path()));
+    assert_ne!(scratch_dir, semver_scratch_dir(other_repo_root.path()));
+}
+
+#[test]
+fn cargo_target_root_defaults_to_repo_target_and_honors_overrides() {
+    let repo_root = tempdir().expect("tempdir");
+    let absolute_target_root = tempdir().expect("absolute target root");
+
+    with_cargo_target_dir(None, || {
+        assert_eq!(
+            cargo_target_root(repo_root.path()),
+            repo_root.path().join("target")
+        );
+    });
+    with_cargo_target_dir(Some(Path::new("custom-target")), || {
+        assert_eq!(
+            cargo_target_root(repo_root.path()),
+            repo_root.path().join("custom-target")
+        );
+    });
+    with_cargo_target_dir(Some(absolute_target_root.path()), || {
+        assert_eq!(
+            cargo_target_root(repo_root.path()),
+            absolute_target_root.path()
+        );
+    });
 }
 
 #[test]

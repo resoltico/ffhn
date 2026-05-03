@@ -60,7 +60,27 @@ pub(crate) fn validate_sha256(value: &str) -> Result<(), CoreError> {
 }
 
 pub(crate) fn validate_timestamp(value: &str) -> Result<(), CoreError> {
-    OffsetDateTime::parse(value, &Rfc3339)?;
+    parse_timestamp(value)?;
+    Ok(())
+}
+
+pub(crate) fn parse_timestamp(value: &str) -> Result<OffsetDateTime, CoreError> {
+    Ok(OffsetDateTime::parse(value, &Rfc3339)?)
+}
+
+pub(crate) fn validate_timestamp_not_before(
+    earlier_field: &str,
+    earlier: &str,
+    later_field: &str,
+    later: &str,
+) -> Result<(), CoreError> {
+    let earlier = parse_timestamp(earlier)?;
+    let later = parse_timestamp(later)?;
+    if later < earlier {
+        return Err(CoreError::contract(format!(
+            "{later_field} must be on or after {earlier_field}",
+        )));
+    }
     Ok(())
 }
 
@@ -77,15 +97,6 @@ pub(crate) fn require_non_empty_option(field: &str, value: Option<&str>) -> Resu
         field,
         value.ok_or_else(|| CoreError::contract(format!("{field} is required")))?,
     )
-}
-
-pub(crate) fn forbid_option<T>(field: &str, value: Option<T>) -> Result<(), CoreError> {
-    if value.is_some() {
-        return Err(CoreError::contract(format!(
-            "{field} is not valid for this selection kind"
-        )));
-    }
-    Ok(())
 }
 
 pub(crate) fn apply_regex_flag(flag: &RegexFlag, builder: &mut regex::RegexBuilder) {
@@ -145,8 +156,6 @@ mod tests {
         require_non_empty_option("field", Some("value")).expect("some");
         assert!(require_non_empty_option("field", Some("   ")).is_err());
         assert!(require_non_empty_option("field", None).is_err());
-        forbid_option::<u8>("field", None).expect("none");
-        assert!(forbid_option("field", Some(1u8)).is_err());
     }
 
     #[test]

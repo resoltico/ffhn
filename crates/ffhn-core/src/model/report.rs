@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Serialize};
-
 use super::schema::{
     BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE,
     NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME,
@@ -9,8 +7,8 @@ use super::schema::{
 };
 use super::validate::{require_non_empty, validate_identity, validate_sha256, validate_timestamp};
 use super::{
-    ChangeKind, CompareBasis, Extensions, FailureClass, FetchEngine, NotificationEvent, OutputKind,
-    ReasonCode, RunMode, RunOutcome, SelectionKind, SelectionMatch, StatePhase, TargetStatus,
+    ChangeKind, CompareBasis, Extensions, FailureClass, FetchEngine, OutputKind, ReasonCode,
+    RunMode, RunOutcome, SelectionKind, SelectionMatch, StatePhase, TargetStatus,
 };
 use crate::CoreError;
 
@@ -21,14 +19,16 @@ mod run;
 mod status;
 
 pub use batch::{BatchOutcomeCounts, BatchRunEntry, BatchRunReport, BatchRunReportInput};
+pub(crate) use notification::{NotificationDeliveryOutcome, RunNotificationDelivery};
 pub use notification::{
-    NotificationPayload, ProcessErrorDetail, ProcessErrorKind, RunNotificationDelivery,
+    NotificationDeliveryStatus, NotificationPayload, ProcessErrorDetail, ProcessErrorKind,
 };
 pub use run::{
-    RunChangeRegion, RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection,
-    RunPersistSection, RunReport,
+    PersistWriteStatus, RunChangeRegion, RunChangeSection, RunCompareView, RunExtractionSection,
+    RunFetchView, RunNotificationDeliveryView, RunPersistView, RunReport,
 };
-pub use status::{ArtifactStatus, SnapshotDigestSummary, StatusReport};
+pub(crate) use run::{RunCompareSection, RunFetchSection, RunPersistSection};
+pub use status::{SnapshotDigestSummary, StatusReport};
 
 #[cfg(test)]
 mod tests;

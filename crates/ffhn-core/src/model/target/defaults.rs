@@ -20,10 +20,6 @@ pub(super) const fn default_history_limit() -> usize {
     10
 }
 
-pub(super) fn default_notification_shell() -> String {
-    "/bin/sh".to_owned()
-}
-
 pub(super) const fn default_notification_timeout_ms() -> u64 {
     5_000
 }

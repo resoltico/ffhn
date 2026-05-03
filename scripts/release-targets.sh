@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
+# shellcheck source=scripts/common.sh
+. "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
+
 release_target_triples() {
     cat <<'EOF'
 aarch64-apple-darwin
@@ -151,3 +156,69 @@ release_asset_names_for_version() {
 
     printf '%s\n' "$(release_checksum_manifest_name_for_version "${release_version}")"
 }
+
+ffhn_release_targets_print_usage() {
+    local command_name="$1"
+
+    cat <<EOF
+Usage: ${command_name} <command> [options]
+
+Inspect the canonical FFHN standalone release-target registry.
+
+Commands:
+  triples
+      Print the maintained standalone release target triples.
+  matrix-json
+      Print the GitHub Actions release matrix JSON.
+  assets --version <VERSION>
+      Print the maintained release asset names for one version.
+  macos-deployment-target --target <TARGET>
+      Print the pinned macOS deployment floor for one target, if any.
+  -h, --help
+      Print this help text.
+EOF
+}
+
+ffhn_release_targets_main() {
+    local command_name="${BASH_SOURCE[0]}"
+    local subcommand="${1:-}"
+
+    if [[ -z "${subcommand}" ]] || ffhn_is_help_flag "${subcommand}"; then
+        ffhn_release_targets_print_usage "${command_name}"
+        return 0
+    fi
+
+    case "${subcommand}" in
+        triples)
+            release_target_triples
+            ;;
+        matrix-json)
+            release_matrix_json
+            ;;
+        assets)
+            [[ "${2:-}" == "--version" ]] || ffhn_usage_error \
+                "${command_name}" \
+                "assets requires --version <VERSION>"
+            [[ -n "${3:-}" ]] || ffhn_usage_error \
+                "${command_name}" \
+                "assets requires --version <VERSION>"
+            release_asset_names_for_version "${3}"
+            ;;
+        macos-deployment-target)
+            [[ "${2:-}" == "--target" ]] || ffhn_usage_error \
+                "${command_name}" \
+                "macos-deployment-target requires --target <TARGET>"
+            [[ -n "${3:-}" ]] || ffhn_usage_error \
+                "${command_name}" \
+                "macos-deployment-target requires --target <TARGET>"
+            macos_deployment_target_for_target "${3}"
+            ;;
+        *)
+            ffhn_usage_error "${command_name}" "unknown command: ${subcommand}"
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    ffhn_release_targets_main "$@"
+fi

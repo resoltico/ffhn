@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: REPORTS
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [reports, ffhn.state, ffhn.extraction_record, ffhn.notification_payload, ffhn.status_report, snapshot references, snapshot artifacts, state document]
   questions: ["what do ffhn state and status documents mean?", "what is stored in ffhn.state?", "what is stored in ffhn.extraction_record?", "what is ffhn.notification_payload?", "what do ffhn snapshot artifacts mean?"]
@@ -26,7 +25,7 @@ Run-oriented semantics live in [run-reports.md](run-reports.md):
 1. `ffhn.run_report`
 2. `ffhn.batch_run_report`
 3. reason-code vocabulary
-4. the shared structured process-error shape used by `persist.error` and batch `fatal_error`
+4. the shared structured process-error shape used by failed persist-write entries and batch `fatal_error`
 
 ## `ffhn.state`
 
@@ -97,23 +96,26 @@ Important fields:
 
 1. `target_status = "pending" | "ready" | "invalid"`
 2. `reason_code`
-3. `state_phase`
-4. `artifacts.current_valid`
-5. `artifacts.previous_valid`
-6. `current_snapshot`
-7. `snapshot_history`
+3. optional `error_detail`
+4. `state_phase`
+5. `current_snapshot`
+6. `snapshot_history`
 
 Interpretation:
 
 1. `pending` means the target is valid but no baseline is ready yet
 2. `ready` means the target is valid and has a current baseline snapshot
 3. `invalid` means target validation failed, stored state validation failed, or retained artifacts failed integrity
-4. `state_invalid` and `integrity_mismatch` keep the parsed `state_phase` when FFHN can still recover it from `state.json`
-5. unreadable `state.json` falls back to `state_phase = "never_succeeded"` because FFHN cannot safely trust any persisted phase
+4. invalid reports carry structured `error_detail` describing the target or state failure path when FFHN can recover one
+5. `state_invalid` and `integrity_mismatch` keep the parsed `state_phase` when FFHN can still recover it from `state.json`
+6. unreadable `state.json` falls back to `state_phase = "never_succeeded"` because FFHN cannot safely trust any persisted phase
+7. malformed persisted JSON reports `error_detail.kind = "json"`, while valid JSON that violates FFHN's `state.json` or `extraction.json` contract reports `error_detail.kind = "contract"`
+8. `current_snapshot = null` with an empty `snapshot_history` means no retained baseline snapshot is available
 
 Special case:
 
 1. `state_phase = null` is only valid when `reason_code = config_invalid`
+2. `error_detail` is required for invalid reports and forbidden for `pending` or `ready`
 
 `current_snapshot` and `snapshot_history` carry only digest summaries, not the full artifact bodies.
 
@@ -124,16 +126,16 @@ Notification hooks receive `ffhn.notification_payload` on stdin.
 Important fields:
 
 1. `hook_name`
-2. `event`
-3. `delivery_started_at`
-4. `run_report`
+2. `delivery_started_at`
+3. `run_report`
 
 Key invariants:
 
 1. `run_report` is always a live pre-delivery snapshot
-2. `run_report.notifications` is always empty because delivery results do not exist yet
-3. `run_report.persist.wrote_last_run` is always `false` because the final `last_run.json` write happens after hook delivery
-4. `run_report.persist.error` may already be present when an earlier live persist step failed before FFHN started delivering notifications
+2. `delivery_started_at` is on or after `run_report.run_finished_at`
+3. `run_report.notifications` is always empty because delivery results do not exist yet
+4. `run_report.persist.last_run_write.status` is always `not_attempted` because the final `last_run.json` write happens after hook delivery
+5. `run_report.persist.state_write.status` may already be `failed` when an earlier live persist step failed before FFHN started delivering notifications
 
 ## Snapshot Artifact Meanings
 

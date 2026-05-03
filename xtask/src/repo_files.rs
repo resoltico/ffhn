@@ -8,6 +8,30 @@ use crate::model::DynResult;
 const ROOT_PUBLIC_MARKDOWN: &[&str] = &["README.md", "CONTRIBUTING.md", "changelog.md"];
 #[cfg(test)]
 const AFAD_MANAGED_MARKDOWN_ROOTS: &[&str] = &["docs", "examples", "fuzz"];
+#[cfg(test)]
+const ROOT_MAINTAINED_REPO_FILES: &[&str] = &[
+    "AGENTS.md",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "CONTRIBUTING.md",
+    "changelog.md",
+    "check.sh",
+    "rust-toolchain.toml",
+];
+#[cfg(test)]
+const MAINTAINED_REPO_OWNED_FILE_ROOTS: &[&str] = &[
+    ".codex",
+    ".devcontainer",
+    ".github/workflows",
+    "crates/ffhn-cli/src",
+    "crates/ffhn-core/src",
+    "docs",
+    "examples",
+    "fuzz",
+    "scripts",
+    "xtask/src",
+];
 const MAINTAINED_RUST_SOURCE_ROOTS: &[&str] =
     &["crates/ffhn-core/src", "crates/ffhn-cli/src", "xtask/src"];
 
@@ -35,6 +59,52 @@ pub(crate) fn afad_managed_markdown_paths(repo_root: &Path) -> DynResult<Vec<Pat
         let directory = repo_root.join(relative_root);
         if directory.is_dir() {
             collect_markdown_paths(&directory, &mut paths)?;
+        }
+    }
+
+    paths.sort();
+    Ok(paths)
+}
+
+#[cfg(test)]
+pub(crate) fn maintained_repo_owned_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+
+    for root_file in ROOT_MAINTAINED_REPO_FILES {
+        let path = repo_root.join(root_file);
+        if path.is_file() {
+            paths.push(path);
+        }
+    }
+
+    for relative_root in MAINTAINED_REPO_OWNED_FILE_ROOTS {
+        let directory = repo_root.join(relative_root);
+        if directory.is_dir() {
+            collect_regular_files(&directory, &mut paths)?;
+        }
+    }
+
+    paths.extend(watchlist_target_config_paths(repo_root)?);
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+#[cfg(test)]
+pub(crate) fn watchlist_target_config_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    let watchlist_dir = repo_root.join("watchlist");
+
+    if watchlist_dir.is_dir() {
+        for entry in fs::read_dir(&watchlist_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                let target_file = path.join("target.toml");
+                if target_file.is_file() {
+                    paths.push(target_file);
+                }
+            }
         }
     }
 
@@ -108,3 +178,33 @@ fn collect_markdown_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> DynResu
 
     Ok(())
 }
+
+#[cfg(test)]
+fn collect_regular_files(directory: &Path, paths: &mut Vec<PathBuf>) -> DynResult<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            if !matches!(
+                path.file_name().and_then(OsStr::to_str),
+                Some("target" | "dist" | "lock" | "snapshots")
+            ) {
+                collect_regular_files(&path, paths)?;
+            }
+        } else if path.is_file() {
+            let ignored_metadata_file = path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name == ".DS_Store" || name.starts_with("._"));
+            if ignored_metadata_file {
+                continue;
+            }
+            paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

@@ -94,7 +94,6 @@ file_path = {source_path:?}
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]
@@ -298,8 +297,9 @@ fn run_command_returns_failed_exit_when_final_last_run_write_fails() {
     handle.join().expect("server join");
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"run_outcome\":\"initialized\""));
-    assert!(stdout.contains("\"wrote_last_run\":false"));
+    assert!(stdout.contains("\"run_outcome\":\"failed_transient\""));
+    assert!(stdout.contains("\"reason_code\":\"persist_error\""));
+    assert!(stdout.contains("\"last_run_write\":{\"status\":\"failed\""));
     assert!(stdout.contains("\"error\":{\"kind\":\"io\""));
     assert!(stderr.is_empty());
 }
@@ -315,7 +315,7 @@ fn run_command_returns_failed_exit_when_notification_delivery_fails() {
     fs::write(
         watch_root.join("demo").join("target.toml"),
         format!(
-            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nshell = \"/bin/sh\"\ncommand = \"echo hook-broke >&2; exit 7\"\ntimeout_ms = 1000\n",
+            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n",
             fs::read_to_string(watch_root.join("demo").join("target.toml")).expect("read target")
         ),
     )
@@ -332,7 +332,7 @@ fn run_command_returns_failed_exit_when_notification_delivery_fails() {
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
     assert!(stdout.contains("\"run_outcome\":\"initialized\""));
-    assert!(stdout.contains("\"delivered\":false"));
+    assert!(stdout.contains("\"outcome\":{\"status\":\"failed\""));
     assert!(stdout.contains("hook-broke"));
     assert!(stderr.is_empty());
 }
@@ -392,7 +392,7 @@ fn batch_run_command_returns_failed_exit_when_only_notification_delivery_fails()
     fs::write(
         watch_root.join("broken").join("target.toml"),
         format!(
-            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nshell = \"/bin/sh\"\ncommand = \"echo hook-broke >&2; exit 7\"\ntimeout_ms = 1000\n",
+            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n",
             fs::read_to_string(watch_root.join("broken").join("target.toml")).expect("read target")
         ),
     )
@@ -412,7 +412,7 @@ fn batch_run_command_returns_failed_exit_when_only_notification_delivery_fails()
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
     assert!(stdout.contains("\"initialized\":2"));
     assert!(stdout.contains("\"target_id\":\"broken\""));
-    assert!(stdout.contains("\"delivered\":false"));
+    assert!(stdout.contains("\"outcome\":{\"status\":\"failed\""));
     assert!(stdout.contains("hook-broke"));
     assert!(stderr.is_empty());
 }
@@ -622,7 +622,6 @@ file_path = {source_path:?}
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]

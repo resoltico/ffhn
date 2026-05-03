@@ -2,9 +2,8 @@
 
 set -euo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/common.sh
-. "${script_dir}/common.sh"
+. "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
 
 release_version() {
     if [[ -n "${RELEASE_VERSION:-}" ]]; then
@@ -97,51 +96,90 @@ extract_release_archive() {
     esac
 }
 
+assert_no_archive_metadata_sidecars() {
+    local extract_root="$1"
+
+    if find "${extract_root}" \( -name '._*' -o -name '__MACOSX' \) -print -quit | grep -q .; then
+        debug_extracted_layout "${extract_root}"
+        ffhn_die "release archive contains platform metadata sidecars"
+    fi
+}
+
+print_usage() {
+    local command_name="$1"
+
+    cat <<EOF
+Usage: ${command_name} <target-triple>
+
+Extract one maintained ./dist release archive and verify the packaged binary and legal files.
+
+Supported target triples:
+$(release_target_triples | sed 's/^/  /')
+EOF
+}
+
 main() {
+    local command_name="${BASH_SOURCE[0]}"
+    local script_dir
     script_dir="$(ffhn_resolve_script_dir "${BASH_SOURCE[0]}")"
     readonly script_dir
+    local repo_root
     repo_root="$(ffhn_repo_root_from_script_dir "${script_dir}")"
     readonly repo_root
     # shellcheck disable=SC1091
     . "${script_dir}/release-targets.sh"
 
-    target_triple="${1:-}"
-    readonly target_triple
-    [[ -n "${target_triple}" ]] || ffhn_die "target triple is required"
-    is_supported_release_target "${target_triple}" || ffhn_die "unsupported release target triple: ${target_triple}"
+    if ffhn_is_help_flag "${1:-}"; then
+        print_usage "${command_name}"
+        return 0
+    fi
 
+    local target_triple="${1:-}"
+    [[ -n "${target_triple}" ]] || ffhn_usage_error "${command_name}" "target triple is required"
+    is_supported_release_target "${target_triple}" || ffhn_usage_error \
+        "${command_name}" \
+        "unsupported release target triple: ${target_triple}"
+    readonly target_triple
+
+    local version
     version="$(release_version)"
     readonly version
+    local description
     description="$(ffhn_workspace_description "${script_dir}" "${repo_root}")"
     readonly description
+    local package_name
     package_name="$(release_package_name_for_target "${version}" "${target_triple}")"
     readonly package_name
+    local package_dir_name
     package_dir_name="$(release_package_basename_for_target "${version}" "${target_triple}")"
     readonly package_dir_name
+    local archive_extension
     archive_extension="$(release_archive_extension_for_target "${target_triple}")"
     readonly archive_extension
+    local binary_name
     binary_name="$(binary_name_for_target "${target_triple}")"
     readonly binary_name
-    package_path="${repo_root}/dist/${package_name}"
+    local package_path="${repo_root}/dist/${package_name}"
     readonly package_path
+    local temp_root
     temp_root="$(ffhn_temp_root)"
     readonly temp_root
+    local extract_root
     extract_root="$(mktemp -d "${temp_root}/ffhn-smoke-${target_triple}.XXXXXX")"
     readonly extract_root
-    extracted_package_dir="${extract_root}/${package_dir_name}"
+    local extracted_package_dir="${extract_root}/${package_dir_name}"
     readonly extracted_package_dir
-    binary_path="${extracted_package_dir}/${binary_name}"
+    local binary_path="${extracted_package_dir}/${binary_name}"
     readonly binary_path
 
-    cleanup() {
-        rm -rf "${extract_root}"
-    }
-
-    trap cleanup EXIT
+    FFHN_SMOKE_RELEASE_EXTRACT_ROOT="${extract_root}"
+    readonly FFHN_SMOKE_RELEASE_EXTRACT_ROOT
+    trap 'rm -rf -- "${FFHN_SMOKE_RELEASE_EXTRACT_ROOT}"' EXIT
 
     [[ -f "${package_path}" ]] || ffhn_die "missing package ${package_path}"
 
     extract_release_archive "${package_path}" "${archive_extension}" "${extract_root}"
+    assert_no_archive_metadata_sidecars "${extract_root}"
 
     if [[ ! -f "${binary_path}" ]]; then
         debug_release_archive_contents "${package_path}"
@@ -150,6 +188,8 @@ main() {
     fi
     [[ -f "${extracted_package_dir}/README.md" ]] || ffhn_die "missing packaged README.md"
     [[ -f "${extracted_package_dir}/LICENSE" ]] || ffhn_die "missing packaged LICENSE"
+    [[ -f "${extracted_package_dir}/NOTICE" ]] || ffhn_die "missing packaged NOTICE"
+    [[ -f "${extracted_package_dir}/PATENTS.md" ]] || ffhn_die "missing packaged PATENTS.md"
     [[ -f "${extracted_package_dir}/changelog.md" ]] || ffhn_die "missing packaged changelog.md"
 
     if [[ "${target_triple}" != x86_64-pc-windows-msvc ]]; then
@@ -165,7 +205,7 @@ main() {
 
     [[ "${version_line}" == "ffhn ${version}" ]] || ffhn_die "packaged version banner first line mismatch: ${version_line}"
     [[ "${description_line}" == "${description}" ]] || ffhn_die "packaged version banner description mismatch: ${description_line}"
-    "${binary_path}" --help | tr -d '\r' | grep "status"
+    "${binary_path}" --help | tr -d '\r' | grep -q "status"
 
     printf 'Smoke-tested %s\n' "${package_name}"
 }
