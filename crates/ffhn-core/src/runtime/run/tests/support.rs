@@ -9,8 +9,11 @@ pub(super) use super::super::change::{
     build_change_section, common_suffix_len, excerpt_from_lines, split_lines,
 };
 pub(super) use super::super::notifications::{
-    NotificationProcess, deliver_notification, wait_for_notification_process,
-    write_child_notification_payload_or_failure, write_notification_payload_or_failure,
+    NotificationProcess, wait_for_notification_process, write_notification_payload_or_failure,
+};
+#[cfg(unix)]
+pub(super) use super::super::notifications::{
+    deliver_notification, write_child_notification_payload_or_failure,
 };
 pub(super) use super::super::outcome::{
     failure_run_outcome, reason_code_for_htmlcut_error, required_outer_html,
@@ -39,7 +42,9 @@ pub(super) use std::os::unix::fs::PermissionsExt;
 pub(super) use std::os::unix::process::ExitStatusExt;
 #[cfg(windows)]
 pub(super) use std::os::windows::process::ExitStatusExt;
-pub(super) use std::process::{Command, ExitStatus, Stdio};
+pub(super) use std::process::ExitStatus;
+#[cfg(unix)]
+pub(super) use std::process::{Command, Stdio};
 pub(super) use std::sync::mpsc;
 pub(super) use std::thread;
 pub(super) use std::time::{Duration, Instant};
