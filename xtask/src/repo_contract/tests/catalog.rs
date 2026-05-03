@@ -1,8 +1,11 @@
 use std::ffi::OsStr;
+#[cfg(unix)]
 use std::fmt::Write as _;
 use std::path::Path;
 
-use ffhn_core::{CLI_OPERATION_RUN_ID, TargetDocument, cli_contract, cli_operation};
+use ffhn_core::TargetDocument;
+#[cfg(unix)]
+use ffhn_core::{CLI_OPERATION_RUN_ID, cli_contract, cli_operation};
 
 #[cfg(unix)]
 pub(super) fn render_cli_catalog_section() -> String {

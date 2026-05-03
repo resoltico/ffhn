@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use super::*;
 use crate::plan::workspace_version;
@@ -9,6 +11,7 @@ use ffhn_core::TargetDocument;
 mod catalog;
 mod docs;
 mod examples;
+#[cfg(unix)]
 mod fuzz;
 mod git;
 mod markdown;
