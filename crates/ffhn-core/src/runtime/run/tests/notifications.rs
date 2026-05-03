@@ -196,135 +196,135 @@ fn finish_report_and_notifications_cover_failure_paths() {
     // The remaining sub-tests spawn /bin/sh processes; skip them on non-Unix platforms.
     #[cfg(unix)]
     {
-    // Successful hooks must drain stdin; an immediate `exit 0` races the payload write and can
-    // turn a success-path test into a broken-pipe test under load.
-    let delivered = deliver_notification(
-        &NotificationHook {
-            name: "ok".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "cat >/dev/null; exit 0".to_owned()],
-            timeout_ms: 500,
-        },
-        &target,
-        &live_success_report("demo"),
-    );
-    assert!(delivered.is_delivered());
+        // Successful hooks must drain stdin; an immediate `exit 0` races the payload write and can
+        // turn a success-path test into a broken-pipe test under load.
+        let delivered = deliver_notification(
+            &NotificationHook {
+                name: "ok".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec!["-c".to_owned(), "cat >/dev/null; exit 0".to_owned()],
+                timeout_ms: 500,
+            },
+            &target,
+            &live_success_report("demo"),
+        );
+        assert!(delivered.is_delivered());
 
-    let delivered_with_stderr = deliver_notification(
-        &NotificationHook {
-            name: "ok-with-stderr".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec![
-                "-c".to_owned(),
-                "cat >/dev/null; echo ok-msg >&2; exit 0".to_owned(),
-            ],
-            timeout_ms: 500,
-        },
-        &target,
-        &live_success_report("demo"),
-    );
-    assert!(delivered_with_stderr.is_delivered());
-    assert!(delivered_with_stderr.error().is_none());
+        let delivered_with_stderr = deliver_notification(
+            &NotificationHook {
+                name: "ok-with-stderr".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    "cat >/dev/null; echo ok-msg >&2; exit 0".to_owned(),
+                ],
+                timeout_ms: 500,
+            },
+            &target,
+            &live_success_report("demo"),
+        );
+        assert!(delivered_with_stderr.is_delivered());
+        assert!(delivered_with_stderr.error().is_none());
 
-    let exited = deliver_notification(
-        &NotificationHook {
-            name: "fail".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec![
-                "-c".to_owned(),
-                "cat >/dev/null; echo hook-broke >&2; exit 7".to_owned(),
-            ],
-            timeout_ms: 500,
-        },
-        &target,
-        &live_success_report("demo"),
-    );
-    assert_eq!(exited.exit_code(), Some(7));
-    assert!(!exited.is_delivered());
-    assert!(
-        exited
-            .error()
-            .is_some_and(|error| error.contains("hook-broke"))
-    );
+        let exited = deliver_notification(
+            &NotificationHook {
+                name: "fail".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    "cat >/dev/null; echo hook-broke >&2; exit 7".to_owned(),
+                ],
+                timeout_ms: 500,
+            },
+            &target,
+            &live_success_report("demo"),
+        );
+        assert_eq!(exited.exit_code(), Some(7));
+        assert!(!exited.is_delivered());
+        assert!(
+            exited
+                .error()
+                .is_some_and(|error| error.contains("hook-broke"))
+        );
 
-    let timed_out = deliver_notification(
-        &NotificationHook {
-            name: "timeout".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "cat >/dev/null; sleep 1".to_owned()],
-            timeout_ms: 10,
-        },
-        &target,
-        &live_success_report("demo"),
-    );
-    assert!(timed_out.is_timed_out());
+        let timed_out = deliver_notification(
+            &NotificationHook {
+                name: "timeout".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec!["-c".to_owned(), "cat >/dev/null; sleep 1".to_owned()],
+                timeout_ms: 10,
+            },
+            &target,
+            &live_success_report("demo"),
+        );
+        assert!(timed_out.is_timed_out());
 
-    let payload_failure = deliver_notification(
-        &NotificationHook {
-            name: "payload".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec![
-                "-c".to_owned(),
-                "echo payload-stderr >&2; exec 0<&-; sleep 1".to_owned(),
-            ],
-            timeout_ms: 500,
-        },
-        &target,
-        &{
-            let mut report = live_success_report("demo");
-            report.extensions = Some(BTreeMap::from([(
-                "blob".to_owned(),
-                json!("x".repeat(200_000)),
-            )]));
-            report.with_digest().expect("large payload digest")
-        },
-    );
-    assert!(!payload_failure.is_delivered());
-    assert!(
-        payload_failure
-            .error()
-            .is_some_and(|error| error.contains("payload-stderr"))
-    );
+        let payload_failure = deliver_notification(
+            &NotificationHook {
+                name: "payload".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    "echo payload-stderr >&2; exec 0<&-; sleep 1".to_owned(),
+                ],
+                timeout_ms: 500,
+            },
+            &target,
+            &{
+                let mut report = live_success_report("demo");
+                report.extensions = Some(BTreeMap::from([(
+                    "blob".to_owned(),
+                    json!("x".repeat(200_000)),
+                )]));
+                report.with_digest().expect("large payload digest")
+            },
+        );
+        assert!(!payload_failure.is_delivered());
+        assert!(
+            payload_failure
+                .error()
+                .is_some_and(|error| error.contains("payload-stderr"))
+        );
 
-    let spawn_error = deliver_notification(
-        &NotificationHook {
-            name: "spawn".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/no/such/program".to_owned(),
-            args: vec!["-c".to_owned(), "exit 0".to_owned()],
-            timeout_ms: 500,
-        },
-        &target,
-        &live_success_report("demo"),
-    );
-    assert!(spawn_error.error().is_some());
+        let spawn_error = deliver_notification(
+            &NotificationHook {
+                name: "spawn".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/no/such/program".to_owned(),
+                args: vec!["-c".to_owned(), "exit 0".to_owned()],
+                timeout_ms: 500,
+            },
+            &target,
+            &live_success_report("demo"),
+        );
+        assert!(spawn_error.error().is_some());
 
-    let payload_serialization_failure = deliver_notification(
-        &NotificationHook {
-            name: "invalid-report".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "exit 0".to_owned()],
-            timeout_ms: 500,
-        },
-        &target,
-        &{
-            let mut report = live_success_report("demo");
-            report.schema_name = "not.ffhn.run_report".to_owned();
-            report
-        },
-    );
-    assert!(!payload_serialization_failure.is_delivered());
-    assert!(
-        payload_serialization_failure
-            .error()
-            .is_some_and(|error| error.contains("failed to serialize notification payload"))
-    );
+        let payload_serialization_failure = deliver_notification(
+            &NotificationHook {
+                name: "invalid-report".to_owned(),
+                on: vec![RunOutcome::Changed],
+                program: "/bin/sh".to_owned(),
+                args: vec!["-c".to_owned(), "exit 0".to_owned()],
+                timeout_ms: 500,
+            },
+            &target,
+            &{
+                let mut report = live_success_report("demo");
+                report.schema_name = "not.ffhn.run_report".to_owned();
+                report
+            },
+        );
+        assert!(!payload_serialization_failure.is_delivered());
+        assert!(
+            payload_serialization_failure
+                .error()
+                .is_some_and(|error| error.contains("failed to serialize notification payload"))
+        );
     } // end #[cfg(unix)]
 }
 
