@@ -6,10 +6,10 @@ use crate::{NotificationHook, RunNotificationDelivery, RunReport, TargetDocument
 mod payload;
 mod process;
 
+#[cfg(all(test, unix))]
+pub(super) use payload::write_child_notification_payload_or_failure;
 #[cfg(test)]
-pub(super) use payload::{
-    write_child_notification_payload_or_failure, write_notification_payload_or_failure,
-};
+pub(super) use payload::write_notification_payload_or_failure;
 #[cfg(test)]
 pub(super) use process::{NotificationProcess, wait_for_notification_process};
 
