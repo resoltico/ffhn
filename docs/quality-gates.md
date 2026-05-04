@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-05-01"
+updated: "2026-05-04"
 route:
   keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
   questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
@@ -113,8 +113,23 @@ under `/Volumes/...`.
 
 GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
 GitHub CI also runs a separate cross-platform Rust gate on macOS arm64 and Windows x64 for formatting, Clippy, tests, dependency freshness, advisory/license policy, and the maintained semver lane.
-That cross-platform job carries a `90`-minute budget because the hosted Windows runner needs room to finish the full `cargo nextest`, dependency-policy, and semver lanes instead of timing out partway through a healthy run.
-GitHub CI also runs a dedicated contributor-devcontainer gate on Linux so the committed `.devcontainer/` contract, the validator's raw-image plus Dev Container client proof, and the full headless `./check.sh` path through `./scripts/run-devcontainer-check.sh` cannot drift away from the documented preferred workflow.
+The cross-platform job carries a `150`-minute budget for Windows and a `30`-minute budget for macOS.
+The Windows runner excludes its `target/` build directory from Windows Defender before any Cargo operations begin, removing the antivirus overhead that would otherwise scan every file write during compilation.
+Both runners use `Swatinem/rust-cache` to persist the Cargo registry and incremental build artifacts across runs; without that cache, a cold Windows Rust build takes 15-20 minutes.
+GitHub CI also runs a dedicated contributor-devcontainer gate on Linux to keep the committed `.devcontainer/` contract, the validator's raw-image plus Dev Container client proof, and the full headless `./check.sh` path through `./scripts/run-devcontainer-check.sh` from drifting away from the documented preferred workflow.
+
+**Path-based devcontainer gate theory.** The devcontainer gate validates the contributor *environment*, not application code. Application code changes are already proven by `rust-gate`. Running the full devcontainer gate on every PR regardless of what changed wastes 40-45 minutes per run proving the same environment twice. The gate therefore fires only when the environment itself changes — specifically when any of these paths are touched:
+
+- `.devcontainer/` — the Dockerfile and devcontainer.json
+- `scripts/validate-devcontainer.sh`
+- `scripts/run-devcontainer-check.sh`
+- `scripts/devcontainer-prepare-user-home.sh`
+- `scripts/devcontainer-cli-helper.Dockerfile`
+- `scripts/common.sh`
+- `check.sh` — the script the gate runs inside the container
+
+A `devcontainer-changes` detection job computes a git diff of the PR's changed files against those paths before the gate is evaluated. When no relevant files changed, `contributor-devcontainer-gate` is skipped. The aggregate `Check` required-status job uses `if: always()` and explicit failure detection so that a skipped devcontainer gate does not block merge; only a *failed* or *cancelled* gate prevents `Check` from succeeding. A skipped result is a correct, intended outcome, not a gap.
+
 Those workflows install the same pinned Rust `1.95.0` toolchain rather than following the moving `stable` channel, and they wrap `rustup` setup in retries so transient runner bootstrap failures do not masquerade as product regressions.
 
 The semver lane treats the current workspace version as an unreleased major line until a matching local Git tag `vX.Y.Z` exists. That keeps release-branch checks correct after the changelog is dated but before the public tag is pushed.
@@ -163,9 +178,11 @@ cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 
 Manual sanitizer-backed seed smokes live in [../fuzz/README.md](../fuzz/README.md). They require `cargo-fuzz` and nightly, but they are not part of `./check.sh`.
 
-If you change `.devcontainer/`, [developer-devcontainer.md](developer-devcontainer.md),
-[developer-setup.md](developer-setup.md), or the devcontainer helper scripts, run
-`./scripts/validate-devcontainer.sh` in the same change.
+If you change `.devcontainer/`, `check.sh`, or any of the devcontainer helper scripts
+(`scripts/validate-devcontainer.sh`, `scripts/run-devcontainer-check.sh`,
+`scripts/devcontainer-prepare-user-home.sh`, `scripts/devcontainer-cli-helper.Dockerfile`,
+`scripts/common.sh`), run `./scripts/validate-devcontainer.sh` in the same change. Those paths
+are also the exact set that triggers the CI devcontainer gate, so they stay in sync.
 
 ## Scratch Directories
 
