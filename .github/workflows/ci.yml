@@ -88,8 +88,46 @@ jobs:
         shell: bash
         run: ./check.sh
 
+  devcontainer-changes:
+    name: Detect devcontainer changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect devcontainer-relevant changes
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base" "${{ github.sha }}" -- \
+            '.devcontainer' \
+            'scripts/validate-devcontainer.sh' \
+            'scripts/run-devcontainer-check.sh' \
+            'scripts/devcontainer-prepare-user-home.sh' \
+            'scripts/devcontainer-cli-helper.Dockerfile' \
+            'scripts/common.sh' \
+            'check.sh')
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   contributor-devcontainer-gate:
     name: Contributor devcontainer gate
+    needs: [devcontainer-changes]
+    if: needs.devcontainer-changes.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -155,6 +193,11 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: cross-platform-${{ matrix.id }}
+
+      - name: Exclude build directory from Windows Defender
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Add-MpPreference -ExclusionPath "${{ github.workspace }}\target"
 
       - name: Check formatting
         shell: bash
@@ -250,8 +293,10 @@ jobs:
 
   check:
     name: Check
+    if: always()
     needs:
       - rust-gate
+      - devcontainer-changes
       - contributor-devcontainer-gate
       - cross-platform-rust-gate
       - release-target-smoke
@@ -261,6 +306,16 @@ jobs:
     steps:
       - name: Confirm aggregate gate success
         shell: bash
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
         run: |
           set -euo pipefail
-          echo "Rust gate and release target smoke matrix passed."
+          if echo "$RESULTS" | grep -q '"failure"'; then
+            echo "A required job failed."
+            exit 1
+          fi
+          if echo "$RESULTS" | grep -q '"cancelled"'; then
+            echo "A required job was cancelled."
+            exit 1
+          fi
+          echo "All required jobs passed or were skipped."

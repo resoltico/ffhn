@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: OPERATIONS
-updated: "2026-04-30"
+updated: "2026-05-04"
 route:
   keywords: [operations, check.sh, release scripts, ci workflow, dist profile, github release, supported targets, release packages, checksum manifest]
   questions: ["how do I operate ffhn locally?", "how do the ffhn release scripts work?", "which standalone targets does ffhn publish?", "which FFHN release assets are published?"]
@@ -45,14 +45,15 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 
 ## CI Workflows
 
-`/.github/workflows/ci.yml` uses one helper job, four work lanes, and one aggregate required-check job:
+`/.github/workflows/ci.yml` uses two helper jobs, four work lanes, and one aggregate required-check job:
 
 1. `release-target-matrix`: computes the standalone release-target matrix
 2. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
-3. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; the validator side covers both the raw image contract and the real Dev Container client path before the warmed contributor image is reused for the full gate
-4. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64
-5. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
-6. `check`: aggregate success job used for branch protection
+3. `devcontainer-changes`: detects whether any devcontainer-relevant path changed in the PR or push; outputs a boolean that gates the next job
+4. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; fires only when `devcontainer-changes` reports a relevant path was touched — specifically `.devcontainer/`, the devcontainer helper scripts, or `check.sh`; skipped otherwise because the rust-gate already proves the code
+5. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64; excludes `target/` from Windows Defender before Cargo operations begin
+6. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
+7. `check`: aggregate required-status job; uses `if: always()` with explicit failure detection so a skipped `contributor-devcontainer-gate` — the correct outcome when no devcontainer-relevant files changed — does not block merge; only a failed or cancelled job prevents success
 
 `CI` also exposes `workflow_dispatch` so maintainers can rerun the exact aggregate `Check` against a branch when GitHub fails to attach the `pull_request` workflow on the initial PR open.
 

@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: DEVCONTAINER
-updated: "2026-04-30"
+updated: "2026-05-04"
 route:
   keywords: [devcontainer, docker desktop, contributor container, vscode, dev containers, rust 1.95, cargo xtask, ffhn contributor workflow]
   questions: ["what is the preferred FFHN contributor workflow?", "how do I use the FFHN devcontainer?", "does FFHN have a contributor container?", "how do I validate the FFHN devcontainer?", "how do I run the full FFHN maintainer gate inside the devcontainer?"]
@@ -175,6 +175,32 @@ exists for one specific reason: named Docker volumes can be left behind with roo
 build-output entries after ad hoc container sessions. When that happens, `cargo` stops being able
 to write to its registry, git, cache, `target/`, or `fuzz/target/` directories. The repair hook
 recreates missing directories and repairs ownership only when the mounted path is not writable.
+
+## CI Gate Behavior
+
+The `contributor-devcontainer-gate` CI job fires only when devcontainer-relevant files change. The
+path set that triggers it:
+
+- `.devcontainer/` — the Dockerfile and `devcontainer.json`
+- `scripts/validate-devcontainer.sh`
+- `scripts/run-devcontainer-check.sh`
+- `scripts/devcontainer-prepare-user-home.sh`
+- `scripts/devcontainer-cli-helper.Dockerfile`
+- `scripts/common.sh`
+- `check.sh` — the script the gate runs inside the container
+
+PRs that touch only application code, documentation, or tests do not trigger the devcontainer gate.
+The `rust-gate` job already proves the code builds and tests pass; the devcontainer gate proves the
+contributor environment. Rebuilding and re-running the entire gate for a change that cannot affect
+the environment is wasted time.
+
+When the gate is skipped, the aggregate `Check` required-status job still succeeds — a skipped
+devcontainer gate is a correct, intended outcome, not a coverage gap. Only a *failed* or
+*cancelled* gate prevents merge.
+
+When the gate fires, CI runs the full two-step proof: `validate-devcontainer.sh` for the raw image
+contract and the real Dev Container client path, then `run-devcontainer-check.sh` for the complete
+`./check.sh` pass inside the warmed contributor container.
 
 ## Boundary With Releases
 

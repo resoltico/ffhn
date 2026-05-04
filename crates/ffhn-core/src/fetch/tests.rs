@@ -31,6 +31,19 @@ struct TestResponse {
     delay_before_response_ms: u64,
 }
 
+fn serve_once_then_reset() -> (Url, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
+    let address = listener.local_addr().expect("server addr");
+    let url = Url::parse(&format!("http://{address}")).expect("server url");
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept connection");
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+        // drop stream without sending any response — RST is sent, client gets IO error
+    });
+    (url, handle)
+}
+
 fn serve_once(response: TestResponse) -> (Url, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
     let address = listener.local_addr().expect("server addr");
@@ -222,14 +235,12 @@ fn fetch_target_rejects_decode_network_and_timeout_failures() {
     assert_eq!(failure.reason_code, ReasonCode::FetchDecodeError);
     assert_eq!(failure.report.bytes_read, Some(4));
 
-    let closed_listener = TcpListener::bind("127.0.0.1:0").expect("bind closed listener");
-    let closed_url = Url::parse(&format!(
-        "http://{}",
-        closed_listener.local_addr().expect("closed addr")
-    ))
-    .expect("closed url");
-    drop(closed_listener);
-    let failure = fetch_target(&target_for(closed_url)).expect_err("network error");
+    // Use a server that accepts then immediately resets rather than a dropped listener.
+    // A dropped TcpListener does not guarantee immediate ECONNREFUSED on Windows — the port can
+    // linger, causing the client to wait until the timeout fires instead of getting a network error.
+    let (reset_url, reset_handle) = serve_once_then_reset();
+    let failure = fetch_target(&target_for(reset_url)).expect_err("network error");
+    reset_handle.join().expect("reset server join");
     assert_eq!(failure.reason_code, ReasonCode::FetchNetworkError);
     assert!(failure.report.http_status.is_none());
 
