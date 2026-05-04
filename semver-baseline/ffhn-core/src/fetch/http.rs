@@ -7,13 +7,17 @@ use ureq::tls::{RootCerts, TlsConfig};
 use url::Url;
 
 use crate::canonical::normalize_line_endings;
-use crate::{FetchConfig, ReasonCode, RunFetchSection, TargetDocument};
+use crate::time::elapsed_ms;
+use crate::{
+    NetworkFetchConfig, ProcessErrorDetail, ProcessErrorKind, ReasonCode, RunFetchSection,
+    TargetDocument,
+};
 
-use super::{FetchFailure, FetchSuccess, config_invalid_failure};
+use super::{FetchFailure, FetchResult, FetchSuccess, config_invalid_failure};
 
-pub(super) fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess, FetchFailure> {
+pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuccess> {
     let started = Instant::now();
-    let fetch = &target.fetch;
+    let fetch = validated_network_fetch(target)?;
     let agent = build_agent(fetch);
     let source_url = validated_http_source_url(target)?;
 
@@ -29,17 +33,23 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess,
         Ok(response) => response,
         Err(error) => {
             let reason_code = map_ureq_error(&error);
-            return Err(FetchFailure {
+            return Err(Box::new(FetchFailure {
                 reason_code,
+                error_detail: ProcessErrorDetail::new(
+                    ProcessErrorKind::Io,
+                    error.to_string(),
+                    Some(source_url.to_string()),
+                )
+                .expect("http request failure detail"),
                 report: RunFetchSection {
-                    engine: fetch.engine,
+                    engine: target.fetch.engine(),
                     final_url: None,
                     http_status: None,
                     content_type: None,
                     bytes_read: None,
-                    duration_ms: started.elapsed().as_millis() as u64,
+                    duration_ms: elapsed_ms(&started),
                 },
-            });
+            }));
         }
     };
 
@@ -48,78 +58,114 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess,
     let content_type = header_value(&response, "content-type");
 
     if !http_status_is_success(http_status) {
-        return Err(FetchFailure {
+        return Err(Box::new(FetchFailure {
             reason_code: map_http_status_reason(http_status),
+            error_detail: ProcessErrorDetail::new(
+                ProcessErrorKind::Contract,
+                format!("HTTP request returned status {http_status}"),
+                Some(final_url.to_string()),
+            )
+            .expect("http status failure detail"),
             report: RunFetchSection {
-                engine: fetch.engine,
+                engine: target.fetch.engine(),
                 final_url: Some(final_url.to_string()),
                 http_status: Some(http_status),
                 content_type,
                 bytes_read: None,
-                duration_ms: started.elapsed().as_millis() as u64,
+                duration_ms: elapsed_ms(&started),
             },
-        });
+        }));
     }
 
     if !supported_content_type(content_type.as_deref()) {
-        return Err(FetchFailure {
+        return Err(Box::new(FetchFailure {
             reason_code: ReasonCode::FetchUnsupportedContentType,
+            error_detail: ProcessErrorDetail::new(
+                ProcessErrorKind::Contract,
+                format!(
+                    "HTTP response content type is not supported: {}",
+                    content_type.as_deref().unwrap_or("<missing>")
+                ),
+                Some(final_url.to_string()),
+            )
+            .expect("http content-type detail"),
             report: RunFetchSection {
-                engine: fetch.engine,
+                engine: target.fetch.engine(),
                 final_url: Some(final_url.to_string()),
                 http_status: Some(http_status),
                 content_type,
                 bytes_read: None,
-                duration_ms: started.elapsed().as_millis() as u64,
+                duration_ms: elapsed_ms(&started),
             },
-        });
+        }));
     }
 
     if content_length_exceeds_limit(&response, fetch.max_bytes) {
-        return Err(FetchFailure {
+        return Err(Box::new(FetchFailure {
             reason_code: ReasonCode::FetchTooLarge,
+            error_detail: ProcessErrorDetail::new(
+                ProcessErrorKind::Contract,
+                format!(
+                    "HTTP response exceeded fetch.max_bytes ({})",
+                    fetch.max_bytes
+                ),
+                Some(final_url.to_string()),
+            )
+            .expect("http size detail"),
             report: RunFetchSection {
-                engine: fetch.engine,
+                engine: target.fetch.engine(),
                 final_url: Some(final_url.to_string()),
                 http_status: Some(http_status),
                 content_type,
                 bytes_read: None,
-                duration_ms: started.elapsed().as_millis() as u64,
+                duration_ms: elapsed_ms(&started),
             },
-        });
+        }));
     }
 
     let bytes = match read_limited_bytes(response.body_mut().as_reader(), fetch.max_bytes) {
         Ok(bytes) => bytes,
         Err(reason_code) => {
-            return Err(FetchFailure {
+            return Err(Box::new(FetchFailure {
                 reason_code,
+                error_detail: ProcessErrorDetail::new(
+                    ProcessErrorKind::Io,
+                    "could not read the full HTTP response body",
+                    Some(final_url.to_string()),
+                )
+                .expect("http body-read detail"),
                 report: RunFetchSection {
-                    engine: fetch.engine,
+                    engine: target.fetch.engine(),
                     final_url: Some(final_url.to_string()),
                     http_status: Some(http_status),
                     content_type,
                     bytes_read: None,
-                    duration_ms: started.elapsed().as_millis() as u64,
+                    duration_ms: elapsed_ms(&started),
                 },
-            });
+            }));
         }
     };
 
     let html = match decode_body(&bytes, content_type.as_deref()) {
         Ok(html) => html,
         Err(reason_code) => {
-            return Err(FetchFailure {
+            return Err(Box::new(FetchFailure {
                 reason_code,
+                error_detail: ProcessErrorDetail::new(
+                    ProcessErrorKind::Contract,
+                    "HTTP response body could not be decoded into supported HTML text",
+                    Some(final_url.to_string()),
+                )
+                .expect("http decode detail"),
                 report: RunFetchSection {
-                    engine: fetch.engine,
+                    engine: target.fetch.engine(),
                     final_url: Some(final_url.to_string()),
                     http_status: Some(http_status),
                     content_type,
                     bytes_read: Some(bytes.len()),
-                    duration_ms: started.elapsed().as_millis() as u64,
+                    duration_ms: elapsed_ms(&started),
                 },
-            });
+            }));
         }
     };
 
@@ -127,29 +173,35 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> Result<FetchSuccess,
         final_url: final_url.clone(),
         html: normalize_line_endings(&html),
         report: RunFetchSection {
-            engine: fetch.engine,
+            engine: target.fetch.engine(),
             final_url: Some(final_url.to_string()),
             http_status: Some(http_status),
             content_type,
             bytes_read: Some(bytes.len()),
-            duration_ms: started.elapsed().as_millis() as u64,
+            duration_ms: elapsed_ms(&started),
         },
     })
 }
 
-fn validated_http_source_url(target: &TargetDocument) -> Result<&Url, FetchFailure> {
+fn validated_http_source_url(target: &TargetDocument) -> FetchResult<&Url> {
     let source_url = target
         .target
-        .source_url
-        .as_ref()
-        .ok_or_else(|| config_invalid_failure(target.fetch.engine, 0))?;
+        .source_url()
+        .ok_or_else(|| config_invalid_failure(target.fetch.engine(), 0))?;
     if !matches!(source_url.scheme(), "http" | "https") {
-        return Err(config_invalid_failure(target.fetch.engine, 0));
+        return Err(config_invalid_failure(target.fetch.engine(), 0));
     }
     Ok(source_url)
 }
 
-pub(super) fn build_agent(fetch: &FetchConfig) -> ureq::Agent {
+fn validated_network_fetch(target: &TargetDocument) -> FetchResult<&NetworkFetchConfig> {
+    target
+        .fetch
+        .http()
+        .ok_or_else(|| config_invalid_failure(target.fetch.engine(), 0))
+}
+
+pub(super) fn build_agent(fetch: &NetworkFetchConfig) -> ureq::Agent {
     let tls_config = TlsConfig::builder()
         .root_certs(RootCerts::PlatformVerifier)
         .build();
@@ -169,18 +221,27 @@ pub(super) fn map_ureq_error(error: &ureq::Error) -> ReasonCode {
     match error {
         ureq::Error::Timeout(_) => ReasonCode::FetchTimeout,
         ureq::Error::BodyExceedsLimit(_) => ReasonCode::FetchTooLarge,
+        ureq::Error::Decompress(_, _) => ReasonCode::FetchDecodeError,
         ureq::Error::StatusCode(status) => map_http_status_reason(*status),
-        ureq::Error::ConnectionFailed
+        ureq::Error::Http(_)
+        | ureq::Error::InvalidProxyUrl
+        | ureq::Error::ConnectionFailed
         | ureq::Error::TooManyRedirects
         | ureq::Error::ConnectProxyFailed(_)
         | ureq::Error::RequireHttpsOnly(_)
+        | ureq::Error::TlsRequired
         | ureq::Error::HostNotFound
         | ureq::Error::Io(_)
         | ureq::Error::Tls(_)
+        | ureq::Error::Pem(_)
+        | ureq::Error::Rustls(_)
         | ureq::Error::Protocol(_)
         | ureq::Error::RedirectFailed
         | ureq::Error::BadUri(_)
-        | ureq::Error::LargeResponseHeader(_, _) => ReasonCode::FetchNetworkError,
+        | ureq::Error::LargeResponseHeader(_, _)
+        | ureq::Error::BodyStalled => ReasonCode::FetchNetworkError,
+        // Treat bespoke or future non-exhaustive ureq variants as transient network failures until
+        // FFHN classifies them explicitly. Revisit this arm whenever ureq is upgraded.
         _ => ReasonCode::FetchNetworkError,
     }
 }

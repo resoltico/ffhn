@@ -20,6 +20,25 @@ pub(super) fn valid_process_error() -> ProcessErrorDetail {
     }
 }
 
+pub(super) fn delivered_notification() -> RunNotificationDelivery {
+    RunNotificationDelivery::delivered("notify", 1, 0)
+}
+
+pub(super) fn failed_notification(
+    exit_code: Option<i32>,
+    error: impl Into<String>,
+) -> RunNotificationDelivery {
+    RunNotificationDelivery::failed("notify", 1, exit_code, error)
+}
+
+pub(super) fn persist_section(
+    duration_ms: u64,
+    state_write: PersistWriteStatus,
+    last_run_write: PersistWriteStatus,
+) -> RunPersistSection {
+    RunPersistSection::from_writes(duration_ms, state_write, last_run_write)
+}
+
 pub(super) fn valid_run_report() -> RunReport {
     RunReport {
         schema_name: RUN_REPORT_SCHEMA_NAME.to_owned(),
@@ -32,6 +51,7 @@ pub(super) fn valid_run_report() -> RunReport {
         run_outcome: RunOutcome::Changed,
         reason_code: ReasonCode::Ok,
         failure_class: None,
+        error_detail: None,
         target_status_after_run: TargetStatus::Ready,
         compare_basis: CompareBasis::CanonicalTextSha256,
         previous_compare_digest_sha256: Some(DIGEST.to_owned()),
@@ -83,12 +103,7 @@ pub(super) fn valid_run_report() -> RunReport {
                 current_excerpt_sha256: Some(DIGEST.to_owned()),
             }),
         }),
-        persist: RunPersistSection {
-            duration_ms: 2,
-            wrote_state: true,
-            wrote_last_run: true,
-            error: None,
-        },
+        persist: persist_section(2, PersistWriteStatus::Written, PersistWriteStatus::Written),
         notifications: Vec::new(),
         extensions: None,
     }
@@ -126,6 +141,7 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
             failed_permanent: 0,
             skipped_disabled: 0,
             persist_error: 0,
+            notification_failure: 0,
             fatal_error: 1,
         },
         extensions: None,

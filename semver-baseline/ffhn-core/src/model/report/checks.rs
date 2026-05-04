@@ -1,3 +1,4 @@
+use super::notification::{NotificationDeliveryOutcome, RunNotificationDelivery};
 use super::*;
 
 pub(super) fn validate_run_report_identity(name: &str, version: u32) -> Result<(), CoreError> {
@@ -110,17 +111,24 @@ pub(super) fn validate_notification_delivery(
     delivery: &RunNotificationDelivery,
 ) -> Result<(), CoreError> {
     require_non_empty("notifications.hook_name", &delivery.hook_name)?;
-    match (delivery.delivered, delivery.timed_out, delivery.exit_code) {
-        (true, true, _) => {
-            return Err(CoreError::contract(
-                "notifications cannot be both delivered and timed_out",
-            ));
+    match &delivery.outcome {
+        NotificationDeliveryOutcome::Delivered { exit_code } => {
+            if *exit_code != 0 {
+                return Err(CoreError::contract(
+                    "delivered notifications must exit with code 0",
+                ));
+            }
         }
-        (true, false, Some(0)) | (false, _, _) => {}
-        (true, false, _) => {
-            return Err(CoreError::contract(
-                "delivered notifications must exit with code 0",
-            ));
+        NotificationDeliveryOutcome::TimedOut { error } => {
+            require_non_empty("notifications.error", error)?;
+        }
+        NotificationDeliveryOutcome::Failed { exit_code, error } => {
+            require_non_empty("notifications.error", error)?;
+            if matches!(exit_code, Some(0)) {
+                return Err(CoreError::contract(
+                    "failed notifications must not report exit_code = 0",
+                ));
+            }
         }
     }
     Ok(())

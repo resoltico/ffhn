@@ -2,15 +2,17 @@ mod defaults;
 mod types;
 mod validation;
 
-pub use types::{
-    CanonicalizerSpec, CompareConfig, FetchConfig, NotificationHook, SelectionConfig,
-    StorageConfig, TargetDocument, TargetSource,
+pub use types::{CanonicalizerSpec, NotificationHookView, TargetDocument};
+#[cfg(any(test, doctest))]
+pub(crate) use types::{CompareConfig, FetchConfig, StorageConfig, TargetSource};
+pub(crate) use types::{
+    FileFetchConfig, NetworkFetchConfig, NotificationHook, SelectionConfig, SelectionModeConfig,
 };
 
 #[cfg(test)]
 pub(crate) use super::{
-    CanonicalizerKind, CompareBasis, DelimiterMode, FetchEngine, HttpMethod, OutputKind, RegexFlag,
-    SelectionKind, SelectionMatch, TargetKind, WhitespaceMode,
+    CanonicalizerKind, CompareBasis, DelimiterMode, HttpMethod, OutputKind, RegexFlag, RunOutcome,
+    WhitespaceMode,
 };
 
 #[cfg(test)]

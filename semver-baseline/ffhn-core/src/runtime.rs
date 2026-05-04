@@ -1,4 +1,4 @@
-mod interop;
+pub(crate) mod interop;
 mod lock;
 mod persist;
 mod run;
