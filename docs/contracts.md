@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: CONTRACTS
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, notification payload, process errors, snapshot layout]
   questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch root layout?", "where is ffhn's structured process-error shape documented?"]
@@ -49,7 +48,10 @@ All current FFHN schema documents require exact `schema_name` and `schema_versio
 
 The current HTMLCut interop profile is `htmlcut-v1`.
 
-Embedded field vocabularies and stable subobjects inside those schemas are part of the same public contract surface. That includes report `reason_code` values, notification-event values, and the shared structured process-error detail used by `persist.error` and batch `fatal_error`.
+Embedded field vocabularies and stable subobjects inside those schemas are part of the same public
+contract surface. That includes report `reason_code` values, shared `run_outcome` values used
+across reports and notifications, and the structured process-error detail used by failed
+`persist.state_write` / `persist.last_run_write` entries and batch `fatal_error`.
 
 ## Durable Watch Root Layout
 
@@ -81,10 +83,10 @@ The durable artifact meanings are:
 
 - `target.toml`: `ffhn.target`
 - `state.json`: `ffhn.state`
-- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails, even though stdout already carried the newer report and its `persist.error`
+- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails, even though stdout already carried the newer report and its failed `last_run_write` detail
 - `lock/run.lock`: the shared/exclusive lock anchor, created lazily for valid live `run`, valid dry-run `run`, and valid `status` execution
 - `snapshots/current/canonical.txt`: compare-time canonical text
-- `snapshots/current/outer.html`: `selected_match.outer_html`
+- `snapshots/current/outer.html`: `selected_matches[0].outer_html`
 - `snapshots/current/extraction.json`: persisted `ffhn.extraction_record`
 
 History snapshots reuse the same three artifact names under `snapshots/history/<snapshot_key>/`.

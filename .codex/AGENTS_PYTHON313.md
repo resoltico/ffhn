@@ -1,12 +1,19 @@
 # Python 3.13+ Agent Protocol
 
-This protocol governs agent work on Python projects that target Python 3.13 or newer, or that use Python 3.13 as the lowest supported runtime.
+**Version:** 2.0.0
+**Updated:** 2026-04-27
+**Inherits:** [.codex/UNIVERSAL_ENGINEERING_CONTRACT.md](./UNIVERSAL_ENGINEERING_CONTRACT.md) v2.0.0+
+**Scope:** Python projects targeting **Python 3.13+** or using Python 3.13 as the lowest supported runtime — libraries, services, CLIs, daemons, data pipelines, notebooks, web APIs, test suites, build scripts, code generators, Python-backed plugins, C/Rust extension packages, and mixed-language repositories with Python surfaces.
 
-Scope: libraries, services, CLIs, daemons, data pipelines, notebooks, web APIs, test suites, build scripts, code generators, Python-backed plugins, C/Rust extension packages, and mixed-language repositories with Python surfaces.
+## 0. Scope and inheritance
 
-Primary objective: produce Python that is explicit, typed where it matters, verifiable, maintainable, secure at boundaries, concurrency-safe, packaging-correct, and aligned with the repository's actual compatibility contract.
+This protocol inherits the Universal Engineering Contract. The universal contract defines the meta-questions every change must answer — Truth, Evidence, Consequence, Invariant, Justification, Re-cueing — and frames the agent as a *transient theory-holder*. Apply the universal contract before any rule below; do not restate it here.
 
-Optimize in this order:
+This protocol adds Python- and packaging-specific content for which the universal contract is intentionally silent: dynamic typing discipline, async and free-threaded concurrency, packaging and environment management, dependency-graph behavior, framework boundaries, and the Python 3.13 runtime posture.
+
+**Primary objective:** produce Python that is explicit, typed where it matters, verifiable, maintainable, secure at boundaries, concurrency-safe, packaging-correct, and aligned with the repository's actual compatibility contract.
+
+**Optimization order:**
 
 ```text
 correctness → invariants → explicit contracts → observability → packaging compatibility → maintainability → performance where measured → terseness
@@ -14,7 +21,24 @@ correctness → invariants → explicit contracts → observability → packagin
 
 Terseness loses to clarity. Dynamic convenience loses to explicit system boundaries. A passing import is not the finish line. A green test suite is not enough if the change weakens state ownership, API contracts, or failure evidence.
 
-This protocol inherits `.codex/UNIVERSAL_ENGINEERING_CONTRACT.md`. Do not duplicate the universal contract here; apply it before all Python-specific rules.
+### 0.1 Python 3.13 tacit gaps
+
+Per the Naurian frame, some theory the agent typically does not bring in cold and must surface rather than paper over. Watch especially for:
+
+- Whether deployed CPython is the default GIL build or the free-threaded experimental build. Code that races on free-threaded CPython will look fine on the default build and vice versa.
+- Whether the experimental JIT is enabled in any deployed interpreter. Performance assumptions are deceptive without measurement on the actual binary.
+- Which package manager actually owns the environment (uv, pip, Poetry, PDM, Hatch, conda) — `pip install` into a uv project, or uv into a Poetry project, can silently corrupt the lockfile contract.
+- Whether `requires-python`, the CI matrix, the Dockerfile, the lockfile, and the `.python-version` agree. The actual minimum is the most restrictive across all of them; the contract is split across files.
+- Whether `requirements.txt` is the source of truth or a derived artifact. Editing the wrong one is invisible until release.
+- The annotation-evaluation policy: `from __future__ import annotations` (PEP 563), PEP 649 deferred evaluation, PEP 695 generic syntax — runtime tools like Pydantic, dataclasses, and frameworks that introspect annotations behave differently per file.
+- Which type checker the repository uses. Pyright / basedpyright / mypy / pytype disagree on `TypedDict`, narrowing, generics, and overloads. "Passes the type checker" is not portable.
+- Whether the deployed dependency set has Python 3.13 (and especially free-threaded) wheels for every C extension. A pure-Python upgrade can strand a C dep.
+- Whether old code or copy-pasted recipes still reference modules removed in 3.13 (`cgi`, `crypt`, `imghdr`, `nntplib`, etc.). Agents trained pre-3.13 will still suggest them.
+- Whether refactoring a class path will break stored pickles, ORM migrations, queue messages, or import-string config that expects the old fully-qualified name.
+- Whether a new top-level import has side effects: connecting to a database, monkeypatching logging, mutating `sys.path`, registering signal handlers, or running plugin discovery.
+- Whether `sys.path` resolution under editable installs, namespace packages, or `src/` layout matches what production sees. Test-runtime and production-runtime can diverge silently.
+
+Where the answer is not derivable from code, history, or conversation, surface the gap explicitly; do not assume the convenient answer.
 
 ---
 
@@ -34,7 +58,8 @@ Inspect the relevant subset of:
 - runtime surface: web framework, ORM, async runtime, scheduler, worker queue, CLI framework, notebook/runtime environment, external APIs, databases, caches, message brokers, and config sources;
 - public API surface: imports, type stubs, protocols, entry points, CLI flags, HTTP routes, event schemas, model schemas, generated clients, and documented examples;
 - C/Rust/foreign extension surfaces, ABI policy, free-threaded compatibility, wheels, platform tags, and build isolation;
-- repository verification commands and the exact CI gates that define success.
+- repository verification commands and the exact CI gates that define success;
+- the universal contract's six concerns (truth, evidence, consequence, invariant, justification, re-cueing) for the touched surface.
 
 Classify the touched Python surface before designing the change:
 
@@ -46,44 +71,30 @@ Classify the touched Python surface before designing the change:
 - **Build/codegen/test tooling:** determinism, generated output, local/CI parity, and developer ergonomics are contracts.
 - **Extension package:** ABI, wheel tags, platform support, free-threaded behavior, and memory/thread safety are contracts.
 
-Do not infer the baseline from a single file. In Python projects, compatibility truth is often split across packaging metadata, lock files, CI, docs, and release tooling.
+Do not infer the baseline from a single file. In Python projects, compatibility truth is often split across packaging metadata, lock files, CI, docs, and release tooling (§0.1).
 
 ---
 
 ## 2. Change loop in Python terms
 
-For every non-trivial change, apply the Universal Engineering Contract concretely.
+For every non-trivial change, apply the universal contract concretely.
 
 ### 2.1 Minimum system map
 
-Before editing, identify:
+Apply the universal contract §1 system map to the touched surface. Python-specific anchors for each concern:
 
-```text
-Truth:
-- Source of truth for the relevant state, config, schema, model, dependency, generated artifact, cache, migration, or runtime value:
-- Mutation paths:
-- Derived/cached/generated copies:
-
-Evidence:
-- Existing checks: unit/integration/property tests, type checks, lint, format, coverage, fixtures, logs, metrics, traces, CLI repros, notebooks, CI:
-- Missing feedback worth adding:
-
-Consequence:
-- Direct Python dependencies: imports, callers, subclasses, protocols, entry points, tests, generated clients, stubs:
-- Indirect dependencies: serialization, CLI output, HTTP contracts, database schema, queues, cron jobs, docs, dashboards, support workflows:
-
-Invariant:
-- Type, domain, data, idempotency, authorization, concurrency, compatibility, or operational rule that must remain true:
-
-Preservation:
-- Where the learned theory should live: type, test, docstring, module name, comment, migration note, docs, runbook, schema, config validation:
-```
+- **Truth:** source of truth for the relevant state, config, schema, model, dependency, generated artifact, cache, migration, or runtime value; mutation paths; derived/cached/generated copies.
+- **Evidence:** existing checks (unit/integration/property tests, type checks, lint, format, coverage, fixtures, logs, metrics, traces, CLI repros, notebooks, CI); missing feedback worth adding.
+- **Consequence:** direct Python dependencies (imports, callers, subclasses, protocols, entry points, tests, generated clients, stubs); indirect (serialization, CLI output, HTTP contracts, database schema, queues, cron jobs, docs, dashboards, support workflows, **stored pickles and import-string config**).
+- **Invariant:** type, domain, data, idempotency, authorization, concurrency, compatibility, or operational rule that must remain true.
+- **Justification:** why each touched type, validation rule, dependency, async boundary, or feature flag is the way it is — and which are inherited rather than chosen. If the answer is not available, surface that gap.
+- **Re-cueing:** where the learned theory belongs — type, test, docstring, module name, comment where the *why* is non-obvious, migration note, docs, runbook, schema, config validation. Flag the parts of the theory that cannot be written down, and who currently holds them.
 
 Keep the map lightweight for low-risk changes. Do not skip it for changes that touch state, public APIs, persistence, concurrency, packaging, security, or external contracts.
 
 ### 2.2 Red → Green → Refactor
 
-For new behavior, start with the smallest failing proof:
+Per universal contract §2. Python-typical "smallest failing proofs":
 
 - unit test;
 - integration test;
@@ -101,7 +112,7 @@ Then make the smallest coherent implementation and immediately refactor until th
 
 ### 2.3 Narrow-to-wide verification
 
-Work in small increments:
+Per universal contract §2 and §7 *Feedback must match risk*. Work in small increments:
 
 1. make one coherent change;
 2. run the narrowest useful check, such as the targeted pytest node, module import, type-check target, or CLI repro;
@@ -149,7 +160,7 @@ requires-python = ">=3.13"
 For existing projects:
 
 - do not raise `requires-python` without a concrete benefit and compatibility judgment;
-- treat `requires-python`, CI Python matrices, lock files, Docker images, deployment runtimes, and docs as a single compatibility contract;
+- treat `requires-python`, CI Python matrices, lock files, Docker images, deployment runtimes, and docs as a single compatibility contract — the actual minimum is the most restrictive across all of them (§0.1);
 - do not use Python 3.14+ syntax or APIs in a Python 3.13-baseline project unless guarded, backported, or explicitly allowed;
 - do not assume CPython-only behavior unless the repository declares CPython as part of the contract;
 - if PyPy, GraalPy, embedded Python, iOS, Android, or WASI support matters, verify behavior on that target or preserve target-specific guards.
@@ -174,7 +185,7 @@ Do not use new features merely for novelty. Prefer them when they reduce ambigui
 
 ### 3.3 Experimental CPython features
 
-Python 3.13 includes experimental implementation paths. Treat them as opt-in runtime targets, not assumptions.
+Python 3.13 includes experimental implementation paths. Treat them as opt-in runtime targets, not assumptions. Adopting either of these is a deliberate posture decision; record the *justification* per universal contract §1.5 so the next reader can see why the cost was accepted.
 
 #### Free-threaded CPython
 
@@ -201,7 +212,7 @@ Rules:
 
 ### 3.4 Removed Python 3.13 surfaces
 
-Do not introduce dependencies on modules and APIs removed in Python 3.13.
+Do not introduce dependencies on modules and APIs removed in Python 3.13. Watch for old code or copy-pasted recipes that still reference them (§0.1) — agents trained on pre-3.13 material will routinely suggest these.
 
 Removed legacy standard-library modules include:
 
@@ -224,10 +235,11 @@ Violating these requires explicit repository policy or user authorization.
 
 - Never change public API shape without compatibility analysis.
 - Never change persisted data format, migration ordering, serialization keys, CLI output, error codes, route semantics, or environment-variable names without tracing downstream consumers.
-- Never duplicate canonical contract facts across code, docs, tests, generated clients, schemas, or examples.
+- Never duplicate canonical contract facts across code, docs, tests, generated clients, schemas, or examples (per universal contract §5).
 - Never edit generated files without editing the generator or canonical source unless the repository explicitly stores generated outputs as the source of truth.
 - Never weaken validation to make tests pass.
 - Never replace a failing proof with a weaker assertion unless the old assertion was wrong and the new one proves the real invariant.
+- Never rename a class or move it across modules without checking pickled state, ORM model paths, queue payload class references, and import-string config (§0.1).
 
 ### 4.2 Type and dynamic-safety boundaries
 
@@ -263,8 +275,8 @@ Violating these requires explicit repository policy or user authorization.
 - Never change dependency constraints or lock files without understanding direct, transitive, security, and deployment impact.
 - Never add a dependency when a small local function or existing dependency is enough.
 - Never vendor code without license, update, and security implications.
-- Never mix package managers casually. Preserve the repository's canonical tool.
-- Never claim a package is compatible with Python 3.13 unless tests/imports/builds verify the relevant dependency set.
+- Never mix package managers casually. Preserve the repository's canonical tool — `pip install` into a uv project (or vice versa) silently corrupts the lockfile contract (§0.1).
+- Never claim a package is compatible with Python 3.13 unless tests/imports/builds verify the relevant dependency set, including free-threaded wheel availability if relevant.
 
 ---
 
@@ -290,7 +302,7 @@ Do not create a type merely to look enterprise. Every type must prevent misuse, 
 
 ### 5.2 Type hints are contracts, not decoration
 
-Use type hints to communicate real API contracts.
+Use type hints to communicate real API contracts. Be aware that "passes the type checker" depends on which checker (§0.1) — pyright, mypy, basedpyright, pytype handle narrowing, generics, and overloads differently.
 
 Rules:
 
@@ -300,7 +312,7 @@ Rules:
 - use `Literal` for small protocol strings only when the set is stable and public;
 - use `Final` and `ClassVar` where mutation semantics matter;
 - use `ReadOnly` for `TypedDict` items that callers must not mutate;
-- keep annotations import-safe under the repository's chosen annotation policy;
+- keep annotations import-safe under the repository's chosen annotation policy (PEP 563 / 649 / 695 differ; runtime tools like Pydantic care);
 - avoid runtime type introspection on annotations without understanding postponed annotation behavior and `typing.get_type_hints()` consequences.
 
 Avoid:
@@ -377,11 +389,11 @@ Rules:
 - keep `__init__.py` exports deliberate and tested;
 - preserve package data and resources using `importlib.resources` rather than filesystem assumptions;
 - do not shadow standard-library or dependency module names;
-- avoid side effects at import time except deliberate registration patterns.
+- avoid side effects at import time except deliberate registration patterns. A new top-level import can connect to a database, register a signal handler, or run plugin discovery (§0.1).
 
 ### 6.3 Configuration is a contract
 
-Configuration facts must have one canonical owner.
+Per universal contract §5 (canonical ownership of contract facts). For Python, configuration facts that need a single owner include: environment variables, config keys, default values, schema, validation rules, and the names referenced in deployment manifests, docs, and tests.
 
 Rules:
 
@@ -527,7 +539,7 @@ Rules:
 - never install into global Python for project work;
 - prefer `python -m <tool>` when it avoids PATH ambiguity;
 - ensure local commands use the same interpreter and dependency group as CI;
-- do not mix venvs, pyenv, uv, conda, Poetry, PDM, tox, and system Python without establishing which one is canonical;
+- do not mix venvs, pyenv, uv, conda, Poetry, PDM, tox, and system Python without establishing which one is canonical (§0.1);
 - record new required environment variables, services, and system packages in the appropriate setup docs or runbook.
 
 ### 9.4 Wheels, extensions, and ABI
@@ -593,11 +605,11 @@ For typed Python code:
 - do not weaken annotations to make checks pass;
 - add type tests or examples for generic public APIs;
 - keep `py.typed` and stubs synchronized;
-- treat type-checker differences as tool contracts, not as runtime truth.
+- treat type-checker differences as tool contracts, not as runtime truth (§0.1).
 
 ### 10.5 Required verification summary
 
-For non-trivial work, report:
+The universal contract §9 defines the cross-language output template. For Python work, augment with the verification block:
 
 ```text
 Verification:
@@ -613,7 +625,9 @@ Do not claim a check passed unless it actually ran and passed.
 
 ## 11. Refactoring Python safely
 
-### 11.1 Boy Scout + Mikado
+The universal contract covers Boy Scout + Mikado discipline (§3), architecture as preserved theory (§4), and deletion-requires-proof (§8). Python-specific notes follow.
+
+### 11.1 Boy Scout, in Python
 
 When touching Python, leave the touched surface better:
 
@@ -628,6 +642,8 @@ When touching Python, leave the touched surface better:
 - make validation central and explicit;
 - improve test coverage around real behavior.
 
+Naur's "amorphous additions" warning applies particularly inside large Python codebases with framework magic, dynamic dispatch, and `Any`-leaking type boundaries: patches made without the type/import/configuration theory tend to grow `Any`, broad `try`/`except`, mutable defaults, and import-time side effects that quietly destroy the original contract.
+
 Use Mikado sequencing for broader refactors:
 
 1. identify target design;
@@ -638,20 +654,21 @@ Use Mikado sequencing for broader refactors:
 
 Do not perform broad rewrites without executable evidence and a rollback path.
 
-### 11.2 Deleting code
+### 11.2 Deleting code (Python-specific surfaces)
 
-Before deleting Python code, trace the blast radius:
+Per universal contract §8. Python-specific blast-radius surfaces beyond the universal list:
 
 - static imports and references;
 - dynamic imports and plugin registrations;
 - entry points and console scripts;
-- framework discovery patterns;
+- framework discovery patterns (Django apps, pytest plugins, setuptools entry points, FastAPI dependencies);
 - test fixtures and monkeypatch targets;
 - docs, examples, generated clients, and stubs;
-- serialized names, pickled paths, migration references, and config keys;
+- **serialized names**: pickled paths, ORM model class paths, queue payload class references, import-string config (`module.Class` strings in YAML, env vars, `entry_points`);
+- **migration references**: Django/Alembic migrations naming the class or column;
 - external user imports and SemVer commitments.
 
-Deletion is safe only when the contract is gone, deprecated, or migrated and evidence proves no live dependency remains.
+Deletion is safe only when the contract is gone, deprecated, or migrated and evidence proves no live dependency remains. A class rename in Python is a serialization migration, not a refactor (§0.1).
 
 ### 11.3 Generated code and migrations
 
@@ -726,32 +743,28 @@ Python-specific documentation rules:
 - include version guards when behavior differs by Python version;
 - prefer small complete examples over fragments that hide setup;
 - document deprecations, migration paths, and public failure modes;
-- use docstrings for local API semantics and AFAD-managed docs for broader contract theory.
+- use docstrings for local API semantics and AFAD-managed docs for broader contract theory;
+- inline comments are reserved for the *why* (per universal contract §1.5 Justification) — non-obvious invariants, safety constraints, framework gotchas, or external-contract reasons. Do not restate what the code says.
 
 Root `README.md` remains a storefront. Keep it human-first and link to detailed docs rather than turning it into a reference database.
 
 ---
 
-## 14. Agent output checklist
+## 14. Agent output for Python work
 
-For non-trivial Python work, final output should include the relevant subset:
+The universal contract §9 defines the cross-language output template (Truth, Evidence, Consequence, Invariant, Justification, Re-cueing). Use that template. For Python/packaging work, the following are typical Python-specific entries the next reader will need:
 
 ```text
 Python baseline:
-- Interpreter/package baseline confirmed:
+- Interpreter/package baseline confirmed (requires-python, CI matrix, Docker, lockfile agree?):
 - Packaging/build tool used:
-
-System map:
-- Truth owner:
-- Evidence added/used:
-- Blast radius checked:
-- Invariant preserved:
-- Theory preserved in:
+- Free-threaded / JIT posture, if relevant:
 
 Change summary:
 - Files changed:
 - Public API/config/schema/CLI behavior changed:
 - Dependencies or lock files changed:
+- Any class renames affecting pickles, ORM paths, or import-string config:
 
 Verification:
 - Narrow checks:
@@ -760,6 +773,7 @@ Verification:
 
 Risk:
 - Remaining compatibility, concurrency, packaging, or operational risk:
+- Tacit gaps from §0.1 that this change did not close (and who would close them):
 ```
 
-Keep summaries proportional. Do not produce ceremony for a typo. Do not omit risk for changes that affect public contracts, persistence, packaging, concurrency, or security.
+Keep summaries proportional. Do not produce ceremony for a typo. Do not omit risk for changes that affect public contracts, persistence, packaging, concurrency, or security. Per the universal contract, silence on justification gaps and inexpressible theory claims a theory the agent does not have.

@@ -1,11 +1,10 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: QUALITY
-updated: "2026-05-03"
+updated: "2026-05-01"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
-  questions: ["what does ffhn check.sh run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
+  keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
+  questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
 # Quality Gates
@@ -49,6 +48,24 @@ Coverage-only:
 cargo xtask coverage
 ```
 
+Contributor-container validation:
+
+```bash
+./scripts/validate-devcontainer.sh
+```
+
+Contributor-container full gate:
+
+```bash
+./scripts/run-devcontainer-check.sh
+```
+
+Semver-only:
+
+```bash
+cargo xtask semver-check
+```
+
 Semver baseline refresh:
 
 ```bash
@@ -73,16 +90,36 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 12. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
 13. `cargo test --workspace --doc --all-features --locked`
 14. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
-15. `target/dist/ffhn --version`
+15. the dist-profile `ffhn` binary at the active Cargo target root (`target/dist/ffhn` by default, or `${CARGO_TARGET_DIR}/dist/ffhn` when overridden) with `--version`
 16. `cargo xtask coverage`
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
 
+The contributor devcontainer is a maintained surface too, but it is validated separately from
+`./check.sh`. That split is intentional: `./check.sh` is designed to run inside the contributor
+container as the normal maintainer path, so rebuilding the contributor image on every local gate
+run would turn the preferred workflow into self-recursive overhead instead of useful validation.
+
+For headless Docker sessions, `./scripts/validate-devcontainer.sh` proves both the raw contributor
+image contract and the actual Dev Container client path through a helper image derived from the
+already-built contributor image, while
+`./scripts/run-devcontainer-check.sh` is the maintained way to prove that the committed
+contributor image can carry the full `./check.sh` gate from a cold shell environment.
+
+The contributor-container workflow keeps both `target/` and `fuzz/target/` on their own named
+Docker volumes. That avoids relying on heavy Rust build output written through the repository bind
+mount, which is especially important on macOS Docker Desktop setups where the checkout may live
+under `/Volumes/...`.
+
 GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
-Those workflows install the same pinned Rust `1.95.0` toolchain rather than following the moving `stable` channel.
+GitHub CI also runs a separate cross-platform Rust gate on macOS arm64 and Windows x64 for formatting, Clippy, tests, dependency freshness, advisory/license policy, and the maintained semver lane.
+That cross-platform job carries a `90`-minute budget because the hosted Windows runner needs room to finish the full `cargo nextest`, dependency-policy, and semver lanes instead of timing out partway through a healthy run.
+GitHub CI also runs a dedicated contributor-devcontainer gate on Linux so the committed `.devcontainer/` contract, the validator's raw-image plus Dev Container client proof, and the full headless `./check.sh` path through `./scripts/run-devcontainer-check.sh` cannot drift away from the documented preferred workflow.
+Those workflows install the same pinned Rust `1.95.0` toolchain rather than following the moving `stable` channel, and they wrap `rustup` setup in retries so transient runner bootstrap failures do not masquerade as product regressions.
 
 The semver lane treats the current workspace version as an unreleased major line until a matching local Git tag `vX.Y.Z` exists. That keeps release-branch checks correct after the changelog is dated but before the public tag is pushed.
-It also forces semver-checks scratch output into `target/semver-checks`, so the checked-in `semver-baseline/` tree stays disposable input rather than growing its own nested Cargo caches.
+It also forces semver-checks scratch output into a namespaced OS-temp workspace via `CARGO_TARGET_DIR`, so the checked-in `semver-baseline/` tree stays disposable input and mounted host filesystems do not trap stale `.smbdelete*` tombstones under the repository `target/` tree.
+The final dist smoke and the coverage JSON path also honor a caller-provided `CARGO_TARGET_DIR`, so host-native gates and release-artifact builds can relocate heavy Cargo output away from a fragile repository mount without changing the maintained commands themselves.
 
 ## Coverage Policy
 
@@ -103,7 +140,7 @@ The `xtask` test suite also enforces maintainer-facing repository contracts that
 1. AFAD-managed Markdown under `docs/`, `examples/`, and `fuzz/` must carry AFAD frontmatter using the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`; the root `README.md`, `CONTRIBUTING.md`, and `changelog.md` remain special docs and are validated without forced AFAD metadata
 2. public Markdown local links and maintained repo-file path mentions must still resolve
 3. checked-in public target examples must still validate against the current `ffhn.target` contract
-4. `.codex/AGENTS.md`, `.claude/CLAUDE.md`, and `.gemini/GEMINI.md` must remain exact parity entrypoints that redirect agents to the repository-root `AGENTS.md`
+4. the repository-root `AGENTS.md` must remain the only maintained agent entrypoint, and shadow agent-entrypoint files under `.codex/` must not be reintroduced
 5. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
 6. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
 7. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
@@ -126,12 +163,19 @@ cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 
 Manual sanitizer-backed seed smokes live in [../fuzz/README.md](../fuzz/README.md). They require `cargo-fuzz` and nightly, but they are not part of `./check.sh`.
 
+If you change `.devcontainer/`, [developer-devcontainer.md](developer-devcontainer.md),
+[developer-setup.md](developer-setup.md), or the devcontainer helper scripts, run
+`./scripts/validate-devcontainer.sh` in the same change.
+
 ## Scratch Directories
 
 `cargo xtask check` treats the heaviest gate scratch trees as disposable:
 
 1. `target/llvm-cov-target` is recreated for coverage and then cleaned again
-2. `target/semver-checks` is removed before and after semver-checks
+2. the semver lane's namespaced OS-temp `CARGO_TARGET_DIR` is removed before and after semver-checks
+   FFHN also precreates that isolated scratch tree before launching `cargo semver-checks`, because
+   cold contributor-container runs can otherwise expose missing target-subdirectory failures inside
+   the semver toolchain.
 3. any stale `semver-baseline/ffhn-core/target` tree left by older semver runs is removed before and after the semver lane
 
 Persistent disk growth should therefore come mostly from normal Cargo build caches rather than stale gate-only artifacts.

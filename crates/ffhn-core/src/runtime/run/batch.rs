@@ -109,6 +109,9 @@ fn spawn_batch_worker(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
+            // Relaxed: workers only need a unique slot number; the shared targets vector is
+            // fully initialized before any thread starts and no cross-thread ordering depends on
+            // this counter.
             let index = next_index.fetch_add(1, Ordering::Relaxed);
             if index >= targets.len() {
                 return;

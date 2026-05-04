@@ -1,16 +1,40 @@
 # Rust 1.95+ / Cargo Agent Protocol
 
-This protocol governs agent work on Rust projects that target Rust 1.95 or newer and build with Cargo.
+**Version:** 2.0.0
+**Updated:** 2026-04-27
+**Inherits:** [.codex/UNIVERSAL_ENGINEERING_CONTRACT.md](./UNIVERSAL_ENGINEERING_CONTRACT.md) v2.0.0+
+**Scope:** Rust projects targeting **Rust 1.95+** built with **Cargo** — libraries, services, CLIs, daemons, backends, systems tools, proc-macro crates, FFI crates, WebAssembly crates, embedded or `no_std` crates, Rust-backed desktop apps, and mixed-language repositories with Rust surfaces.
 
-Scope: libraries, services, CLIs, daemons, backends, systems tools, proc-macro crates, FFI crates, WebAssembly crates, embedded or `no_std` crates, Rust-backed desktop apps, and mixed-language repositories with Rust surfaces.
+## 0. Scope and inheritance
 
-Primary objective: produce Rust that is sound, explicit, type-driven, verifiable, maintainable, secure at boundaries, and aligned with the repository's actual compatibility contract.
+This protocol inherits the Universal Engineering Contract. The universal contract defines the meta-questions every change must answer — Truth, Evidence, Consequence, Invariant, Justification, Re-cueing — and frames the agent as a *transient theory-holder*. Apply the universal contract before any rule below; do not restate it here.
 
-Optimize in this order:
+This protocol adds Rust- and Cargo-specific content for which the universal contract is intentionally silent: ownership and borrowing model, `unsafe` and FFI safety contracts, Cargo feature graphs, edition/resolver/MSRV mechanics, async runtime ownership, and the verification ladder.
 
-**soundness → invariants → ownership clarity → API compatibility → failure clarity → observability → performance where it matters → terseness**
+**Primary objective:** produce Rust that is sound, explicit, type-driven, verifiable, maintainable, secure at boundaries, and aligned with the repository's actual compatibility contract.
+
+**Optimization order:** soundness → invariants → ownership clarity → API compatibility → failure clarity → observability → performance where it matters → terseness.
 
 Terseness loses to explicitness. Local convenience loses to correctness. Borrow-checker workarounds lose to a clear ownership model. Passing `cargo check` is not the finish line.
+
+### 0.1 Rust 1.95 + Cargo tacit gaps
+
+Per the Naurian frame, some theory the agent typically does not bring in cold and must surface rather than paper over. Watch especially for:
+
+- Whether `rust-toolchain.toml` is actually being respected by the user's `cargo` invocation, and whether nightly is sneaking in via a dependency, an environment override, or a rustup default.
+- Whether `package.rust-version` (MSRV) is a contract or decoration, and whether the code already silently exceeds it via a casually used stable feature or `if let` chain.
+- That edition 2024 implies resolver `"3"`, but virtual workspaces do not inherit it. A "migrated" workspace whose root still uses resolver `"2"` is half-migrated.
+- That Cargo features unify across the workspace. Adding a feature in one crate can change behavior in a sibling that depends on the same crate transitively.
+- That `forbid(unsafe_code)` on the agent's crate does not extend to dependencies. The unsafe surface is the whole dep tree, not the local file.
+- That `#[cfg(target_os = "...")]` arms not exercised in CI rot silently. A green workspace check on Linux says nothing about what compiles on Windows.
+- That a transitive dependency can pull in an async runtime; a "runtime-agnostic" library may not be.
+- That doc tests run in their own crate and do not see internal items, dev-dependencies, or test-only helpers without explicit setup.
+- That `clippy::pedantic` / `nursery` / `restriction` lint groups change between releases. Denying them can silently break on the next toolchain bump.
+- That Rust 1.95's newly stable tools (`cfg_select!`, `if let` guards, `Vec::push_mut`, `Atomic*::update`, `std::hint::cold_path`) may be undeployed *or* underused — the agent may avoid them as if still nightly, or use them where MSRV forbids.
+- That edition 2024 denies references to `static mut` by default. Pre-existing `static mut` modules in the repo are invisible until touched.
+- That `build.rs` shapes the build the agent never sees. Read it before assuming the build is hermetic.
+
+Where the answer is not derivable from code, history, or conversation, surface the gap explicitly; do not assume the convenient answer.
 
 ---
 
@@ -30,7 +54,8 @@ Always inspect the relevant subset of:
 - crate boundaries, public exports, module structure, trait definitions, and re-export surfaces;
 - `unsafe` blocks, `unsafe fn`, FFI boundaries, `extern` blocks, `repr(...)` types, global state, and manual memory management;
 - async runtime, thread ownership, channels, cancellation, shutdown, backpressure, and blocking boundaries;
-- existing tests, doc tests, property tests, fuzz targets, Miri/Loom checks, benchmarks, CI, and project-specific verification commands.
+- existing tests, doc tests, property tests, fuzz targets, Miri/Loom checks, benchmarks, CI, and project-specific verification commands;
+- the universal contract's six concerns (truth, evidence, consequence, invariant, justification, re-cueing) for the touched surface.
 
 Classify the touched crate before designing the change:
 
@@ -46,38 +71,24 @@ Do not assume repository state. Verify it.
 
 ## 2. Change loop
 
-For every non-trivial change, apply the Universal Engineering Contract concretely in Rust terms.
+For every non-trivial change, apply the universal contract concretely in Rust terms.
 
 ### 2.1 Minimum system map
 
-Before editing, identify:
+Apply the universal contract §1 system map to the touched surface. Rust-specific anchors for each concern:
 
-```text
-Truth:
-- Source of truth for the relevant state, config, schema, generated artifact, feature flag, or protocol value:
-- Mutation paths:
-- Derived/cached/generated copies:
-
-Evidence:
-- Existing checks: cargo check/test/doc/clippy/fmt, contract tests, integration tests, property tests, fuzz/Miri/Loom, CI:
-- Missing feedback worth adding:
-
-Consequence:
-- Direct Rust dependencies: callers, trait impls, re-exports, features, cfg arms, tests:
-- Indirect dependencies: serialization, FFI, generated code, build scripts, CLI output, docs, dashboards, human workflows:
-
-Invariant:
-- Type, ownership, concurrency, memory-safety, protocol, or compatibility rule that must remain true:
-
-Preservation:
-- Where the learned theory should live: type, test, rustdoc, safety comment, module name, build check, generated artifact, README, runbook:
-```
+- **Truth:** source of truth for the relevant state, config, schema, generated artifact, feature flag, or protocol value; mutation paths; derived/cached/generated copies (bindgen, prost, sqlx, build-script outputs).
+- **Evidence:** existing checks (`cargo check`/`test`/`doc`/`clippy`/`fmt`, contract tests, integration tests, property tests, fuzz/Miri/Loom, CI); missing feedback worth adding.
+- **Consequence:** direct Rust dependencies (callers, trait impls, re-exports, features, cfg arms, tests); indirect (serialization, FFI, generated code, build scripts, CLI output, docs, dashboards, human workflows).
+- **Invariant:** type, ownership, concurrency, memory-safety, protocol, or compatibility rule that must remain true.
+- **Justification:** why each touched type, lifetime, trait bound, feature, and `unsafe` block is the way it is — and which are inherited rather than chosen. If the answer is not available, surface that gap.
+- **Re-cueing:** where the learned theory should live — type, test, rustdoc, `SAFETY:` comment, module name, build check, generated artifact, README, runbook. Flag the parts of the theory that cannot be written down, and who currently holds them.
 
 Keep the map lightweight. For trivial changes, do not turn it into ceremony. For risky changes, do not skip it.
 
 ### 2.2 Red → Green → Refactor
 
-For new behavior, start with the smallest failing proof:
+Per universal contract §2. Rust-typical "smallest failing proofs":
 
 - unit test;
 - integration test;
@@ -102,7 +113,7 @@ Work in small increments:
 5. rerun the narrow check;
 6. widen verification only after local shape is sound.
 
-Do not pile up cascading errors and try to reason about all of them at once.
+Do not pile up cascading errors and try to reason about all of them at once. The Rust compiler is the cheapest theory-checker available; use it one error at a time.
 
 ### 2.4 Root-cause fixes only
 
@@ -145,7 +156,7 @@ For existing crates:
 - preserve the existing edition unless the task is an edition migration or the repository clearly standardizes on Rust 2024;
 - if moving to edition 2024, run the appropriate migration checks, then manually review semantics rather than treating `cargo fix --edition` output as design guidance.
 
-Nightly is allowed only when the repository already pins nightly or the task explicitly requires an unstable capability. Nightly use must be isolated, named, justified, and wired consistently in local verification and CI.
+Nightly is allowed only when the repository already pins nightly or the task explicitly requires an unstable capability. Nightly use must be isolated, named, justified (per universal contract §1.5), and wired consistently in local verification and CI.
 
 ### 3.2 Rust 2024 expectations
 
@@ -154,14 +165,14 @@ When using edition 2024, account for the edition's safety and semantics changes:
 - `unsafe_op_in_unsafe_fn` warns by default; keep explicit `unsafe {}` blocks inside `unsafe fn`.
 - `extern` blocks require `unsafe`.
 - `export_name`, `link_section`, and `no_mangle` require unsafe attributes.
-- references to `static mut` are denied by default; redesign around atomics, locks, `OnceLock`, or other safe state owners.
+- references to `static mut` are denied by default; redesign around atomics, locks, `OnceLock`, or other safe state owners. Pre-existing `static mut` modules elsewhere in the repo (§0.1) become invisible MSRV/edition tripwires.
 - `std::env::set_var`, `std::env::remove_var`, and Unix `CommandExt::before_exec` are unsafe; avoid mutating process environment after concurrency begins.
 - `Future` and `IntoFuture` are in the prelude; avoid redundant imports unless they improve local readability.
 - migration fixes are conservative. Review temporary lifetime changes, macro fragment changes, and never-type fallback implications deliberately.
 
 ### 3.3 Rust 1.95 language and library posture
 
-Rust 1.95 adds useful stable tools. Use them when they make the code clearer, not merely because they are new.
+Rust 1.95 adds useful stable tools. Use them when they make the code clearer, not merely because they are new. Do not avoid them as if still nightly.
 
 - Prefer `cfg_select!` for readable compile-time configuration selection when the repository baseline is Rust 1.95+ and the pattern would otherwise need ad hoc `#[cfg]` branching or the `cfg-if` crate.
 - Use `if let` guards in `match` arms when they make pattern-dependent conditions clearer. Remember that these guards do not contribute to exhaustiveness; the remaining arms must still handle all cases.
@@ -192,7 +203,7 @@ all = "warn"
 pedantic = "warn"
 ```
 
-Do not enable noisy lint groups blindly in existing repositories. Match the repository's tolerance for warnings, then strengthen locally when it improves correctness and maintainability.
+Do not enable noisy lint groups blindly in existing repositories. Match the repository's tolerance for warnings, then strengthen locally when it improves correctness and maintainability. `pedantic`, `nursery`, and `restriction` evolve between toolchains (§0.1); pinning them to `deny` is a maintenance commitment.
 
 ---
 
@@ -207,7 +218,7 @@ Rules:
 - no unused dependencies;
 - no invented crate names, versions, or feature flags;
 - no accidental default-feature sprawl;
-- no duplicated package metadata where the workspace is the canonical owner;
+- no duplicated package metadata where the workspace is the canonical owner (per universal contract §5);
 - no path/git/registry dependency changes without compatibility and supply-chain judgment;
 - no feature or dependency edits without checking the feature graph and build impact;
 - no build-script side effects without explicit `cargo::rerun-if-*` discipline.
@@ -219,9 +230,9 @@ Before modifying dependencies, verify actual crate versions and feature names th
 Cargo resolver behavior is part of the compatibility contract.
 
 - Edition 2024 implies resolver `"3"`, which uses Rust-version-aware dependency resolution.
-- In virtual workspaces, set `resolver = "3"` explicitly at the workspace root when the workspace intends Rust 2024 resolver behavior.
+- In virtual workspaces, set `resolver = "3"` explicitly at the workspace root when the workspace intends Rust 2024 resolver behavior — workspaces do not inherit resolver from member editions (§0.1).
 - `package.rust-version` is an MSRV contract, not decoration.
-- Do not run `cargo update` casually in published libraries or applications with locked dependency expectations.
+- Do not run `cargo update` casually in published libraries or applications with locked dependency expectations. Treat the lockfile delta as the consequence to inspect, not a side effect.
 - If a dependency upgrade raises MSRV, surface it explicitly and decide whether that is acceptable.
 
 ### 4.3 Feature discipline
@@ -245,7 +256,7 @@ Do not use features to:
 - create untested combinatorial explosions;
 - make a dependency optional only in the manifest while code still assumes it exists.
 
-If feature combinations matter, verify them with the repository's feature-matrix tool or add one. `cargo hack` is appropriate when the repository already uses it or the feature matrix is non-trivial.
+Feature unification is global within a build (§0.1). Adding a feature to one workspace member can enable it transitively in siblings that share the same dependency. If feature combinations matter, verify them with the repository's feature-matrix tool or add one. `cargo hack` is appropriate when the repository already uses it or the feature matrix is non-trivial.
 
 ### 4.4 Lockfiles
 
@@ -269,6 +280,8 @@ When touching generated code:
 - regenerate with the repository's command;
 - do not hand-edit generated output unless the repository explicitly treats it as source;
 - verify that checked-in generated artifacts and source inputs are not drifting.
+
+Read `build.rs` before assuming the build is hermetic (§0.1). Whatever it does shapes everything downstream and is invisible from the source tree.
 
 ---
 
@@ -363,6 +376,8 @@ If a crate needs unsafe, require:
 #![deny(unsafe_op_in_unsafe_fn)]
 ```
 
+`forbid(unsafe_code)` does not extend to dependencies (§0.1). The unsafe surface is the whole tree.
+
 ### 6.2 Unsafe block contract
 
 Every unsafe block must be small and must have a nearby `SAFETY:` explanation covering:
@@ -372,7 +387,7 @@ Every unsafe block must be small and must have a nearby `SAFETY:` explanation co
 - who maintains it in the future;
 - what would make it invalid.
 
-Do not write vague safety comments such as "caller guarantees this" unless the caller contract is also expressed in the function signature and rustdoc.
+Do not write vague safety comments such as "caller guarantees this" unless the caller contract is also expressed in the function signature and rustdoc. The `SAFETY:` comment is a primary re-cueing surface (per universal contract §1.6) — it is often the only place the relevant theory can be written down.
 
 ### 6.3 Unsafe functions
 
@@ -416,6 +431,7 @@ Do not add an async runtime casually.
 - Libraries should usually expose async functions without constructing a runtime internally.
 - Runtime choice is a contract when it appears in public types, features, or docs.
 - Do not block inside async tasks unless using an explicit blocking boundary such as `spawn_blocking`.
+- A "runtime-agnostic" library may not be runtime-agnostic transitively (§0.1). Verify the dep tree.
 
 ### 7.2 Task lifecycle
 
@@ -447,7 +463,7 @@ For async code, identify what happens when a future is dropped.
 
 ### 7.5 Testing concurrency
 
-For concurrency-sensitive code, ordinary tests are often insufficient. Use the strongest practical feedback:
+For concurrency-sensitive code, ordinary tests are often insufficient. Use the strongest practical feedback (per universal contract §7, *Feedback must match risk*):
 
 - Loom for interleaving-sensitive synchronization logic;
 - Miri for undefined behavior and aliasing-sensitive unsafe code;
@@ -476,7 +492,7 @@ For CLIs and process integration:
 - exit codes are contracts;
 - stdout/stderr separation is a contract;
 - human output and machine-readable output should not be casually mixed;
-- environment variables and config keys must have canonical owners;
+- environment variables and config keys must have canonical owners (per universal contract §5);
 - secrets must not appear in logs, panic messages, debug output, or error chains.
 
 ### 8.3 Configuration and platform gates
@@ -487,7 +503,7 @@ Configuration facts must be canonical.
 - Validate config once, early, and explicitly.
 - Use `cfg_select!`, `#[cfg]`, and target-specific dependencies deliberately.
 - Do not duplicate platform names, feature names, environment variable names, or protocol constants across code and docs.
-- Test platform-specific code paths where feasible. If not feasible locally, preserve the verification story in CI or docs.
+- Test platform-specific code paths where feasible. Cfg-gated arms not exercised in CI rot silently (§0.1); if not feasible locally, preserve the verification story in CI or docs.
 
 ### 8.4 Observability
 
@@ -546,7 +562,7 @@ Use stronger test forms when ordinary examples miss the risk:
 
 ### 9.4 Rustdoc and examples
 
-Rustdoc is executable documentation when examples are doc tests.
+Rustdoc is executable documentation when examples are doc tests. Doc tests run in their own crate (§0.1) — examples must work with only public API and documented setup.
 
 Public APIs should document:
 
@@ -564,6 +580,8 @@ Do not write examples that require unstated global state, network availability, 
 
 ## 10. Refactoring, deletion, and module design
 
+The universal contract covers Boy Scout + Mikado discipline (§3), architecture as preserved theory (§4), and deletion-requires-proof (§8). Rust-specific notes follow.
+
 ### 10.1 Coherent repair
 
 When a local patch exposes an incoherent module boundary, type model, or feature contract, fix the smallest coherent area rather than stacking workarounds.
@@ -575,6 +593,8 @@ Examples of coherent repair:
 - split a DTO from a domain type when serialization concerns are leaking inward;
 - extract a module when a file mixes unrelated responsibilities;
 - collapse a trait that has only one implementation and no current abstraction value.
+
+Naur's "amorphous additions" warning applies particularly inside crates with deep trait hierarchies and feature graphs: patches made without the type/feature theory tend to grow workarounds (`.clone()`, broader `Send`/`Sync` bounds, `Arc<Mutex<...>>` wrappers) that quietly destroy the original ownership shape.
 
 ### 10.2 Compatibility-aware refactoring
 
@@ -602,13 +622,12 @@ Refactor:
 
 Extraction must improve cohesion, not merely reduce line count.
 
-### 10.4 Safe deletion
+### 10.4 Safe deletion (Rust-specific surfaces)
 
-Before deleting Rust code, check:
+Per universal contract §8. Rust-specific blast-radius surfaces beyond the universal list:
 
-- direct references with search and compiler feedback;
 - public exports and downstream API implications;
-- feature-gated or cfg-gated references;
+- feature-gated or cfg-gated references (cfg-gated references that are silently dead on this host but live elsewhere — §0.1);
 - proc macro or generated references;
 - serialization formats and stored data;
 - FFI symbols, `no_mangle`, exported names, and linker scripts;
@@ -666,9 +685,9 @@ For public API crates:
 
 ### 12.2 Comments
 
-Comments should explain non-obvious invariants, safety, compatibility, or operational constraints. Do not comment what the code already says.
+Comments should explain non-obvious invariants, safety, compatibility, or operational constraints — i.e., the *why* (per universal contract §1.5 Justification) that cannot be read off the code. Do not comment what the code already says.
 
-Good comments explain why a seemingly simpler change is wrong, where an invariant is maintained, or what external contract constrains the implementation.
+Good comments explain why a seemingly simpler change is wrong, where an invariant is maintained, or what external contract constrains the implementation. `SAFETY:` blocks are a primary re-cueing surface (§1.6) and deserve more care than ordinary comments.
 
 ### 12.3 Self-containment
 
@@ -688,7 +707,7 @@ Agent directive files are operational instructions for agents. Code and docs mus
 
 ## 13. Incidental observation protocol
 
-When reading a file surfaces a defect, rule violation, or clear improvement opportunity unrelated to the active task, record it in the project's designated observation log and continue the active task.
+When reading a file surfaces a defect, rule violation, or clear improvement opportunity unrelated to the active task, record it in the project's designated observation log and continue the active task. This is the Rust-side practice for honoring the universal contract's rule that the next improvement is a separate slice (§10).
 
 Do not fix unrelated observations in the current change unless they are prerequisites for correctness. Do not interrupt the workflow to discuss every incidental finding.
 
@@ -710,15 +729,7 @@ If the project has no observation log, include only high-value observations in t
 
 ## 14. Pre-output checklist
 
-Run this before declaring completion.
-
-### System theory
-
-- Truth: is the source of truth identified and changed at the right layer?
-- Evidence: did you add or run feedback proportional to risk?
-- Consequence: did you trace direct and indirect blast radius?
-- Invariant: is the important invariant protected by type, test, assertion, or documented contract?
-- Preservation: did important theory land somewhere durable?
+The universal contract §10 (stop conditions) and §9 (output contract) define the cross-language stops. The checks below are Rust/Cargo-specific additions; do not duplicate the universal output template here.
 
 ### Rust semantics
 
@@ -731,15 +742,16 @@ Run this before declaring completion.
 ### Cargo and features
 
 - Are edition, resolver, MSRV, and feature changes deliberate?
-- Are dependency versions and feature names verified?
+- Are dependency versions and feature names verified, not invented?
 - Are features additive and tested where meaningful?
 - Did lockfile changes happen only when justified?
 - Are generated artifacts and build scripts in sync with their canonical inputs?
+- Did you check whether feature unification affects sibling crates?
 
 ### Unsafe and concurrency
 
 - Is unsafe absent where unnecessary?
-- Does every unsafe block or unsafe function have a real safety contract?
+- Does every unsafe block or unsafe function have a real `SAFETY:` contract?
 - Are task lifecycles, cancellation, blocking, locks, channels, and shutdown paths explicit?
 - Are atomic orderings justified?
 - Did you avoid global mutable state or give it a clear owner?
@@ -748,6 +760,6 @@ Run this before declaring completion.
 
 - Did the narrow relevant check pass?
 - Did verification widen when the change widened?
-- Are formatting, linting, tests, doc tests, or stronger tools run as appropriate?
+- Are formatting, linting, tests, doc tests, or stronger tools (Miri, Loom, fuzz) run as appropriate?
 - Are remaining failures unrelated and explicitly stated?
 - Is the touched Rust surface clearer and easier to change than before?

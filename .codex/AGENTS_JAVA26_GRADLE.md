@@ -1,14 +1,35 @@
 # Java 26+ / Gradle Agent Protocol
 
-**Scope:** Java **26+** projects built with **Gradle**: applications, libraries, CLIs, services, frameworks, plugins, tools, and multi-module builds.
+**Version:** 2.0.0
+**Updated:** 2026-04-27
+**Inherits:** [.codex/UNIVERSAL_ENGINEERING_CONTRACT.md](./UNIVERSAL_ENGINEERING_CONTRACT.md) v2.0.0+
+**Scope:** Java **26+** projects built with **Gradle** — applications, libraries, CLIs, services, frameworks, plugins, tools, and multi-module builds.
+
+## 0. Scope and inheritance
+
+This protocol inherits the Universal Engineering Contract. The universal contract defines the meta-questions every change must answer — Truth, Evidence, Consequence, Invariant, Justification, Re-cueing — and frames the agent as a *transient theory-holder*. Apply the universal contract before any rule below; do not restate it here.
+
+This protocol adds Java- and Gradle-specific content for which the universal contract is intentionally silent: language-feature posture, build wiring, JVM concurrency primitives, serialization shapes, and verification patterns appropriate to Java 26+.
 
 **Primary objective:** produce Java that is correct, explicit, maintainable, compatible with the repository's real baseline, and validated through the narrowest sufficient feedback path.
 
-Optimize in this order:
-
-**correctness → explicit contracts → concurrency correctness → narrow API → evolution safety → readability → terseness**
+**Optimization order:** correctness → explicit contracts → concurrency correctness → narrow API → evolution safety → readability → terseness.
 
 Terseness loses to clarity. Convenience loses to correctness. Cleverness loses to maintainability.
+
+### 0.1 Java 26 + Gradle tacit gaps
+
+Per the Naurian frame, some theory the agent typically does not bring in cold and must surface rather than paper over. Watch especially for:
+
+- Whether Gradle wrapper, plugins, toolchain, IDE, and CI are all on a Java-26-capable line, and where that wiring actually lives.
+- Whether the repository is an internal tool, a library, or a published artifact — this changes what "public" and "compatible" mean.
+- Whether preview or incubator features are intentionally enabled for the slice being touched. Compile, test, runtime, IDE, packaging, and CI must all agree, or the feature silently fails in one phase.
+- Whether the codebase has already migrated past historical `synchronized` / virtual-thread pinning workarounds. Java 26's locking advice differs from pre-24 advice; old folklore decays badly.
+- Whether JPMS `opens` directives reflect intentional reflective seams or accumulated escape hatches.
+- Whether serialized shapes are external contract or scratch internals.
+- Whether deep reflection on `final` fields (now warned by default in Java 26) is in use anywhere along the change's path.
+
+Where the answer is not derivable from code, history, or conversation, surface the gap explicitly; do not assume the convenient answer.
 
 ## 1. Repository intake
 
@@ -18,13 +39,13 @@ Before touching source, establish the repository baseline:
 2. **Shape:** application, library, plugin, framework, CLI, or multi-module build; JPMS usage; generated code; publication targets; runtime packaging.
 3. **Tests and CI:** test framework, canonical verification tasks, coverage tools, static analysis, CI matrix, release gates.
 4. **Compatibility posture:** internal tool, published library, plugin, framework, service API, wire protocol, serialized format, or migration-sensitive data model.
-5. **System map:** truth, evidence, consequence, invariant, and preservation for the touched surface.
+5. **System map:** apply the universal contract's six concerns (truth, evidence, consequence, invariant, justification, re-cueing) to the touched surface.
 
 Do not assume the project wants the newest syntax, the broadest refactor, or a published-library compatibility posture. Derive the posture from the repository and task.
 
 ## 2. Change loop
 
-For new behavior, start with the smallest failing proof of behavior: test, assertion, reproducible check, type-level constraint, contract test, or manual verification path.
+Per the universal contract §2 (Red → Green → Refactor), start with the smallest failing proof of behavior: test, assertion, reproducible check, type-level constraint, contract test, or manual verification path.
 
 Then:
 
@@ -85,7 +106,7 @@ When introducing one:
 - enable it explicitly and consistently across all affected phases;
 - keep the blast radius small;
 - avoid leaking preview-dependent types through broad public APIs unless the project accepts that risk;
-- document why it is worth the cost;
+- record the justification (per universal contract §1.5) so the next reader can see why the cost was accepted;
 - prefer wrappers or adapters if later redesign is likely.
 
 Currently relevant Java 26 preview/incubator features:
@@ -392,7 +413,7 @@ Rules:
 
 ### 8.7 Canonical ownership
 
-If something is canonical, define it once: domain invariants, operation catalogs, protocol semantics, error classification systems, enum vocabularies, validation rules, configuration schema.
+The universal contract §5 defines the canonical-ownership rule. Java/Gradle-relevant facts that typically need a single owner: domain invariants, operation catalogs, protocol semantics, error classification systems, enum vocabularies, validation rules, configuration schema, version catalog coordinates.
 
 Every surface that exposes the fact must derive from that owner or from generated artifacts rooted in it.
 
@@ -451,7 +472,7 @@ Convention plugin IDs must be qualified (`com.example.project.java-library`), no
 
 If preview syntax or APIs are used, synchronize configuration across compilation, test execution, runtime tasks, CI, IDE/developer workflow, packaging, and documentation.
 
-Do not wire preview support for only one phase.
+Do not wire preview support for only one phase. A preview feature enabled in `compileJava` but not `test` is the canonical way to ship an unverified change.
 
 ### 9.8 Build performance features
 
@@ -522,25 +543,21 @@ Default style:
 
 Repository convention overrides naming style when already consistent.
 
-## 11. Refactoring and deletion
+## 11. Refactoring and deletion (Java-specific notes)
 
-### 11.1 Coherent repair
+The universal contract covers Boy Scout + Mikado discipline (§3), architecture as preserved theory (§4), and deletion-requires-proof (§8). The notes below add Java/Gradle-specific concerns; they are not a replacement for those sections.
 
-If a small patch would preserve or deepen a bad structure, widen to the nearest coherent boundary. Do not stack another workaround on a workaround.
+### 11.1 Compatibility-aware refactoring
 
-When existing code violates hard boundaries, fix it if the fix is small and local. If systemic, flag it or record it through the repository's observation process. Do not silently extend the bad pattern.
+Refactor aggressively inside private and internal surfaces. Refactor public or published surfaces deliberately, with migration cost, binary/source compatibility, serialization, and user contracts treated as design inputs. For libraries and plugins, Naur's "amorphous additions" warning bites hardest at the public surface — every patch made without the published-API theory tends to leak shape.
 
-### 11.2 Compatibility-aware refactoring
-
-Refactor aggressively inside private and internal surfaces. Refactor public or published surfaces deliberately, with migration cost, binary/source compatibility, serialization, and user contracts treated as design inputs.
-
-### 11.3 Structural tasks
+### 11.2 Structural tasks
 
 When the task is about scaffolding, architecture, or repository cleanup, audit the whole affected surface: module layout, package names, build logic, convention plugins, dependency centralization, CI assumptions, generated code, and verification tasks.
 
 Do not stop at the first file named in the prompt if the real problem is structural.
 
-### 11.4 God constructs
+### 11.3 God constructs
 
 A god construct concentrates unrelated responsibilities in one place.
 
@@ -552,11 +569,15 @@ Refactoring signals:
 
 Refactor by extracting cohesive types or helpers named for domain purpose. Never extract merely to save lines.
 
-### 11.5 Safe deletion
+### 11.4 JPMS and reflection deletion hazards
 
-Before deleting code, prove the blast radius: static references, dynamic references, generated code, serialized forms, migrations, external consumers, jobs, dashboards, alerts, runbooks, and human workflows.
+Java-specific deletion hazards beyond the universal §8 list:
 
-If uncertainty remains, make the smallest reversible simplification and preserve the uncertainty in the work summary or observation log.
+- `opens` directives and the reflective consumers they serve;
+- `ServiceLoader` registrations under `META-INF/services/`;
+- `Class.forName`, MethodHandles, VarHandles, and other late-bound references;
+- annotation processors, KAPT/KSP, and generated code rooted in deleted types;
+- preview-feature flags whose removal silently downgrades an in-use API.
 
 ## 12. Documentation and self-containment
 
@@ -574,7 +595,7 @@ Record component accessors usually do not need Javadoc beyond clear component na
 - No filler such as "This method..." or "This class...".
 - Use `@param` and `@return` only when names alone are insufficient.
 - Do not add comments or Javadoc that merely restate code.
-- Use inline comments only for non-obvious reasoning, invariants, or boundary decisions.
+- Use inline comments only for non-obvious reasoning, invariants, or boundary decisions — i.e., where the *why* (per universal contract §1.5 Justification) cannot be read off the code.
 
 ### 12.3 Self-containment
 
@@ -626,7 +647,7 @@ Use either asynchronous dependency automation or a sync gate paired with automat
 
 ## 14. Incidental observation protocol
 
-When reading a file surfaces a defect, rule violation, or clear improvement outside the active task, record it in the project's designated observation log if one exists. Do not derail the active task unless the issue blocks correctness or safety.
+When reading a file surfaces a defect, rule violation, or clear improvement outside the active task, record it in the project's designated observation log if one exists. Do not derail the active task unless the issue blocks correctness or safety. This is the Java-side practice for honoring the universal contract's rule that the next improvement is a separate slice (§10).
 
 Each entry should record:
 
@@ -644,13 +665,7 @@ When resolved, update the entry in place rather than deleting it. If no observat
 
 ## 15. Pre-output checklist
 
-Run this before producing output.
-
-### System theory
-
-- Did you identify truth, evidence, consequence, invariant, and preservation for the touched surface?
-- Did you avoid patching derived state when the source of truth was wrong?
-- Did you consider blast radius beyond direct callers?
+The universal contract §10 (stop conditions) and §9 (output contract) define the cross-language stops. The checks below are Java/Gradle-specific additions; do not duplicate the universal output template here.
 
 ### Java semantics
 
@@ -666,7 +681,6 @@ Run this before producing output.
 - Are public surfaces compatible with their consumers?
 - Are serialization and external contracts preserved or intentionally evolved?
 - Are enum-to-wire mappings explicit where the wire vocabulary matters?
-- Are canonical contract facts owned once?
 
 ### Concurrency
 
@@ -680,7 +694,7 @@ Run this before producing output.
 - Did you use the wrapper and toolchains?
 - Is Gradle new enough for Java 26 when Java 26 is required?
 - Are versions pinned and centralized?
-- Are preview features wired consistently if used?
+- Are preview features wired consistently across compile, test, runtime, IDE, and CI?
 - Did you avoid concurrent Gradle invocations in the same project?
 
 ### Verification

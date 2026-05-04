@@ -49,7 +49,7 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "watch-root",
         display_label: "Watch Root",
         value_name: Some("PATH"),
-        help_summary: "Watch root directory containing per-target subdirectories.",
+        help_summary: "Watch root directory containing per-target subdirectories with target.toml. The path must already exist and be a directory.",
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
@@ -62,7 +62,7 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "target",
         display_label: "Target",
         value_name: Some("ID"),
-        help_summary: "One or more target ids under the watch root.",
+        help_summary: "One or more target ids under the watch root. Use lowercase letters or digits, with single internal '-' or '_' separators.",
         value_kind: CliArgumentValueKind::String,
         repeatable: true,
         required: false,
@@ -75,7 +75,7 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "all",
         display_label: "All",
         value_name: None,
-        help_summary: "Run every target directory discovered under the watch root.",
+        help_summary: "Run each immediate watch-root subdirectory containing target.toml. Valid disabled targets are skipped.",
         value_kind: CliArgumentValueKind::Flag,
         repeatable: false,
         required: false,
@@ -101,7 +101,7 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "dry-run",
         display_label: "Dry Run",
         value_name: None,
-        help_summary: "Run validation, fetch, extraction, and comparison under the shared run lock without live state/report mutations.",
+        help_summary: "Run validation, fetch, extraction, and comparison under the shared run lock; waits behind active live runs and skips live state/report mutations.",
         value_kind: CliArgumentValueKind::Flag,
         repeatable: false,
         required: false,
@@ -117,7 +117,7 @@ const STATUS_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "watch-root",
         display_label: "Watch Root",
         value_name: Some("PATH"),
-        help_summary: "Watch root directory containing per-target subdirectories.",
+        help_summary: "Watch root directory containing per-target subdirectories with target.toml. The path must already exist and be a directory.",
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
@@ -130,7 +130,7 @@ const STATUS_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "target",
         display_label: "Target",
         value_name: Some("ID"),
-        help_summary: "Target id under the watch root.",
+        help_summary: "Target id under the watch root. Use lowercase letters or digits, with single internal '-' or '_' separators.",
         value_kind: CliArgumentValueKind::String,
         repeatable: false,
         required: true,
@@ -169,7 +169,7 @@ const STATUS_INVOCATIONS: &[CliInvocationContract] = &[CliInvocationContract {
     operation_id: CLI_OPERATION_STATUS_ID,
     usage: "ffhn status --target <id>",
     output_document_id: STATUS_REPORT_SCHEMA_NAME,
-    analysis_summary: "status inspection; valid targets may create `lock/run.lock`",
+    analysis_summary: "status inspection; valid targets may create `lock/run.lock` and wait behind active live runs",
 }];
 
 const OPERATIONS: &[CliOperationContract] = &[
@@ -203,7 +203,7 @@ const EXECUTION_MODES: &[ExecutionModeContract] = &[
         mode: RunMode::DryRun,
         id: "dry_run",
         display_label: "Dry Run",
-        summary: "Validation, fetch, extraction, and comparison under the shared run lock without live state/report mutations.",
+        summary: "Validation, fetch, extraction, and comparison under the shared run lock; waits behind active live runs and skips live state/report mutations.",
         writes_state: false,
         writes_last_run: false,
         delivers_notifications: false,
@@ -286,12 +286,12 @@ pub fn cli_contract() -> &'static CliContractCatalog {
 
 /// Returns the canonical `ffhn run` operation contract.
 pub fn run_operation() -> &'static CliOperationContract {
-    &OPERATIONS[0]
+    cli_operation(CLI_OPERATION_RUN_ID).expect("CLI contract must register the run operation")
 }
 
 /// Returns the canonical `ffhn status` operation contract.
 pub fn status_operation() -> &'static CliOperationContract {
-    &OPERATIONS[1]
+    cli_operation(CLI_OPERATION_STATUS_ID).expect("CLI contract must register the status operation")
 }
 
 /// Looks up one canonical CLI operation by id.
@@ -304,20 +304,23 @@ pub fn cli_operation(id: &str) -> Option<&'static CliOperationContract> {
 
 /// Looks up one canonical execution mode by runtime enum.
 pub fn cli_execution_mode(mode: RunMode) -> &'static ExecutionModeContract {
-    match mode {
-        RunMode::Live => &EXECUTION_MODES[0],
-        RunMode::DryRun => &EXECUTION_MODES[1],
-    }
+    cli_contract()
+        .execution_modes
+        .iter()
+        .find(|candidate| candidate.mode == mode)
+        .expect("CLI contract must register every run mode")
 }
 
 /// Returns the canonical positive-batch-concurrency hard limit.
 pub fn positive_batch_concurrency_limit() -> &'static CliHardLimitContract {
-    &HARD_LIMITS[0]
+    cli_hard_limit(CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID)
+        .expect("CLI contract must register the positive batch concurrency limit")
 }
 
 /// Returns the canonical unique-explicit-target-ids hard limit.
 pub fn unique_target_ids_limit() -> &'static CliHardLimitContract {
-    &HARD_LIMITS[1]
+    cli_hard_limit(CLI_LIMIT_UNIQUE_TARGET_IDS_ID)
+        .expect("CLI contract must register the unique explicit target-id limit")
 }
 
 /// Looks up one canonical CLI hard limit by id.
@@ -330,17 +333,18 @@ pub fn cli_hard_limit(id: &str) -> Option<&'static CliHardLimitContract> {
 
 /// Returns the canonical run-report document contract.
 pub fn run_report_document() -> &'static UserFacingDocumentContract {
-    &DOCUMENTS[3]
+    cli_document(RUN_REPORT_SCHEMA_NAME).expect("CLI contract must register ffhn.run_report")
 }
 
 /// Returns the canonical batch-run-report document contract.
 pub fn batch_run_report_document() -> &'static UserFacingDocumentContract {
-    &DOCUMENTS[5]
+    cli_document(BATCH_RUN_REPORT_SCHEMA_NAME)
+        .expect("CLI contract must register ffhn.batch_run_report")
 }
 
 /// Returns the canonical status-report document contract.
 pub fn status_report_document() -> &'static UserFacingDocumentContract {
-    &DOCUMENTS[6]
+    cli_document(STATUS_REPORT_SCHEMA_NAME).expect("CLI contract must register ffhn.status_report")
 }
 
 /// Looks up one registered user-facing document id.

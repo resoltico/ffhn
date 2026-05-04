@@ -1,8 +1,10 @@
 use std::ffi::OsStr;
 
 use super::*;
+#[cfg(unix)]
 use ffhn_core::{BatchRunReport, NotificationPayload, RunReport, StateDocument, StatusReport};
 
+#[cfg(unix)]
 fn seed_paths(dir: &Path) -> Vec<PathBuf> {
     let mut seeds = fs::read_dir(dir)
         .expect("read seed dir")
@@ -13,12 +15,14 @@ fn seed_paths(dir: &Path) -> Vec<PathBuf> {
     seeds
 }
 
+#[cfg(unix)]
 fn is_intentionally_invalid_seed(path: &Path) -> bool {
     path.file_stem()
         .and_then(OsStr::to_str)
         .is_some_and(|stem| stem.contains("invalid"))
 }
 
+#[cfg(unix)]
 #[test]
 fn maintained_report_and_target_seed_files_stay_valid() {
     let repo_root = repo_root();

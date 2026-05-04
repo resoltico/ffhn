@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::{fs, path::PathBuf};
 
 use crate::coverage::{
     coverage_clean_command, coverage_command, coverage_output_path, evaluate_coverage_report,
@@ -6,7 +7,8 @@ use crate::coverage::{
 };
 use crate::model::DynResult;
 use crate::plan::{
-    check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_scratch_dir,
+    check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_check_spec,
+    semver_scratch_dir,
 };
 
 use super::command::{remove_dir_if_exists, run_spec};
@@ -16,7 +18,7 @@ pub(crate) fn run_check(repo_root: &Path) -> DynResult<()> {
 
     for spec in check_plan(repo_root)? {
         if is_semver_check_spec(&spec) {
-            remove_semver_artifacts(repo_root)?;
+            prepare_semver_artifacts(repo_root)?;
             let result = run_spec(repo_root, &spec);
             let cleanup = remove_semver_artifacts(repo_root);
             result?;
@@ -28,6 +30,16 @@ pub(crate) fn run_check(repo_root: &Path) -> DynResult<()> {
     }
 
     run_coverage(repo_root)
+}
+
+pub(crate) fn run_semver_check(repo_root: &Path) -> DynResult<()> {
+    let spec = semver_check_spec(repo_root)?;
+    prepare_semver_artifacts(repo_root)?;
+    let result = run_spec(repo_root, &spec);
+    let cleanup = remove_semver_artifacts(repo_root);
+    result?;
+    cleanup?;
+    Ok(())
 }
 
 pub(crate) fn run_coverage(repo_root: &Path) -> DynResult<()> {
@@ -77,4 +89,21 @@ pub(crate) fn run_coverage(repo_root: &Path) -> DynResult<()> {
 fn remove_semver_artifacts(repo_root: &Path) -> DynResult<()> {
     remove_dir_if_exists(&semver_scratch_dir(repo_root))?;
     remove_dir_if_exists(&semver_baseline_target_dir(repo_root))
+}
+
+fn prepare_semver_artifacts(repo_root: &Path) -> DynResult<()> {
+    remove_semver_artifacts(repo_root)?;
+    for path in semver_required_directories(repo_root) {
+        fs::create_dir_all(path)?;
+    }
+    Ok(())
+}
+
+fn semver_required_directories(repo_root: &Path) -> [PathBuf; 3] {
+    let scratch_dir = semver_scratch_dir(repo_root);
+    [
+        scratch_dir.clone(),
+        scratch_dir.join("debug"),
+        scratch_dir.join("debug").join("deps"),
+    ]
 }

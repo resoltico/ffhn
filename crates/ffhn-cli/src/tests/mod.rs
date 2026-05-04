@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpListener;
@@ -14,7 +15,11 @@ use ffhn_core::{
     document_write_error, duplicate_target_ids_usage_error, positive_batch_concurrency_usage_error,
 };
 
-fn run_vec(args: Vec<String>) -> (i32, String, String) {
+fn run_vec<I, T>(args: I) -> (i32, String, String)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let exit_code = run(args, &mut stdout, &mut stderr);
@@ -110,7 +115,7 @@ engine = "http"
 method = "GET"
 timeout_ms = 15000
 max_bytes = 2000000
-user_agent = "ffhn/2.0.0"
+user_agent = "ffhn/example"
 follow_redirects = true
 accept = "text/html"
 
@@ -156,7 +161,6 @@ file_path = {source_path:?}
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]

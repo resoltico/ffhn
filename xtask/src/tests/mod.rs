@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
 
 use crate::app::refresh_semver_baseline;
@@ -14,11 +16,52 @@ use crate::model::{
     CoverageReport,
 };
 use crate::plan::{
-    binary_name, check_plan, collect_shell_script_paths, is_semver_check_spec, normalize_path,
-    release_binary_path, release_tag_exists, semver_baseline_target_dir, semver_release_type,
-    semver_release_type_from_git_tag, semver_scratch_dir, shell_script_paths, with_workspace_stub,
-    workspace_version, workspace_version_from_manifest,
+    binary_name, cargo_target_root, check_plan, collect_shell_script_paths, is_semver_check_spec,
+    normalize_path, release_binary_path, release_tag_exists, semver_baseline_target_dir,
+    semver_release_type, semver_release_type_from_git_tag, semver_scratch_dir, shell_script_paths,
+    with_workspace_stub, workspace_version, workspace_version_from_manifest,
 };
+
+static CARGO_TARGET_DIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[allow(unsafe_code)]
+fn with_cargo_target_dir<T>(value: Option<&Path>, operation: impl FnOnce() -> T) -> T {
+    let _guard = CARGO_TARGET_DIR_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("cargo target dir lock");
+    let original = env::var_os("CARGO_TARGET_DIR");
+
+    match value {
+        Some(path) => {
+            // SAFETY: environment mutation is process-global and not thread-safe. This helper
+            // serializes every CARGO_TARGET_DIR mutation behind CARGO_TARGET_DIR_LOCK.
+            unsafe { env::set_var("CARGO_TARGET_DIR", path) };
+        }
+        None => {
+            // SAFETY: environment mutation is process-global and not thread-safe. This helper
+            // serializes every CARGO_TARGET_DIR mutation behind CARGO_TARGET_DIR_LOCK.
+            unsafe { env::remove_var("CARGO_TARGET_DIR") };
+        }
+    }
+
+    let result = operation();
+
+    match original {
+        Some(target_dir) => {
+            // SAFETY: same invariant as above; the helper still holds CARGO_TARGET_DIR_LOCK for
+            // the full mutation window.
+            unsafe { env::set_var("CARGO_TARGET_DIR", target_dir) };
+        }
+        None => {
+            // SAFETY: same invariant as above; the helper still holds CARGO_TARGET_DIR_LOCK for
+            // the full mutation window.
+            unsafe { env::remove_var("CARGO_TARGET_DIR") };
+        }
+    }
+
+    result
+}
 
 fn write_repo_scaffold(repo_root: &Path) {
     fs::write(
@@ -84,10 +127,12 @@ fn run_git(repo_root: &Path, args: &[&str]) {
 
 mod app;
 mod coverage;
+mod devcontainer;
 mod plan;
 mod release;
 mod semver;
 
+#[cfg(unix)]
 const SEEDED_TRACKED_FILES: &[&str] = &[
     "crates/ffhn-core/src/model/report/run.rs",
     "crates/ffhn-cli/src/execute.rs",
@@ -103,6 +148,7 @@ fn tracked_source() -> String {
     source
 }
 
+#[cfg(unix)]
 fn seed_tracked_files(repo_root: &Path) -> BTreeMap<PathBuf, String> {
     for relative_path in SEEDED_TRACKED_FILES {
         let file_path = repo_root.join(relative_path);

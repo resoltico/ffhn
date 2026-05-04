@@ -1,3 +1,4 @@
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
 
 use crate::args::build_cli_command;
@@ -10,7 +11,7 @@ enum TopLevelRequest {
 }
 
 pub(crate) fn try_handle_top_level_request(
-    raw_args: &[String],
+    raw_args: &[OsString],
     stdout: &mut impl Write,
 ) -> io::Result<bool> {
     let Some(request) = detect_top_level_request(raw_args) else {
@@ -25,7 +26,7 @@ pub(crate) fn try_handle_top_level_request(
     Ok(true)
 }
 
-fn detect_top_level_request(raw_args: &[String]) -> Option<TopLevelRequest> {
+fn detect_top_level_request(raw_args: &[OsString]) -> Option<TopLevelRequest> {
     if raw_args.len() <= 1 {
         return Some(TopLevelRequest::Help);
     }
@@ -33,7 +34,7 @@ fn detect_top_level_request(raw_args: &[String]) -> Option<TopLevelRequest> {
     let args = &raw_args[1..];
     if let Some(rest) = args
         .first()
-        .and_then(|arg| (arg == "help").then_some(&args[1..]))
+        .and_then(|arg| (*arg == OsStr::new("help")).then_some(&args[1..]))
         && help_subcommand_requests_root_help(rest)
     {
         return Some(TopLevelRequest::Help);
@@ -57,7 +58,7 @@ fn detect_top_level_request(raw_args: &[String]) -> Option<TopLevelRequest> {
     saw_version.then_some(TopLevelRequest::Version)
 }
 
-fn help_subcommand_requests_root_help(rest: &[String]) -> bool {
+fn help_subcommand_requests_root_help(rest: &[OsString]) -> bool {
     if rest.is_empty() {
         return true;
     }
@@ -72,7 +73,11 @@ fn help_subcommand_requests_root_help(rest: &[String]) -> bool {
     saw_help || saw_version
 }
 
-fn parse_known_top_level_flags(arg: &str, saw_help: &mut bool, saw_version: &mut bool) -> bool {
+fn parse_known_top_level_flags(arg: &OsStr, saw_help: &mut bool, saw_version: &mut bool) -> bool {
+    let Some(arg) = arg.to_str() else {
+        return false;
+    };
+
     match arg {
         "--help" => {
             *saw_help = true;
@@ -115,8 +120,8 @@ fn write_root_help(stdout: &mut impl Write) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn args(parts: &[&str]) -> Vec<String> {
-        parts.iter().map(|part| (*part).to_owned()).collect()
+    fn args(parts: &[&str]) -> Vec<OsString> {
+        parts.iter().map(OsString::from).collect()
     }
 
     #[test]
@@ -195,7 +200,7 @@ mod tests {
         let mut saw_help = false;
         let mut saw_version = false;
         assert!(parse_known_top_level_flags(
-            "-hV",
+            OsStr::new("-hV"),
             &mut saw_help,
             &mut saw_version,
         ));
@@ -205,9 +210,25 @@ mod tests {
         let mut saw_help = false;
         let mut saw_version = false;
         assert!(!parse_known_top_level_flags(
-            "-",
+            OsStr::new("-"),
             &mut saw_help,
             &mut saw_version,
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parse_known_top_level_flags_rejects_non_utf8_arguments() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut saw_help = false;
+        let mut saw_version = false;
+        assert!(!parse_known_top_level_flags(
+            &OsString::from_vec(vec![b'-', 0xFF]),
+            &mut saw_help,
+            &mut saw_version,
+        ));
+        assert!(!saw_help);
+        assert!(!saw_version);
     }
 }

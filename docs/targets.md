@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: TARGETS
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]
@@ -69,9 +68,7 @@ Rules:
 
 1. `source_url` must be an absolute `http` or `https` URL
 2. `file_path` is forbidden
-3. `fetch.engine` may be `http` or `browser`
-
-`browser` is a stable configuration vocabulary value, but the current Rust rewrite still uses the HTTP transport backend for it. Reports preserve `engine = "browser"` when you choose that contract value.
+3. `fetch.engine` must be `http`
 
 ### File targets
 
@@ -82,7 +79,7 @@ file_path = "/absolute/path/to/page.html"
 
 [fetch]
 engine = "file"
-follow_redirects = false
+max_bytes = 2000000
 ```
 
 Rules:
@@ -95,7 +92,7 @@ The `file_path` above is schematic. For a checked-in runnable file-target exampl
 
 ## Fetch Section
 
-Shared defaults:
+Network-fetch defaults:
 
 | Field | Default |
 | --- | --- |
@@ -127,16 +124,9 @@ HTTP responses with no `Content-Type` header are still accepted and decoded as U
 Additional file-only rules:
 
 1. `fetch.engine` must be `file`
-2. `timeout_ms` must stay at the fixed default `15000`
-3. `follow_redirects` must be `false`
-4. `user_agent` must be empty
-5. `accept` must be empty
-6. `headers` must be empty
-7. local file bytes must decode as UTF-8, or FFHN returns `fetch_decode_error`
-
-Because `follow_redirects` defaults to `true`, file targets must set it explicitly to `false` in `target.toml`.
-Omitting that field leaves the shared default in place, so FFHN rejects the document as invalid during decode and validation.
-The remaining HTTP-only fetch knobs stay in the shared schema for compatibility with the common `[fetch]` shape, but FFHN rejects non-empty `user_agent`, non-empty `accept`, and any `timeout_ms` value other than the fixed default on file targets.
+2. `max_bytes` is optional and defaults to `2000000`
+3. `method`, `timeout_ms`, `user_agent`, `follow_redirects`, `accept`, and `headers` are not part of the file-fetch schema
+4. local file bytes must decode as UTF-8, or FFHN returns `fetch_decode_error`
 
 ## Selection Section
 
@@ -154,10 +144,11 @@ Shared fields:
 
 ### Candidate selection
 
-`selection.index` is:
+The `match` shape is part of the selection type itself:
 
-1. required and positive when `match = "nth"`
-2. forbidden for `single` and `first`
+1. `match = "single"` and `match = "first"` carry no additional fields
+2. `match = "nth"` requires `index`, and that index must be positive
+3. supplying `index` for `single` or `first` is a decode error, not a later runtime validation warning
 
 ### CSS selector strategy
 
@@ -165,14 +156,9 @@ Required:
 
 1. `selector`
 
-Forbidden:
+Shape rule:
 
-1. `start`
-2. `end`
-3. `mode`
-4. `include_start`
-5. `include_end`
-6. `flags`
+1. FFHN rejects delimiter-only fields during decode because `css_selector` and `delimiter_pair` are distinct tagged shapes, not one partially-filled bag
 
 ### Delimiter-pair strategy
 
@@ -186,7 +172,7 @@ Required:
 
 Additional rules:
 
-1. `selector` is forbidden
+1. `selector` is rejected during decode because it belongs only to the CSS-selector shape
 2. `flags` are allowed only when `mode = "regex"`
 
 ## Compare Section
@@ -239,33 +225,56 @@ That means the history directory can hold at most `history_limit - 1` older snap
 
 ## Notifications
 
-Notifications are best-effort shell hooks.
+Notifications are best-effort process hooks.
+
+POSIX append-only JSONL sink:
 
 ```toml
 [[notifications]]
 name = "log-json"
 on = ["changed", "failed_transient", "failed_permanent"]
-shell = "/bin/sh"
-command = "cat >> /tmp/ffhn-report.jsonl"
+program = "/bin/sh"
+args = ["-c", "cat >> /tmp/ffhn-report.jsonl"]
 timeout_ms = 1000
 ```
+
+PowerShell append-only JSONL sink:
+
+```toml
+[[notifications]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+program = "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+args = [
+  "-NoLogo",
+  "-NoProfile",
+  "-Command",
+  "[System.IO.File]::AppendAllText($args[0], [Console]::In.ReadToEnd())",
+  "C:\\Temp\\ffhn-report.jsonl",
+]
+timeout_ms = 1000
+```
+
+FFHN writes one compact JSON document followed by a newline to hook stdin, so simple append-based sinks produce valid JSONL.
+Use the shell host and absolute paths that exist on the target machine. The checked-in
+[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md)
+shows the same append-only pattern through repo-owned POSIX and PowerShell helpers.
 
 Defaults:
 
 | Field | Default |
 | --- | --- |
-| `shell` | `/bin/sh` |
 | `timeout_ms` | `5000` |
 
 Rules:
 
 1. `name` values must be unique within the target
-2. `on` must list at least one event
-3. `shell` must be an absolute path
-4. `command` must be non-empty
+2. `on` must list at least one unique run outcome
+3. `program` must be an absolute path
+4. every `args` entry must be non-empty
 5. `timeout_ms` must be in `100..60000`
 
-Supported `on` events match the run-outcome vocabulary:
+Supported `on` values match the run-outcome vocabulary:
 
 1. `initialized`
 2. `changed`
@@ -276,15 +285,17 @@ Supported `on` events match the run-outcome vocabulary:
 
 `skipped_disabled` deliveries only arise from live explicit runs on disabled targets. `run --all` excludes valid disabled targets before batch execution, and dry-run never delivers notifications.
 
-FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the hook on stdin and also sets these environment variables:
+FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the hook process on stdin and also sets these environment variables:
 
 1. `FFHN_TARGET_ID`
 2. `FFHN_RUN_OUTCOME`
 3. `FFHN_REASON_CODE`
 4. `FFHN_RUN_MODE`
 5. `FFHN_FAILURE_CLASS` (empty string for non-failure outcomes)
-6. `FFHN_NOTIFICATION_EVENT`
 
-That stdin payload wraps the run report snapshot FFHN had before delivery results were appended, so `run_report.notifications` is empty and `run_report.persist.wrote_last_run` is still `false`. If an earlier live persist substep already failed, `run_report.persist.error` may already be populated inside the stdin payload.
+That stdin payload wraps the run report snapshot FFHN had before delivery results were appended, so
+`run_report.notifications` is empty and `run_report.persist.last_run_write.status` is
+`not_attempted`. If an earlier live persist substep already failed,
+`run_report.persist.state_write.status` may already be `failed` inside the stdin payload.
 
 Hook failures do not rewrite the run outcome, but they are still operationally significant: FFHN records them in `run_report.notifications`, captures stderr text when it can, and makes the CLI exit with code `1`.

@@ -1,4 +1,5 @@
 //! Core FFHN library implementing the FFHN monitoring engine.
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 mod canonical;
@@ -9,6 +10,7 @@ mod model;
 mod paths;
 mod runtime;
 mod stable_json;
+mod time;
 
 pub use canonical::apply_canonicalizers;
 pub use contract::{
@@ -27,20 +29,27 @@ pub use contract::{
 };
 pub use error::CoreError;
 pub use model::{
-    ArtifactStatus, BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION,
-    BatchOutcomeCounts, BatchRunEntry, BatchRunReport, BatchRunReportInput, CanonicalizerKind,
-    CanonicalizerSpec, ChangeKind, CompareBasis, CompareConfig, DelimiterMode,
-    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord,
-    FailureClass, FetchConfig, FetchEngine, HTMLCUT_INTEROP_PROFILE, HttpMethod,
-    NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION, NotificationEvent,
-    NotificationHook, NotificationPayload, OutputKind, ProcessErrorDetail, ProcessErrorKind,
+    BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BatchOutcomeCounts,
+    BatchRunEntry, BatchRunReport, BatchRunReportInput, CanonicalizerKind, CanonicalizerSpec,
+    ChangeKind, CompareBasis, DelimiterMode, EXTRACTION_RECORD_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FailureClass, FetchEngine,
+    HTMLCUT_INTEROP_PROFILE, HttpMethod, NOTIFICATION_PAYLOAD_SCHEMA_NAME,
+    NOTIFICATION_PAYLOAD_SCHEMA_VERSION, NotificationDeliveryStatus, NotificationHookView,
+    NotificationPayload, OutputKind, PersistWriteStatus, ProcessErrorDetail, ProcessErrorKind,
     RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RegexFlag, RelativeArtifactPath,
-    RunChangeRegion, RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection,
-    RunMode, RunNotificationDelivery, RunOutcome, RunPersistSection, RunReport, STATE_SCHEMA_NAME,
-    STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, SelectionConfig,
-    SelectionKind, SelectionMatch, SnapshotDigestSummary, SnapshotReference, SnapshotSlot,
-    StateDocument, StatePhase, StatusReport, StorageConfig, TARGET_SCHEMA_NAME,
-    TARGET_SCHEMA_VERSION, TargetDocument, TargetId, TargetSource, TargetStatus, WhitespaceMode,
+    RunChangeRegion, RunChangeSection, RunCompareView, RunExtractionSection, RunFetchView, RunMode,
+    RunNotificationDeliveryView, RunOutcome, RunPersistView, RunReport, STATE_SCHEMA_NAME,
+    STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, SelectionKind,
+    SelectionMatch, SnapshotDigestSummary, SnapshotReference, SnapshotSlot, StateDocument,
+    StatePhase, StatusReport, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION, TargetDocument, TargetId,
+    TargetStatus, WhitespaceMode,
+};
+#[cfg(any(test, doctest))]
+pub(crate) use model::{CompareConfig, FetchConfig, TargetSource};
+pub(crate) use model::{
+    FileFetchConfig, NetworkFetchConfig, NotificationDeliveryOutcome, NotificationHook,
+    RunCompareSection, RunFetchSection, RunNotificationDelivery, RunPersistSection,
+    SelectionConfig, SelectionModeConfig,
 };
 pub use paths::TargetPaths;
 
@@ -48,8 +57,9 @@ pub use paths::TargetPaths;
 ///
 /// # Errors
 ///
-/// Returns [`CoreError`] when the target directory cannot be read, the target document is not
-/// valid TOML, or the decoded document violates FFHN's schema and identity invariants.
+/// Returns [`CoreError`] when FFHN cannot validate the watch root directory, cannot read the
+/// target directory, the target document is not valid TOML, or the decoded document violates
+/// FFHN's schema and identity invariants.
 pub fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError> {
     runtime::validate_target(paths)
 }
@@ -58,8 +68,9 @@ pub fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError>
 ///
 /// # Errors
 ///
-/// Returns [`CoreError`] when FFHN cannot read the target directory or acquire the shared status
-/// lock required to inspect a valid target.
+/// Returns [`CoreError`] when FFHN cannot validate the watch root directory, cannot read the
+/// target directory, or hits a genuine shared-lock filesystem error while preparing one stable
+/// status view.
 pub fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
     runtime::status(paths)
 }
@@ -69,7 +80,8 @@ pub fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
 /// # Errors
 ///
 /// Returns [`CoreError`] only for process-level failures before FFHN can emit a structured run
-/// report, such as filesystem or serialization failures around timestamps, locks, or persistence.
+/// report, such as watch-root validation failures or filesystem / serialization failures around
+/// timestamps, locks, or persistence.
 pub fn run_once(paths: &TargetPaths) -> Result<RunReport, CoreError> {
     runtime::run_once(paths)
 }
@@ -79,7 +91,7 @@ pub fn run_once(paths: &TargetPaths) -> Result<RunReport, CoreError> {
 /// # Errors
 ///
 /// Returns [`CoreError`] only for process-level failures before FFHN can emit a structured run
-/// report, including shared-lock filesystem failures on otherwise valid targets.
+/// report, such as watch-root validation failures or genuine shared-lock filesystem errors.
 pub fn run_once_dry_run(paths: &TargetPaths) -> Result<RunReport, CoreError> {
     runtime::run_once_with_options(paths, runtime::RunOptions::DRY_RUN)
 }

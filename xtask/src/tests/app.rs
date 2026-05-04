@@ -4,10 +4,11 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use super::*;
-use crate::app::{
-    TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root, run_check,
-    run_coverage, run_spec,
-};
+use crate::app::{TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root};
+
+#[cfg(unix)]
+use crate::app::{run_check, run_coverage, run_semver_check, run_spec};
+#[cfg(unix)]
 use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratch_dir};
 
 #[cfg(unix)]
@@ -91,6 +92,11 @@ fn repo_root_falls_back_to_the_workspace_parent_without_a_test_override() {
         .lock()
         .expect("path lock");
     let original_repo_root = env::var_os(TEST_REPO_ROOT_ENV);
+    // SAFETY: environment mutation is process-global and not thread-safe. This test holds
+    // PATH_LOCK for the entire mutation window, and every test in this process that reads or
+    // writes TEST_REPO_ROOT_ENV or PATH must also acquire PATH_LOCK first. Adding a PATH- or
+    // TEST_REPO_ROOT_ENV-dependent test without the lock breaks that invariant and risks a data
+    // race through the shared process environment.
     unsafe { env::remove_var(TEST_REPO_ROOT_ENV) };
 
     let resolved = repo_root().expect("repo root");
@@ -102,8 +108,16 @@ fn repo_root_falls_back_to_the_workspace_parent_without_a_test_override() {
     );
 
     match original_repo_root {
-        Some(repo_root) => unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root) },
-        None => unsafe { env::remove_var(TEST_REPO_ROOT_ENV) },
+        Some(repo_root) => {
+            // SAFETY: same invariant as above; PATH_LOCK still serializes all environment access
+            // for tests that touch TEST_REPO_ROOT_ENV or PATH.
+            unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root) }
+        }
+        None => {
+            // SAFETY: same invariant as above; PATH_LOCK still serializes all environment access
+            // for tests that touch TEST_REPO_ROOT_ENV or PATH.
+            unsafe { env::remove_var(TEST_REPO_ROOT_ENV) }
+        }
     }
 }
 
@@ -191,7 +205,7 @@ fn run_coverage_reports_line_only_failures() {
 
 #[cfg(unix)]
 #[test]
-fn run_from_routes_check_and_coverage_subcommands_through_the_repo_root_override() {
+fn run_from_routes_check_semver_and_coverage_subcommands_through_the_repo_root_override() {
     let repo_root = tempdir().expect("tempdir");
     let bin_dir = repo_root.path().join("bin");
     fs::create_dir_all(&bin_dir).expect("create bin dir");
@@ -202,16 +216,58 @@ fn run_from_routes_check_and_coverage_subcommands_through_the_repo_root_override
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
         crate::run_from(["xtask", "check"]).expect("run check through cli");
+        crate::run_from(["xtask", "semver-check"]).expect("run semver-check through cli");
         crate::run_from(["xtask", "coverage"]).expect("run coverage through cli");
     });
 }
 
+#[cfg(unix)]
+#[test]
+fn run_semver_check_executes_only_the_semver_lane_and_cleans_artifacts() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    fs::create_dir_all(semver_scratch_dir(repo_root.path())).expect("create semver scratch");
+    fs::create_dir_all(semver_baseline_target_dir(repo_root.path()))
+        .expect("create semver baseline target");
+    write_coverage_cargo_stub(&bin_dir, "{\"data\":[]}");
+
+    with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        run_semver_check(repo_root.path()).expect("run semver-only lane");
+    });
+
+    assert!(!semver_scratch_dir(repo_root.path()).exists());
+    assert!(!semver_baseline_target_dir(repo_root.path()).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn run_semver_check_prepares_the_isolated_target_tree_before_launch() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    write_executable(
+        &bin_dir.join("cargo"),
+        "#!/bin/sh\nif [ \"$1\" = \"semver-checks\" ]; then\n  test -d \"$CARGO_TARGET_DIR\"\n  test -d \"$CARGO_TARGET_DIR/debug\"\n  test -d \"$CARGO_TARGET_DIR/debug/deps\"\nfi\nexit 0\n",
+    );
+
+    with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        run_semver_check(repo_root.path()).expect("run semver-only lane");
+    });
+
+    assert!(!semver_scratch_dir(repo_root.path()).exists());
+}
+
+#[cfg(unix)]
 fn write_tracked_barrels(repo_root: &Path) {
     write_tracked_source(repo_root, "crates/ffhn-core/src/lib.rs", "mod report;\n");
     write_tracked_source(repo_root, "crates/ffhn-cli/src/lib.rs", "mod help;\n");
     write_tracked_source(repo_root, "xtask/src/lib.rs", "mod app;\n");
 }
 
+#[cfg(unix)]
 fn write_tracked_source(repo_root: &Path, relative_path: &str, source: impl AsRef<str>) {
     let file_path = repo_root.join(relative_path);
     fs::create_dir_all(file_path.parent().expect("parent")).expect("create source dir");
@@ -257,22 +313,30 @@ fn with_test_environment<T>(
     let mut updated_path = std::ffi::OsString::from(bin_dir);
     updated_path.push(":");
     updated_path.push(&original_path);
-    // SAFETY: tests serialize PATH mutation through PATH_LOCK.
+    // SAFETY: environment mutation is process-global and not thread-safe. This is safe only
+    // because PATH_LOCK is held for the entire mutation window, and every test that reads or
+    // writes PATH or TEST_REPO_ROOT_ENV (including through spawned commands) must acquire the
+    // same lock first. Adding a PATH-dependent test without PATH_LOCK breaks that invariant and
+    // risks a data race through the shared process environment.
     unsafe { env::set_var("PATH", &updated_path) };
     if let Some(repo_root_override) = repo_root_override {
-        // SAFETY: tests serialize environment mutation through PATH_LOCK.
+        // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+        // TEST_REPO_ROOT_ENV access for the current test process.
         unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root_override) };
     }
     let result = operation();
-    // SAFETY: tests serialize PATH mutation through PATH_LOCK.
+    // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+    // TEST_REPO_ROOT_ENV access for the current test process.
     unsafe { env::set_var("PATH", original_path) };
     match original_repo_root {
         Some(repo_root) => {
-            // SAFETY: tests serialize environment mutation through PATH_LOCK.
+            // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+            // TEST_REPO_ROOT_ENV access for the current test process.
             unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root) };
         }
         None => {
-            // SAFETY: tests serialize environment mutation through PATH_LOCK.
+            // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+            // TEST_REPO_ROOT_ENV access for the current test process.
             unsafe { env::remove_var(TEST_REPO_ROOT_ENV) };
         }
     }

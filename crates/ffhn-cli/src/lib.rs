@@ -1,4 +1,5 @@
 //! Thin command-line adapter for the FFHN monitoring engine.
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 /// Exit code for structured failed FFHN runs.

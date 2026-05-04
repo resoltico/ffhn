@@ -1,55 +1,92 @@
 use super::checks::{validate_batch_request_contract, validate_batch_run_report_identity};
 use super::*;
+use crate::model::validate::validate_timestamp_not_before;
+
+mod wire;
 
 /// Aggregate outcome counts inside `ffhn.batch_run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchOutcomeCounts {
     /// Initialized runs.
-    pub initialized: usize,
+    pub(crate) initialized: usize,
     /// Changed runs.
-    pub changed: usize,
+    pub(crate) changed: usize,
     /// Unchanged runs.
-    pub unchanged: usize,
+    pub(crate) unchanged: usize,
     /// Transient failures.
-    pub failed_transient: usize,
+    pub(crate) failed_transient: usize,
     /// Permanent failures.
-    pub failed_permanent: usize,
+    pub(crate) failed_permanent: usize,
     /// Disabled skips.
-    pub skipped_disabled: usize,
+    pub(crate) skipped_disabled: usize,
     /// Live runs that emitted a run report but still failed a persist step.
-    pub persist_error: usize,
+    pub(crate) persist_error: usize,
+    /// Target entries with at least one failed or timed-out notification delivery.
+    pub(crate) notification_failure: usize,
     /// Fatal process-level per-target failures.
-    pub fatal_error: usize,
+    pub(crate) fatal_error: usize,
+}
+
+impl BatchOutcomeCounts {
+    /// Returns the initialized-run count.
+    pub const fn initialized(&self) -> usize {
+        self.initialized
+    }
+
+    /// Returns the changed-run count.
+    pub const fn changed(&self) -> usize {
+        self.changed
+    }
+
+    /// Returns the unchanged-run count.
+    pub const fn unchanged(&self) -> usize {
+        self.unchanged
+    }
+
+    /// Returns the transient-failure count.
+    pub const fn failed_transient(&self) -> usize {
+        self.failed_transient
+    }
+
+    /// Returns the permanent-failure count.
+    pub const fn failed_permanent(&self) -> usize {
+        self.failed_permanent
+    }
+
+    /// Returns the disabled-skip count.
+    pub const fn skipped_disabled(&self) -> usize {
+        self.skipped_disabled
+    }
+
+    /// Returns the persist-error count.
+    pub const fn persist_error(&self) -> usize {
+        self.persist_error
+    }
+
+    /// Returns the notification-failure count.
+    pub const fn notification_failure(&self) -> usize {
+        self.notification_failure
+    }
+
+    /// Returns the fatal per-target error count.
+    pub const fn fatal_error(&self) -> usize {
+        self.fatal_error
+    }
 }
 
 /// One target result inside `ffhn.batch_run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "RawBatchRunEntry")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchRunEntry {
     /// Target id requested for the entry.
     pub(crate) target_id: String,
     /// Structured run report when FFHN could emit one.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) run_report: Option<RunReport>,
     /// Fatal process-level error when FFHN could not emit a run report.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) fatal_error: Option<ProcessErrorDetail>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawBatchRunEntry {
-    target_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    run_report: Option<RunReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fatal_error: Option<ProcessErrorDetail>,
-}
-
 /// Aggregate batch report emitted by multi-target runs.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "RawBatchRunReport")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchRunReport {
     /// Frozen schema identity.
     pub(crate) schema_name: String,
@@ -72,25 +109,7 @@ pub struct BatchRunReport {
     /// Aggregate counts by outcome class.
     pub(crate) outcome_counts: BatchOutcomeCounts,
     /// Reserved extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) extensions: Extensions,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawBatchRunReport {
-    schema_name: String,
-    schema_version: u32,
-    run_mode: RunMode,
-    watch_root: String,
-    requested_targets: Vec<String>,
-    run_started_at: String,
-    run_finished_at: String,
-    max_concurrency: usize,
-    entries: Vec<BatchRunEntry>,
-    outcome_counts: BatchOutcomeCounts,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    extensions: Extensions,
 }
 
 /// Inputs used to build one validated aggregate batch report.
@@ -128,6 +147,10 @@ impl BatchRunEntry {
     ///
     /// The `target_id` is intentionally stored verbatim because discovery-mode batch runs may need
     /// to report contract-invalid directory labels back to the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the target id is empty or the fatal error payload is invalid.
     pub fn fatal(
         target_id: impl Into<String>,
         fatal_error: ProcessErrorDetail,
@@ -157,6 +180,12 @@ impl BatchRunEntry {
     }
 
     /// Validates one batch entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the target id is empty, when the entry does not carry exactly
+    /// one of `run_report` or `fatal_error`, or when the attached payload violates its own
+    /// contract.
     pub fn validate(&self) -> Result<(), CoreError> {
         require_non_empty("batch.entry.target_id", &self.target_id)?;
         match (&self.run_report, &self.fatal_error) {
@@ -181,22 +210,13 @@ impl BatchRunEntry {
     }
 }
 
-impl TryFrom<RawBatchRunEntry> for BatchRunEntry {
-    type Error = CoreError;
-
-    fn try_from(raw: RawBatchRunEntry) -> Result<Self, Self::Error> {
-        let entry = Self {
-            target_id: raw.target_id,
-            run_report: raw.run_report,
-            fatal_error: raw.fatal_error,
-        };
-        entry.validate()?;
-        Ok(entry)
-    }
-}
-
 impl BatchRunReportInput {
     /// Builds one validated input bag for aggregate batch-report construction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the requested target list or max-concurrency value violates
+    /// FFHN's aggregate batch-request contract.
     pub fn new(
         run_mode: RunMode,
         watch_root: String,
@@ -228,6 +248,21 @@ impl BatchRunReportInput {
 }
 
 impl BatchRunReport {
+    /// Returns the frozen schema name.
+    pub fn schema_name(&self) -> &str {
+        &self.schema_name
+    }
+
+    /// Returns the frozen schema version.
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    /// Returns the run mode applied to every target.
+    pub fn run_mode(&self) -> RunMode {
+        self.run_mode
+    }
+
     /// Returns the watch-root path encoded in the report.
     pub fn watch_root(&self) -> &str {
         &self.watch_root
@@ -263,7 +298,17 @@ impl BatchRunReport {
         &self.outcome_counts
     }
 
+    /// Returns any reserved extensions.
+    pub fn extensions(&self) -> Option<&std::collections::BTreeMap<String, serde_json::Value>> {
+        self.extensions.as_ref()
+    }
+
     /// Builds one aggregate batch report and derives its outcome counts from the entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the derived aggregate counts, timestamps, entry identities, or
+    /// schema invariants do not match FFHN's frozen batch-report contract.
     pub fn new(input: BatchRunReportInput) -> Result<Self, CoreError> {
         let outcome_counts = compute_outcome_counts(&input.requested_targets, &input.entries)?;
         let report = Self {
@@ -284,11 +329,22 @@ impl BatchRunReport {
     }
 
     /// Validates one batch run report.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the schema identity, batch request contract, timestamps, entry
+    /// payloads, or outcome counts do not match FFHN's frozen batch-report contract.
     pub fn validate(&self) -> Result<(), CoreError> {
         validate_batch_run_report_identity(&self.schema_name, self.schema_version)?;
         require_non_empty("batch.watch_root", &self.watch_root)?;
         validate_timestamp(&self.run_started_at)?;
         validate_timestamp(&self.run_finished_at)?;
+        validate_timestamp_not_before(
+            "batch.run_started_at",
+            &self.run_started_at,
+            "batch.run_finished_at",
+            &self.run_finished_at,
+        )?;
         validate_batch_request_contract(&self.requested_targets, self.max_concurrency)?;
         let counts = compute_outcome_counts(&self.requested_targets, &self.entries)?;
         if counts != self.outcome_counts {
@@ -297,28 +353,6 @@ impl BatchRunReport {
             ));
         }
         Ok(())
-    }
-}
-
-impl TryFrom<RawBatchRunReport> for BatchRunReport {
-    type Error = CoreError;
-
-    fn try_from(raw: RawBatchRunReport) -> Result<Self, Self::Error> {
-        let report = Self {
-            schema_name: raw.schema_name,
-            schema_version: raw.schema_version,
-            run_mode: raw.run_mode,
-            watch_root: raw.watch_root,
-            requested_targets: raw.requested_targets,
-            run_started_at: raw.run_started_at,
-            run_finished_at: raw.run_finished_at,
-            max_concurrency: raw.max_concurrency,
-            entries: raw.entries,
-            outcome_counts: raw.outcome_counts,
-            extensions: raw.extensions,
-        };
-        report.validate()?;
-        Ok(report)
     }
 }
 
@@ -340,6 +374,7 @@ fn compute_outcome_counts(
         failed_permanent: 0,
         skipped_disabled: 0,
         persist_error: 0,
+        notification_failure: 0,
         fatal_error: 0,
     };
 
@@ -359,8 +394,14 @@ fn compute_outcome_counts(
                 RunOutcome::FailedPermanent => counts.failed_permanent += 1,
                 RunOutcome::SkippedDisabled => counts.skipped_disabled += 1,
             }
-            if report.reason_code == ReasonCode::PersistError || report.persist.error.is_some() {
+            if report.reason_code == ReasonCode::PersistError {
                 counts.persist_error += 1;
+            }
+            if report
+                .notifications()
+                .any(|delivery| delivery.status() != crate::NotificationDeliveryStatus::Delivered)
+            {
+                counts.notification_failure += 1;
             }
             continue;
         }

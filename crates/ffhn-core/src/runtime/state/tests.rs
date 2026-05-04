@@ -1,9 +1,9 @@
 use super::super::storage::{write_exact_text, write_json};
 use super::*;
 use crate::{
-    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE,
-    OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome, SelectionKind, SelectionMatch,
-    SnapshotSlot, TargetId,
+    CoreError, EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION,
+    HTMLCUT_INTEROP_PROFILE, OutputKind, ProcessErrorDetail, ProcessErrorKind, ReasonCode,
+    RelativeArtifactPath, RunOutcome, SelectionKind, SelectionMatch, SnapshotSlot, TargetId,
 };
 use serde_json::json;
 #[cfg(unix)]
@@ -40,6 +40,11 @@ fn slot_name(slot: SnapshotSlot) -> &'static str {
         SnapshotSlot::Current => "current",
         SnapshotSlot::History => "history",
     }
+}
+
+fn test_state_detail() -> ProcessErrorDetail {
+    ProcessErrorDetail::from(&CoreError::contract("state test detail"))
+        .with_fallback_path("demo/state.json".to_owned())
 }
 
 fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
@@ -194,15 +199,24 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("write invalid schema state");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::InvalidSchema(Some(StatePhase::HasBaseline))
+        StateLoad::InvalidDocument {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
     assert_eq!(
-        state_phase_or_default(&StateLoad::InvalidSchema(None)),
+        state_phase_or_default(&StateLoad::InvalidDocument {
+            phase: None,
+            detail: test_state_detail(),
+        }),
         StatePhase::NeverSucceeded
     );
 
     write_exact_text(paths.state_file(), "{not json").expect("write malformed state");
-    assert!(matches!(load_state(&paths), StateLoad::InvalidSchema(None)));
+    assert!(matches!(
+        load_state(&paths),
+        StateLoad::InvalidDocument { phase: None, .. }
+    ));
 
     #[cfg(unix)]
     {
@@ -218,7 +232,7 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
         std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
         let unreadable = load_state(&paths);
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
-        assert!(matches!(unreadable, StateLoad::Unreadable));
+        assert!(matches!(unreadable, StateLoad::Unreadable(_)));
         assert_eq!(
             state_phase_or_default(&unreadable),
             StatePhase::NeverSucceeded
@@ -236,7 +250,10 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("write mismatched target state");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::InvalidSchema(Some(StatePhase::HasBaseline))
+        StateLoad::InvalidDocument {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
 
     write_json(
@@ -251,7 +268,10 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("tamper canonical");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
 
     write_snapshot(&paths, &current, "hello", "<main>Hello</main>");
@@ -262,14 +282,23 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("tamper outer html");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
     assert_eq!(
-        state_phase_or_default(&StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))),
+        state_phase_or_default(&StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            detail: test_state_detail(),
+        }),
         StatePhase::HasBaseline
     );
     assert_eq!(
-        status_from_state(&StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))),
+        status_from_state(&StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            detail: test_state_detail(),
+        }),
         TargetStatus::Invalid
     );
 
@@ -281,7 +310,10 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("tamper previous outer html");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
 
     write_snapshot(&paths, &current, "hello", "<main>Hello</main>");
@@ -293,7 +325,10 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     .expect("write mismatched extraction record");
     assert!(matches!(
         load_state(&paths),
-        StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
 }
 
@@ -313,6 +348,127 @@ fn load_state_rejects_missing_history_snapshot_artifacts() {
     let loaded = load_state(&paths);
     assert!(matches!(
         loaded,
-        StateLoad::IntegrityMismatch(Some(StatePhase::HasBaseline))
+        StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            ..
+        }
     ));
+}
+
+#[test]
+fn load_state_classifies_contract_invalid_state_json_as_invalid_document() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+
+    write_exact_text(
+        paths.state_file(),
+        r#"{
+  "schema_name": "ffhn.state",
+  "schema_version": 1,
+  "target_id": "demo",
+  "state_phase": "has_baseline",
+  "last_run_at": "2026-04-05T10:15:30Z",
+  "last_run_outcome": "changed",
+  "last_reason_code": "ok",
+  "current_snapshot": null,
+  "snapshot_history": []
+}"#,
+    )
+    .expect("write contract-invalid state");
+
+    let loaded = load_state(&paths);
+    let StateLoad::InvalidDocument {
+        phase: Some(StatePhase::HasBaseline),
+        detail,
+    } = loaded
+    else {
+        panic!("expected InvalidDocument with recovered phase");
+    };
+    let state_path = paths.state_file().display().to_string();
+    assert_eq!(detail.kind(), ProcessErrorKind::Contract);
+    assert_eq!(
+        detail.message(),
+        "state_phase has_baseline requires current_snapshot"
+    );
+    assert_eq!(detail.path(), Some(state_path.as_str()));
+}
+
+#[test]
+fn load_state_classifies_contract_invalid_extraction_records_with_their_path() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let current = snapshot(SnapshotSlot::Current, "hello", "<main>Hello</main>");
+
+    write_snapshot(&paths, &current, "hello", "<main>Hello</main>");
+    write_json(
+        paths.state_file(),
+        &state_document(Some(current.clone()), Vec::new()),
+    )
+    .expect("write valid state");
+    write_json(
+        paths.target_dir().join(&current.extraction_record_path),
+        &ExtractionRecord {
+            interop_profile: "htmlcut-v0".to_owned(),
+            ..extraction_record(&current.outer_html_sha256)
+        },
+    )
+    .expect("write contract-invalid extraction record");
+
+    let loaded = load_state(&paths);
+    let StateLoad::IntegrityMismatch {
+        phase: Some(StatePhase::HasBaseline),
+        detail,
+    } = loaded
+    else {
+        panic!("expected IntegrityMismatch with recovered phase");
+    };
+    let extraction_path = paths
+        .target_dir()
+        .join(&current.extraction_record_path)
+        .display()
+        .to_string();
+    assert_eq!(detail.kind(), ProcessErrorKind::Contract);
+    assert_eq!(
+        detail.message(),
+        "ffhn.extraction_record interop_profile must match the FFHN HTMLCut profile"
+    );
+    assert_eq!(detail.path(), Some(extraction_path.as_str()));
+}
+
+#[test]
+fn state_error_detail_reflects_the_richer_state_load_variants() {
+    assert!(state_error_detail(&StateLoad::Missing).is_none());
+
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    write_json(paths.state_file(), &state_document(None, Vec::new())).expect("write state");
+    let valid = load_state(&paths);
+    assert!(matches!(valid, StateLoad::Valid(_)));
+    assert!(state_error_detail(&valid).is_none());
+
+    let detail = test_state_detail();
+    assert_eq!(
+        state_error_detail(&StateLoad::Unreadable(detail.clone()))
+            .expect("unreadable detail")
+            .message(),
+        detail.message()
+    );
+    assert_eq!(
+        state_error_detail(&StateLoad::InvalidDocument {
+            phase: None,
+            detail: detail.clone(),
+        })
+        .expect("invalid-schema detail")
+        .message(),
+        detail.message()
+    );
+    assert_eq!(
+        state_error_detail(&StateLoad::IntegrityMismatch {
+            phase: Some(StatePhase::HasBaseline),
+            detail: detail.clone(),
+        })
+        .expect("integrity detail")
+        .message(),
+        detail.message()
+    );
 }

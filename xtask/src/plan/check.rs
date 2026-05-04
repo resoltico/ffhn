@@ -13,7 +13,6 @@ use super::{
 /// Builds the ordered command plan for `cargo xtask check`.
 pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
     let scripts = shell_script_paths(repo_root)?;
-    let semver_release_type = semver_release_type(repo_root)?;
     let mut plan = Vec::new();
 
     if !scripts.is_empty() {
@@ -96,27 +95,7 @@ pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
         false,
         false,
     ));
-    plan.push(
-        CommandSpec::new(
-            "cargo",
-            [
-                "semver-checks",
-                "--manifest-path",
-                core_manifest_path(repo_root).to_string_lossy().as_ref(),
-                "--baseline-root",
-                semver_baseline_path(repo_root).to_string_lossy().as_ref(),
-                "--release-type",
-                semver_release_type.as_str(),
-                "--all-features",
-            ],
-            false,
-            true,
-        )
-        .with_envs([(
-            "CARGO_TARGET_DIR",
-            semver_scratch_dir(repo_root).to_string_lossy().into_owned(),
-        )]),
-    );
+    plan.push(semver_check_spec(repo_root)?);
     plan.push(CommandSpec::new(
         "cargo",
         [
@@ -190,6 +169,29 @@ pub(crate) fn shell_script_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
     }
     scripts.sort();
     Ok(scripts)
+}
+
+pub(crate) fn semver_check_spec(repo_root: &Path) -> DynResult<CommandSpec> {
+    let semver_release_type = semver_release_type(repo_root)?;
+    Ok(CommandSpec::new(
+        "cargo",
+        [
+            "semver-checks",
+            "--manifest-path",
+            core_manifest_path(repo_root).to_string_lossy().as_ref(),
+            "--baseline-root",
+            semver_baseline_path(repo_root).to_string_lossy().as_ref(),
+            "--release-type",
+            semver_release_type.as_str(),
+            "--all-features",
+        ],
+        false,
+        true,
+    )
+    .with_envs([(
+        "CARGO_TARGET_DIR",
+        semver_scratch_dir(repo_root).to_string_lossy().into_owned(),
+    )]))
 }
 
 pub(crate) fn collect_shell_script_paths<I>(entries: I) -> DynResult<Vec<PathBuf>>

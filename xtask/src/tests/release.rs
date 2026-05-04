@@ -1,7 +1,186 @@
 use super::*;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+fn bash_command() -> Command {
+    Command::new(crate::release::bash_program_for_tests())
+}
+
+fn seed_release_script_repo() -> tempfile::TempDir {
+    let source_repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path();
+    let scripts_dir = repo_root.join("scripts");
+    fs::create_dir_all(&scripts_dir).expect("create scripts dir");
+
+    for script_name in [
+        "common.sh",
+        "release-targets.sh",
+        "workspace-package-field.sh",
+        "workspace-version.sh",
+        "build-release-source-archives.sh",
+        "build-release-artifact.sh",
+        "build-release-checksums.sh",
+        "publish-github-release.sh",
+        "verify-github-release.sh",
+    ] {
+        fs::copy(
+            source_repo.join("scripts").join(script_name),
+            scripts_dir.join(script_name),
+        )
+        .unwrap_or_else(|error| panic!("copy {script_name}: {error}"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(
+                scripts_dir.join(script_name),
+                fs::Permissions::from_mode(0o755),
+            )
+            .unwrap_or_else(|error| panic!("chmod {script_name}: {error}"));
+        }
+    }
+
+    fs::write(
+        repo_root.join("Cargo.toml"),
+        r#"[workspace]
+members = []
+resolver = "3"
+
+[workspace.package]
+version = "9.9.9"
+"#,
+    )
+    .expect("write Cargo.toml");
+    fs::write(repo_root.join("README.md"), "# demo\n").expect("write README");
+    fs::write(repo_root.join("LICENSE"), "MIT\n").expect("write LICENSE");
+    fs::write(repo_root.join("NOTICE"), "notice\n").expect("write NOTICE");
+    fs::write(repo_root.join("PATENTS.md"), "# patents\n").expect("write PATENTS.md");
+    fs::write(repo_root.join("changelog.md"), "# changelog\n").expect("write changelog");
+
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            .unwrap_or_else(|error| panic!("run git {:?}: {error}", args));
+        assert!(
+            output.status.success(),
+            "git {:?} failed:\nstdout:\n{}\nstderr:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init"]);
+    git(&["config", "user.email", "tests@example.com"]);
+    git(&["config", "user.name", "FFHN Tests"]);
+    git(&["add", "."]);
+    git(&["commit", "-m", "init"]);
+
+    temp
+}
+
+fn release_script_argument(repo_root: &Path, script_name: &str) -> String {
+    crate::release::bash_source_argument_for_tests(&repo_root.join("scripts").join(script_name))
+}
 
 #[test]
-fn release_shell_helpers_resolve_repo_root_and_workspace_version() {
+fn release_helpers_read_the_canonical_shell_registry() {
+    let repo_root = tempdir().expect("tempdir");
+    let scripts_dir = repo_root.path().join("scripts");
+    fs::create_dir_all(&scripts_dir).expect("create scripts dir");
+    fs::write(
+        scripts_dir.join("release-targets.sh"),
+        r#"#!/usr/bin/env bash
+release_target_triples() {
+    cat <<'EOF'
+aarch64-apple-darwin
+x86_64-pc-windows-msvc
+EOF
+}
+
+release_matrix_json() {
+    cat <<'EOF'
+{"include":[{"id":"macos-arm64","runs_on":"macos-15","target_triple":"aarch64-apple-darwin","artifact_bundle_name":"standalone-macos-arm64","needs_musl_tools":false}]}
+EOF
+}
+
+release_asset_names_for_version() {
+    local release_version="$1"
+    printf 'ffhn-source-%s.tar.gz\n' "${release_version}"
+    printf 'ffhn-%s-checksums.txt\n' "${release_version}"
+}
+
+macos_deployment_target_for_target() {
+    local requested_target="$1"
+    case "${requested_target}" in
+        aarch64-apple-darwin) printf '12.0\n' ;;
+        *) printf '\n' ;;
+    esac
+}
+
+case "${1:-}" in
+    triples)
+        release_target_triples
+        ;;
+    matrix-json)
+        release_matrix_json
+        ;;
+    assets)
+        [[ "${2:-}" == "--version" ]] || exit 64
+        release_asset_names_for_version "${3:-}"
+        ;;
+    macos-deployment-target)
+        [[ "${2:-}" == "--target" ]] || exit 64
+        macos_deployment_target_for_target "${3:-}"
+        ;;
+esac
+"#,
+    )
+    .expect("write release-targets.sh");
+
+    assert_eq!(
+        crate::release::release_target_triples(repo_root.path()).expect("target triples"),
+        vec![
+            "aarch64-apple-darwin".to_owned(),
+            "x86_64-pc-windows-msvc".to_owned(),
+        ]
+    );
+    assert_eq!(
+        crate::release::release_asset_names(repo_root.path(), "9.9.9").expect("asset names"),
+        vec![
+            "ffhn-source-9.9.9.tar.gz".to_owned(),
+            "ffhn-9.9.9-checksums.txt".to_owned(),
+        ]
+    );
+    assert_eq!(
+        crate::release::release_matrix(repo_root.path()).expect("release matrix"),
+        vec![crate::release::ReleaseMatrixEntry {
+            id: "macos-arm64".to_owned(),
+            runs_on: "macos-15".to_owned(),
+            target_triple: "aarch64-apple-darwin".to_owned(),
+            artifact_bundle_name: "standalone-macos-arm64".to_owned(),
+            needs_musl_tools: false,
+        }]
+    );
+    assert_eq!(
+        crate::release::macos_deployment_target(repo_root.path(), "aarch64-apple-darwin")
+            .expect("macos deployment target"),
+        Some("12.0".to_owned())
+    );
+    assert_eq!(
+        crate::release::macos_deployment_target(repo_root.path(), "x86_64-pc-windows-msvc")
+            .expect("windows deployment target"),
+        None
+    );
+}
+
+#[test]
+fn release_shell_helpers_resolve_repo_root_workspace_version_and_workspace_fields() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
@@ -9,6 +188,8 @@ fn release_shell_helpers_resolve_repo_root_and_workspace_version() {
     let version = workspace_version(repo_root).expect("workspace version");
     let description =
         workspace_package_field(repo_root, "description").expect("workspace description");
+    let scripts_dir = crate::release::bash_source_argument_for_tests(&scripts_dir);
+    let repo_root_for_bash = crate::release::bash_source_argument_for_tests(repo_root);
     let script = format!(
         r#"set -euo pipefail
 script_dir="{scripts_dir}"
@@ -27,14 +208,17 @@ resolved_version="$(ffhn_workspace_version "$script_dir" "$repo_root")"
 
 resolved_description="$(ffhn_workspace_description "$script_dir" "$repo_root")"
 [[ "$resolved_description" == "{description}" ]]
+
+resolved_field="$("$script_dir/workspace-package-field.sh" description "$repo_root/Cargo.toml")"
+[[ "$resolved_field" == "{description}" ]]
 "#,
-        scripts_dir = scripts_dir.display(),
-        repo_root = repo_root.display(),
+        scripts_dir = scripts_dir,
+        repo_root = repo_root_for_bash,
         version = version,
         description = description,
     );
 
-    let output = Command::new("bash")
+    let output = bash_command()
         .arg("-c")
         .arg(script)
         .current_dir(repo_root)
@@ -47,97 +231,6 @@ resolved_description="$(ffhn_workspace_description "$script_dir" "$repo_root")"
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-#[test]
-fn release_shell_helpers_extract_arbitrary_workspace_package_fields() {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root");
-    let scripts_dir = repo_root.join("scripts");
-    let version = workspace_version(repo_root).expect("workspace version");
-    let description =
-        workspace_package_field(repo_root, "description").expect("workspace description");
-    let script = format!(
-        r#"set -euo pipefail
-script_dir="{scripts_dir}"
-
-version="$("$script_dir/workspace-package-field.sh" version "{repo_root}/Cargo.toml")"
-[[ "$version" == "{version}" ]]
-
-description="$("$script_dir/workspace-package-field.sh" description "{repo_root}/Cargo.toml")"
-[[ "$description" == "{description}" ]]
-"#,
-        scripts_dir = scripts_dir.display(),
-        repo_root = repo_root.display(),
-        version = version,
-        description = description,
-    );
-
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(script)
-        .current_dir(repo_root)
-        .output()
-        .expect("run workspace-package-field smoke");
-
-    assert!(
-        output.status.success(),
-        "workspace-package-field smoke failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn agent_repo_files_stay_trackable_but_export_ignored_from_source_archives() {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root");
-    let gitignore = fs::read_to_string(repo_root.join(".gitignore")).expect("read .gitignore");
-    let gitignore_lines = gitignore.lines().map(str::trim).collect::<Vec<_>>();
-    for expected in ["!/AGENTS.md", "!/.codex/", "!/.codex/**"] {
-        assert!(
-            gitignore_lines.contains(&expected),
-            "missing Git unignore rule `{expected}` in .gitignore"
-        );
-    }
-    assert!(
-        !gitignore_lines.contains(&"AGENTS.md"),
-        "root AGENTS.md should not be ignored by .gitignore"
-    );
-
-    let attributes = Command::new("git")
-        .current_dir(repo_root)
-        .args([
-            "check-attr",
-            "export-ignore",
-            "--",
-            "AGENTS.md",
-            ".codex/AGENTS.md",
-            ".codex/PROTOCOL_AFAD.md",
-        ])
-        .output()
-        .expect("run git check-attr");
-
-    assert!(
-        attributes.status.success(),
-        "git check-attr failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&attributes.stdout),
-        String::from_utf8_lossy(&attributes.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&attributes.stdout);
-    for expected in [
-        "AGENTS.md: export-ignore: set",
-        ".codex/AGENTS.md: export-ignore: set",
-        ".codex/PROTOCOL_AFAD.md: export-ignore: set",
-    ] {
-        assert!(
-            stdout.contains(expected),
-            "missing export-ignore assertion `{expected}` in:\n{stdout}"
-        );
-    }
 }
 
 #[test]
@@ -163,7 +256,9 @@ fn release_shell_helpers_normalize_windows_temp_roots() {
             .expect("chmod fake cygpath");
     }
 
-    let output = Command::new("bash")
+    let fake_bin_for_bash = crate::release::bash_source_argument_for_tests(&fake_bin);
+    let repo_root_for_bash = crate::release::bash_source_argument_for_tests(repo_root);
+    let output = bash_command()
         .arg("-c")
         .arg(format!(
             r#"set -euo pipefail
@@ -173,8 +268,8 @@ export RUNNER_TEMP='D:\a\_temp'
 source "{repo_root}/scripts/common.sh"
 [[ "$(ffhn_temp_root)" == "/d/a/_temp" ]]
 "#,
-            fake_bin = fake_bin.display(),
-            repo_root = repo_root.display(),
+            fake_bin = fake_bin_for_bash,
+            repo_root = repo_root_for_bash,
         ))
         .current_dir(repo_root)
         .output()
@@ -189,126 +284,79 @@ source "{repo_root}/scripts/common.sh"
 }
 
 #[test]
-fn windows_release_packager_uses_forward_slash_zip_entries() {
+fn release_shell_helpers_resolve_the_active_cargo_target_root() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
-    let temp = tempdir().expect("tempdir");
-    let fake_bin = temp.path().join("bin");
-    fs::create_dir_all(&fake_bin).expect("create fake bin");
-    let log_path = temp.path().join("powershell.log");
+    let scripts_dir = crate::release::bash_source_argument_for_tests(&repo_root.join("scripts"));
+    let repo_root_for_bash = crate::release::bash_source_argument_for_tests(repo_root);
+    let absolute_target_root = tempdir().expect("absolute target root");
+    let absolute_target_root_for_bash =
+        crate::release::bash_source_argument_for_tests(absolute_target_root.path());
+    let script = format!(
+        r#"set -euo pipefail
+script_dir="{scripts_dir}"
+repo_root="{repo_root}"
+absolute_target_root="{absolute_target_root}"
+source "$script_dir/common.sh"
 
-    fs::write(
-        fake_bin.join("powershell.exe"),
-        format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\n{{\n  printf 'SOURCE_PARENT_PATH=%s\\n' \"$SOURCE_PARENT_PATH\"\n  printf 'PACKAGE_ROOT_NAME=%s\\n' \"$PACKAGE_ROOT_NAME\"\n  printf 'ARCHIVE_OUTPUT_PATH=%s\\n' \"$ARCHIVE_OUTPUT_PATH\"\n  printf 'ARGS=%s\\n' \"$*\"\n}} > \"{}\"\n",
-            log_path.display()
-        ),
-    )
-    .expect("write fake powershell");
+unset CARGO_TARGET_DIR
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/target" ]]
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
+export CARGO_TARGET_DIR="custom-target"
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/custom-target" ]]
 
-        fs::set_permissions(
-            fake_bin.join("powershell.exe"),
-            fs::Permissions::from_mode(0o755),
-        )
-        .expect("chmod fake powershell");
-    }
-
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(format!(
-            r#"set -euo pipefail
-PATH="{fake_bin}:$PATH"
-source "{repo_root}/scripts/build-release-artifact.sh"
-create_zip_with_dotnet "/tmp/source-parent" "ffhn-9.9.9-x86_64-pc-windows-msvc" "/tmp/output.zip"
+export CARGO_TARGET_DIR="$absolute_target_root"
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$absolute_target_root" ]]
 "#,
-            fake_bin = fake_bin.display(),
-            repo_root = repo_root.display(),
-        ))
+        scripts_dir = scripts_dir,
+        repo_root = repo_root_for_bash,
+        absolute_target_root = absolute_target_root_for_bash,
+    );
+
+    let output = bash_command()
+        .arg("-c")
+        .arg(script)
         .current_dir(repo_root)
         .output()
-        .expect("run packager fallback smoke");
+        .expect("run cargo target helper smoke");
 
     assert!(
         output.status.success(),
-        "packager fallback smoke failed:\nstdout:\n{}\nstderr:\n{}",
+        "cargo target helper smoke failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let log = fs::read_to_string(&log_path).expect("read powershell log");
-    assert!(log.contains("PACKAGE_ROOT_NAME=ffhn-9.9.9-x86_64-pc-windows-msvc"));
-    assert!(log.contains("Add-Type -AssemblyName System.IO.Compression"));
-    assert!(log.contains("Add-Type -AssemblyName System.IO.Compression.FileSystem"));
-    assert!(log.contains("ZipArchiveMode]::Create"));
-    assert!(log.contains(r#"-replace "\\", "/""#));
 }
 
 #[test]
-fn windows_release_smoke_prefers_bash_native_unzip_before_powershell() {
+fn release_shell_helpers_normalize_windows_source_paths() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
-    let temp = tempdir().expect("tempdir");
-    let fake_bin = temp.path().join("bin");
-    fs::create_dir_all(&fake_bin).expect("create fake bin");
-    let log_path = temp.path().join("extractor.log");
+    let repo_root_for_bash = crate::release::bash_source_argument_for_tests(repo_root);
 
-    fs::write(
-        fake_bin.join("unzip"),
-        format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'unzip\\n' > \"{}\"\n",
-            log_path.display()
-        ),
-    )
-    .expect("write fake unzip");
-    fs::write(
-        fake_bin.join("powershell.exe"),
-        format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'powershell\\n' > \"{}\"\n",
-            log_path.display()
-        ),
-    )
-    .expect("write fake powershell");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        let executable = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(fake_bin.join("unzip"), executable.clone()).expect("chmod fake unzip");
-        fs::set_permissions(fake_bin.join("powershell.exe"), executable)
-            .expect("chmod fake powershell");
-    }
-
-    let output = Command::new("bash")
+    let output = bash_command()
         .arg("-c")
         .arg(format!(
             r#"set -euo pipefail
-PATH="{fake_bin}:$PATH"
-export OS=Windows_NT
-source "{repo_root}/scripts/smoke-release-artifact.sh"
-extract_release_archive "/tmp/archive.zip" "zip" "/tmp/extract-root"
+source "{repo_root}/scripts/common.sh"
+[[ "$(ffhn_normalize_bash_path 'D:\a\ffhn\scripts\release-targets.sh')" == '/d/a/ffhn/scripts/release-targets.sh' ]]
+[[ "$(ffhn_normalize_bash_path 'scripts\release-targets.sh')" == 'scripts/release-targets.sh' ]]
 "#,
-            fake_bin = fake_bin.display(),
-            repo_root = repo_root.display(),
+            repo_root = repo_root_for_bash,
         ))
         .current_dir(repo_root)
         .output()
-        .expect("run extractor selection smoke");
+        .expect("run path-normalization smoke");
 
     assert!(
         output.status.success(),
-        "extractor selection smoke failed:\nstdout:\n{}\nstderr:\n{}",
+        "path-normalization smoke failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        fs::read_to_string(&log_path).expect("read extractor log"),
-        "unzip\n"
-    );
 }
+
+mod archives;
+mod entrypoints;

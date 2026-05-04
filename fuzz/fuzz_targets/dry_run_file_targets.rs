@@ -131,7 +131,7 @@ fn target_toml(
     };
 
     format!(
-        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nfollow_redirects = false\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n"
+        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n"
     )
 }
 

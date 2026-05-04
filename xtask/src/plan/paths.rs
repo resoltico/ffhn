@@ -1,4 +1,7 @@
+use std::collections::hash_map::DefaultHasher;
+use std::env;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::model::DynResult;
@@ -14,9 +17,26 @@ pub(crate) fn normalize_path(repo_root: &Path, path: &Path) -> DynResult<PathBuf
     Ok(fs::canonicalize(candidate)?)
 }
 
+/// Returns the active Cargo target root for maintainer and release commands.
+pub(crate) fn cargo_target_root(repo_root: &Path) -> PathBuf {
+    match env::var_os("CARGO_TARGET_DIR") {
+        Some(target_dir) => {
+            let target_dir = PathBuf::from(target_dir);
+            if target_dir.is_absolute() {
+                target_dir
+            } else {
+                repo_root.join(target_dir)
+            }
+        }
+        None => repo_root.join("target"),
+    }
+}
+
 /// Returns the dist-profile binary path used by the smoke check.
 pub(crate) fn release_binary_path(repo_root: &Path) -> PathBuf {
-    repo_root.join("target").join("dist").join(binary_name())
+    cargo_target_root(repo_root)
+        .join("dist")
+        .join(binary_name())
 }
 
 /// Returns the manifest path for the public `ffhn-core` crate.
@@ -47,9 +67,20 @@ pub(crate) fn fuzz_lockfile_path(repo_root: &Path) -> PathBuf {
     repo_root.join("fuzz").join("Cargo.lock")
 }
 
-/// Returns the semver scratch directory under the Cargo target tree.
+/// Returns the semver scratch directory under the OS temp tree.
 pub(crate) fn semver_scratch_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("target").join("semver-checks")
+    semver_temp_root(repo_root).join("target")
+}
+
+fn semver_temp_root(repo_root: &Path) -> PathBuf {
+    env::temp_dir().join(format!("ffhn-semver-{}", repo_root_fingerprint(repo_root)))
+}
+
+fn repo_root_fingerprint(repo_root: &Path) -> String {
+    let repo_identity = fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.to_path_buf());
+    let mut hasher = DefaultHasher::new();
+    repo_identity.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 #[cfg(windows)]

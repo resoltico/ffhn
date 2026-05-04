@@ -13,7 +13,7 @@ engine = "http"
 method = "GET"
 tieeout_ms = 15000
 max_bytes = 2000000
-user_agent = "ffhn/2.0.0"
+user_agent = "ffhn/example"
 follow_redirects = true
 acceptarget_id = "demo-file"
 display_name = "File Demo"
@@ -25,7 +25,6 @@ file_path = "/tmp/demo.html"
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [sele"canonical_text_sha256"

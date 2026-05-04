@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: GETTING_STARTED
-updated: "2026-05-03"
+updated: "2026-05-01"
 route:
   keywords: [getting started, install, quick start, release package, sample page, windows]
   questions: ["how do I install ffhn?", "how do I try ffhn quickly?", "what is the fastest verified ffhn sample flow?", "where are the packaged install commands?"]
@@ -17,8 +16,8 @@ If you want the short storefront overview first, start at [../README.md](../READ
 ## Start Paths
 
 - Build from source if you are already working in Rust or cloning the repository.
-- Install a release package if you want a ready-made platform binary.
-- Use the checked-in file-target sample if you want the quickest verified live run.
+- Install a release package if you want a ready-made platform binary and use the portable local-file quick start below.
+- Use the checked-in file-target sample if you already have a repository checkout and want the shortest verified live run.
 
 If you are working directly from the repository without installing the binary, replace `ffhn` in the commands below with `cargo run -p ffhn-cli --`.
 
@@ -78,13 +77,120 @@ $env:Path = "$HOME\bin;$env:Path"
 ffhn --help
 ```
 
-Each prebuilt release package contains the platform binary plus `README.md` and `LICENSE`. The release asset inventory, platform matrix, and packaging policy live in [platform-support.md](platform-support.md).
+Each prebuilt release package contains the platform binary plus `README.md`, `LICENSE`, `NOTICE`, `PATENTS.md`, and `changelog.md`. The release asset inventory, platform matrix, and packaging policy live in [platform-support.md](platform-support.md).
 
-## Quick Start
+## Portable Quick Start
 
-FFHN expects one directory per target under a watch root. The default watch root is `./watchlist`, but the quickest deterministic starter flow in this repository uses the checked-in file-target example inside a disposable watch root.
+Use this path when you have the binary installed from a release package or when you want one self-contained local example without relying on checked-in repository assets.
 
-Materialize and run the local example once:
+Create one disposable local-file target and run it once on macOS or Linux:
+
+```bash
+WATCH_ROOT="$(mktemp -d)"
+TARGET_DIR="$WATCH_ROOT/demo_file"
+HTML_FILE="$WATCH_ROOT/demo.html"
+mkdir -p "$TARGET_DIR"
+cat >"$HTML_FILE" <<'HTML'
+<html><body><main><h1>Quarterly Report</h1><p>Office line item</p></main></body></html>
+HTML
+cat >"$TARGET_DIR/target.toml" <<EOF
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo_file"
+display_name = "Demo File"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "$HTML_FILE"
+
+[fetch]
+engine = "file"
+
+[selection]
+kind = "css_selector"
+match = "single"
+output = "outer_html"
+whitespace = "preserve"
+rewrite_urls = false
+selector = "main"
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []
+EOF
+ffhn run --watch-root "$WATCH_ROOT" --target demo_file
+```
+
+Keep that same `$WATCH_ROOT` in your shell for the next commands.
+
+Create the same disposable local-file target from PowerShell:
+
+```powershell
+$WatchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+$TargetDir = Join-Path $WatchRoot "demo_file"
+$HtmlFile = Join-Path $WatchRoot "demo.html"
+New-Item -ItemType Directory -Force $TargetDir | Out-Null
+Set-Content -Path $HtmlFile -Encoding utf8 -NoNewline -Value '<html><body><main><h1>Quarterly Report</h1><p>Office line item</p></main></body></html>'
+$TomlFilePath = $HtmlFile -replace '\\','/'
+@"
+schema_name = "ffhn.target"
+schema_version = 1
+target_id = "demo_file"
+display_name = "Demo File"
+enabled = true
+
+[target]
+kind = "file"
+file_path = "$TomlFilePath"
+
+[fetch]
+engine = "file"
+
+[selection]
+kind = "css_selector"
+match = "single"
+output = "outer_html"
+whitespace = "preserve"
+rewrite_urls = false
+selector = "main"
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []
+"@ | Set-Content -Path (Join-Path $TargetDir "target.toml") -Encoding utf8
+ffhn run --watch-root $WatchRoot --target demo_file
+```
+
+Keep that same `$WatchRoot` in your PowerShell session for the next commands.
+
+Inspect the current status for that same target:
+
+```bash
+ffhn status --watch-root "$WATCH_ROOT" --target demo_file
+```
+
+```powershell
+ffhn status --watch-root $WatchRoot --target demo_file
+```
+
+Inspect everything without mutating snapshots or run reports:
+
+```bash
+ffhn run --watch-root "$WATCH_ROOT" --target demo_file --dry-run
+```
+
+```powershell
+ffhn run --watch-root $WatchRoot --target demo_file --dry-run
+```
+
+When you are done with that disposable target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.
+
+## Repository Sample Quick Start
+
+FFHN expects one directory per target under a watch root. The default watch root is `./watchlist`, but the shortest checked-in sample flow in this repository uses the file-target example inside a disposable watch root.
+
+Materialize and run the checked-in local example once on macOS or Linux:
 
 ```bash
 WATCH_ROOT="$(mktemp -d)"
@@ -95,10 +201,26 @@ ffhn run --watch-root "$WATCH_ROOT" --target release_notes
 
 Keep that same `$WATCH_ROOT` in your shell for the next commands.
 
-Inspect the current status for that same target:
+Materialize and run the same example once from PowerShell:
+
+```powershell
+$WatchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Force $WatchRoot | Out-Null
+.\examples\file-target-with-notifications\materialize-target.ps1 `
+  "$WatchRoot\release_notes\target.toml"
+ffhn run --watch-root $WatchRoot --target release_notes
+```
+
+Keep that same `$WatchRoot` in your PowerShell session for the next commands.
+
+Inspect the current status for that same checked-in example target:
 
 ```bash
 ffhn status --watch-root "$WATCH_ROOT" --target release_notes
+```
+
+```powershell
+ffhn status --watch-root $WatchRoot --target release_notes
 ```
 
 Run the full watch root in parallel:
@@ -107,13 +229,21 @@ Run the full watch root in parallel:
 ffhn run --watch-root "$WATCH_ROOT" --all --jobs 4
 ```
 
-Inspect everything without mutating snapshots or run reports:
+```powershell
+ffhn run --watch-root $WatchRoot --all --jobs 4
+```
+
+Inspect that same checked-in example without mutating snapshots or run reports:
 
 ```bash
 ffhn run --watch-root "$WATCH_ROOT" --target release_notes --dry-run
 ```
 
-When you are done with that disposable quick-start target, remove it with `rm -rf "$WATCH_ROOT"`.
+```powershell
+ffhn run --watch-root $WatchRoot --target release_notes --dry-run
+```
+
+When you are done with that disposable repository-backed target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.
 
 The checked-in `watchlist/demo` directory remains a maintained minimal HTTP starter target. Live runs create local runtime artifacts such as `state.json`, `last_run.json`, and `snapshots/` under that directory, and both `run` and `status` may create `lock/` on first use for locking. Those generated artifacts are ignored by Git.
 

@@ -1,7 +1,8 @@
 # PROTOCOL_AFAD.md — Agent-First Documentation Protocol
 
-Protocol: `AGENT_FIRST_DOCUMENTATION`  
-Version: `4.0`
+**Version:** 4.0
+**Updated:** 2026-04-24
+**Applies to:** all languages, runtimes, frameworks, tools, and repositories.
 
 This protocol governs documentation that agents must maintain, retrieve, validate, or keep synchronized with code and system behavior. It is optimized for documentation that can be used by humans, retrieval systems, and future coding agents without requiring hidden context.
 

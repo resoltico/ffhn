@@ -1,4 +1,21 @@
 use super::*;
+use std::process::Command;
+
+fn available_powershell_program() -> Option<&'static str> {
+    ["pwsh", "powershell", "powershell.exe"]
+        .into_iter()
+        .find(|program| {
+            Command::new(program)
+                .args([
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-Command",
+                    "$PSVersionTable.PSVersion",
+                ])
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+}
 
 #[test]
 fn public_target_examples_validate_against_the_current_target_contract() {
@@ -15,6 +32,7 @@ fn public_target_examples_validate_against_the_current_target_contract() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn public_target_example_helper_covers_non_watchlist_file_targets() {
     let workspace_version = workspace_version(&repo_root()).expect("workspace version");
@@ -32,7 +50,6 @@ file_path = "/tmp/release-notes.html"
 
 [fetch]
 engine = "file"
-follow_redirects = false
 max_bytes = 2000000
 
 [selection]
@@ -51,6 +68,7 @@ canonicalization = []
     assert_public_target_example_contract(path, &target, &workspace_version);
 }
 
+#[cfg(unix)]
 #[test]
 fn file_target_example_materializer_emits_a_valid_target_document() {
     let repo_root = repo_root();
@@ -71,16 +89,25 @@ fn file_target_example_materializer_emits_a_valid_target_document() {
     let target: TargetDocument = toml::from_str(&document).expect("parse materialized target");
     target.validate().expect("validate materialized target");
     assert_eq!(target.target_id(), "release_notes");
-    let file_path = target
-        .target()
-        .file_path
-        .as_deref()
-        .expect("materialized file path");
+    let file_path = target.file_path().expect("materialized file path");
     let expected_path =
         repo_root.join("examples/file-target-with-notifications/release-notes.html");
     assert!(Path::new(file_path).is_absolute(), "{}", file_path);
     assert!(Path::new(file_path).is_file(), "{}", file_path);
     assert_eq!(Path::new(file_path), expected_path.as_path());
+    let hook = target
+        .notifications()
+        .next()
+        .expect("materialized notification hook");
+    assert_eq!(
+        hook.args().last().expect("hook log path"),
+        target_file
+            .parent()
+            .expect("target dir")
+            .join("ffhn-release-notes-report.jsonl")
+            .to_str()
+            .expect("utf8 log path")
+    );
 }
 
 #[test]
@@ -96,4 +123,54 @@ fn file_target_example_materializer_requires_one_destination_argument() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("usage:"));
+}
+
+#[test]
+fn file_target_example_powershell_materializer_emits_a_valid_target_document() {
+    let Some(program) = available_powershell_program() else {
+        return;
+    };
+
+    let repo_root = repo_root();
+    let materializer =
+        repo_root.join("examples/file-target-with-notifications/materialize-target.ps1");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let target_file = temp.path().join("release_notes/target.toml");
+
+    let output = Command::new(program)
+        .args(["-NoLogo", "-NoProfile", "-File"])
+        .arg(&materializer)
+        .arg(&target_file)
+        .output()
+        .expect("run powershell file-target materializer");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let document = fs::read_to_string(&target_file).expect("read materialized target");
+    let target: TargetDocument = toml::from_str(&document).expect("parse materialized target");
+    target.validate().expect("validate materialized target");
+    assert_eq!(target.target_id(), "release_notes");
+    let file_path = target.file_path().expect("materialized file path");
+    let expected_path =
+        repo_root.join("examples/file-target-with-notifications/release-notes.html");
+    assert!(Path::new(file_path).is_absolute(), "{}", file_path);
+    assert!(Path::new(file_path).is_file(), "{}", file_path);
+    assert_eq!(Path::new(file_path), expected_path.as_path());
+    let hook = target
+        .notifications()
+        .next()
+        .expect("materialized notification hook");
+    assert_eq!(
+        hook.args().last().expect("hook log path"),
+        target_file
+            .parent()
+            .expect("target dir")
+            .join("ffhn-release-notes-report.jsonl")
+            .to_str()
+            .expect("utf8 log path")
+    );
 }

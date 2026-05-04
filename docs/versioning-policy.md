@@ -1,8 +1,7 @@
 ---
 afad: "4.0"
-version: "5.0.0"
 domain: MAINTAINER
-updated: "2026-05-03"
+updated: "2026-04-30"
 route:
   keywords: [versioning policy, schema naming, htmlcut interop profile, semver baseline, workspace version]
   questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]
@@ -44,7 +43,7 @@ These are the normal FFHN surfaces:
 - `ffhn.batch_run_report`
 - `ffhn.status_report`
 - the core-owned CLI command and document contract
-- stable embedded field vocabularies and named subobjects inside those documents, such as `reason_code`, notification-event values, and the shared structured process-error detail
+- stable embedded field vocabularies and named subobjects inside those documents, such as `reason_code`, shared `run_outcome` values used across reports and notifications, and the shared structured process-error detail
 - the stable embeddable `ffhn-core` API outside frozen upstream interop profiles
 
 These surfaces may change aggressively when architecture quality requires it. FFHN does not carry backwards-compatibility shims, aliases, or migration layers for generic surfaces.
