@@ -48,7 +48,7 @@ version = "4.6.0"
 
 [workspace.dependencies.ffhn-core]
 path = "crates/ffhn-core"
-version = "5.0.0"
+version = "6.0.0"
 
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
@@ -75,9 +75,10 @@ version = "2.5.8"
 
 [workspace.lints.clippy]
 all = "warn"
+cast_possible_truncation = "warn"
 
 [workspace.lints.rust]
-unsafe_code = "warn"
+unsafe_code = "deny"
 
 [workspace.package]
 authors = ["Ervins Strauhmanis"]
@@ -87,4 +88,4 @@ homepage = "https://github.com/resoltico/ffhn"
 license = "MIT"
 repository = "https://github.com/resoltico/ffhn"
 rust-version = "1.95"
-version = "5.0.0"
+version = "6.0.0"

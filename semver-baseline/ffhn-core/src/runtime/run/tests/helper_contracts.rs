@@ -1,4 +1,5 @@
 use super::support::*;
+use htmlcut_core::interop::v1::Selection;
 
 #[test]
 fn helper_functions_cover_error_mapping_and_compare_outcomes() {
@@ -42,10 +43,7 @@ fn helper_functions_cover_error_mapping_and_compare_outcomes() {
         failure_run_outcome(ReasonCode::Disabled),
         RunOutcome::FailedPermanent
     );
-    assert_eq!(
-        notification_event(RunOutcome::SkippedDisabled),
-        NotificationEvent::SkippedDisabled
-    );
+    assert_eq!(RunOutcome::SkippedDisabled.as_str(), "skipped_disabled");
 
     let changed = build_change_section(
         Some("keep\nbefore\nsuffix"),
@@ -83,17 +81,43 @@ fn helper_functions_cover_error_mapping_and_compare_outcomes() {
 fn required_outer_html_enforces_the_persisted_artifact_contract() {
     let url = Url::parse("https://example.com").expect("url");
     let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
-    let plan = super::super::super::interop::build_htmlcut_plan(&target).expect("plan");
+    let plan =
+        super::super::super::interop::build_htmlcut_plan(target.selection_config()).expect("plan");
     let source = HtmlInput::new("demo".to_owned(), "<main>Hello</main>".to_owned())
         .expect("source")
         .with_input_base_url(url);
 
     let mut result = execute_plan(&source, &plan).expect("result");
+    let selected_match = required_selected_match(&result).expect("selected match");
     assert_eq!(
-        required_outer_html(&result).expect("outer html"),
+        required_outer_html(selected_match).expect("outer html"),
         "<main>Hello</main>"
     );
 
     result.selected_matches[0].outer_html = None;
-    assert!(required_outer_html(&result).is_err());
+    let selected_match = required_selected_match(&result).expect("selected match after mutation");
+    assert!(required_outer_html(selected_match).is_err());
+}
+
+#[test]
+fn required_selected_match_rejects_htmlcut_all_selection_results_for_ffhn() {
+    let url = Url::parse("https://example.com").expect("url");
+    let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
+    let mut plan =
+        super::super::super::interop::build_htmlcut_plan(target.selection_config()).expect("plan");
+    plan.selection = Selection::all();
+    let source = HtmlInput::new(
+        "demo".to_owned(),
+        "<main>One</main><main>Two</main>".to_owned(),
+    )
+    .expect("source")
+    .with_input_base_url(url);
+
+    let result = execute_plan(&source, &plan).expect("all-selection result");
+    let error = required_selected_match(&result).expect_err("ffhn should reject all-selection");
+    assert!(
+        error
+            .to_string()
+            .contains("expects exactly one selected HTMLCut match")
+    );
 }

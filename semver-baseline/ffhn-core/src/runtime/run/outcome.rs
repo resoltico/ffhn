@@ -1,17 +1,30 @@
-use htmlcut_core::interop::v1::{ErrorCode, InteropResult};
+use htmlcut_core::interop::v1::{ErrorCode, InteropResult, SelectedMatch};
 
 use crate::canonical::normalize_line_endings;
 use crate::{CoreError, FailureClass, RunOutcome};
 
-pub(super) fn required_outer_html(result: &InteropResult) -> Result<String, CoreError> {
+pub(super) fn required_selected_match(result: &InteropResult) -> Result<&SelectedMatch, CoreError> {
+    if result.selected_matches.len() != 1 {
+        return Err(CoreError::htmlcut_interop(format!(
+            "ffhn expects exactly one selected HTMLCut match, got {}",
+            result.selected_matches.len()
+        )));
+    }
+
     result
         .selected_matches
         .first()
-        .and_then(|m| m.outer_html.as_deref())
+        .ok_or_else(|| CoreError::htmlcut_interop("htmlcut.result selected_matches is empty"))
+}
+
+pub(super) fn required_outer_html(selected_match: &SelectedMatch) -> Result<String, CoreError> {
+    selected_match
+        .outer_html
+        .as_deref()
         .map(normalize_line_endings)
         .ok_or_else(|| {
             CoreError::htmlcut_interop(
-                "htmlcut.result selected_match.outer_html is required for persistence",
+                "htmlcut.selected_match.outer_html is required for persistence",
             )
         })
 }

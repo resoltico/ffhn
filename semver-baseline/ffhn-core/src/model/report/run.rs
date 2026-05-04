@@ -1,6 +1,7 @@
 use url::Url;
 
 use crate::TargetId;
+use crate::model::validate::validate_timestamp_not_before;
 use crate::stable_json::stable_digest_omitting_field;
 
 use super::checks::{
@@ -9,133 +10,160 @@ use super::checks::{
 use super::notification::{ProcessErrorDetail, RunNotificationDelivery};
 use super::*;
 
+mod access;
+mod wire;
+
+pub use access::{RunCompareView, RunFetchView, RunNotificationDeliveryView, RunPersistView};
+
 /// Fetch subsection inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RunFetchSection {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunFetchSection {
     /// Fetch engine used for the run.
-    pub engine: FetchEngine,
+    pub(crate) engine: FetchEngine,
     /// Final URL after redirects when known.
-    pub final_url: Option<String>,
+    pub(crate) final_url: Option<String>,
     /// HTTP status when known.
-    pub http_status: Option<u16>,
+    pub(crate) http_status: Option<u16>,
     /// Response content type when known.
-    pub content_type: Option<String>,
+    pub(crate) content_type: Option<String>,
     /// Bytes actually read when known.
-    pub bytes_read: Option<usize>,
+    pub(crate) bytes_read: Option<usize>,
     /// Wall-clock duration in milliseconds.
-    pub duration_ms: u64,
+    pub(crate) duration_ms: u64,
 }
 
 /// Extraction subsection inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunExtractionSection {
     /// Interop profile.
-    pub interop_profile: String,
+    pub(crate) interop_profile: String,
     /// HTMLCut plan digest.
-    pub htmlcut_plan_digest_sha256: String,
+    pub(crate) htmlcut_plan_digest_sha256: String,
     /// HTMLCut result digest.
-    pub htmlcut_result_digest_sha256: String,
+    pub(crate) htmlcut_result_digest_sha256: String,
     /// Comparison-input digest.
-    pub comparison_input_sha256: String,
+    pub(crate) comparison_input_sha256: String,
     /// Outer-HTML digest.
-    pub outer_html_sha256: String,
+    pub(crate) outer_html_sha256: String,
     /// Strategy kind.
-    pub strategy_kind: SelectionKind,
+    pub(crate) strategy_kind: SelectionKind,
     /// Selection mode.
-    pub selection_mode: SelectionMatch,
+    pub(crate) selection_mode: SelectionMatch,
     /// Output kind.
-    pub output_kind: OutputKind,
+    pub(crate) output_kind: OutputKind,
     /// Candidate count.
-    pub candidate_count: usize,
+    pub(crate) candidate_count: usize,
     /// Selected candidate index.
-    pub selected_candidate_index: usize,
+    pub(crate) selected_candidate_index: usize,
     /// Warning codes only.
-    pub warning_codes: Vec<String>,
+    pub(crate) warning_codes: Vec<String>,
     /// Extraction-stage duration.
-    pub duration_ms: u64,
+    pub(crate) duration_ms: u64,
 }
 
 /// Compare subsection inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RunCompareSection {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunCompareSection {
     /// Canonicalizer kinds applied in order.
-    pub canonicalizers: Vec<String>,
+    pub(crate) canonicalizers: Vec<String>,
     /// Compare-stage duration.
-    pub duration_ms: u64,
+    pub(crate) duration_ms: u64,
+}
+
+/// Stable write status for one persisted FFHN artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PersistWriteStatus {
+    /// FFHN did not attempt this write during the run.
+    NotAttempted,
+    /// FFHN wrote the artifact successfully.
+    Written,
+    /// FFHN attempted the write and it failed.
+    Failed {
+        /// Structured failure detail for the write attempt.
+        error: ProcessErrorDetail,
+    },
+}
+
+impl PersistWriteStatus {
+    /// Returns whether FFHN did not attempt this write.
+    pub const fn is_not_attempted(&self) -> bool {
+        matches!(self, Self::NotAttempted)
+    }
+
+    /// Returns whether FFHN wrote the artifact successfully.
+    pub const fn is_written(&self) -> bool {
+        matches!(self, Self::Written)
+    }
+
+    /// Returns whether FFHN attempted the write and it failed.
+    pub const fn is_failed(&self) -> bool {
+        matches!(self, Self::Failed { .. })
+    }
+
+    /// Returns the structured failure detail when the write failed.
+    pub const fn error(&self) -> Option<&ProcessErrorDetail> {
+        match self {
+            Self::NotAttempted | Self::Written => None,
+            Self::Failed { error } => Some(error),
+        }
+    }
 }
 
 /// Persist subsection inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RunPersistSection {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunPersistSection {
     /// Persist-stage duration.
-    pub duration_ms: u64,
-    /// Whether state.json was written.
-    pub wrote_state: bool,
-    /// Whether last_run.json was written.
-    pub wrote_last_run: bool,
-    /// Structured write failure detail when a live persist step failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ProcessErrorDetail>,
+    pub(crate) duration_ms: u64,
+    /// Result of the `state.json` write path.
+    pub(crate) state_write: PersistWriteStatus,
+    /// Result of the `last_run.json` write path.
+    pub(crate) last_run_write: PersistWriteStatus,
 }
 
 /// One changed region summary inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunChangeRegion {
     /// One-based start line in the previous canonical text.
-    pub previous_start_line: usize,
+    pub(crate) previous_start_line: usize,
     /// Number of previous lines in the changed region.
-    pub previous_line_count: usize,
+    pub(crate) previous_line_count: usize,
     /// One-based start line in the current canonical text.
-    pub current_start_line: usize,
+    pub(crate) current_start_line: usize,
     /// Number of current lines in the changed region.
-    pub current_line_count: usize,
+    pub(crate) current_line_count: usize,
     /// Compact excerpt from the previous canonical text when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_excerpt: Option<String>,
+    pub(crate) previous_excerpt: Option<String>,
     /// Compact excerpt from the current canonical text when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_excerpt: Option<String>,
+    pub(crate) current_excerpt: Option<String>,
     /// Digest of the previous excerpt when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_excerpt_sha256: Option<String>,
+    pub(crate) previous_excerpt_sha256: Option<String>,
     /// Digest of the current excerpt when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_excerpt_sha256: Option<String>,
+    pub(crate) current_excerpt_sha256: Option<String>,
 }
 
 /// Machine-usable change summary inside `ffhn.run_report`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunChangeSection {
     /// Change discriminator.
-    pub kind: ChangeKind,
+    pub(crate) kind: ChangeKind,
     /// Previous canonical-text byte length.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_text_bytes: Option<usize>,
+    pub(crate) previous_text_bytes: Option<usize>,
     /// Current canonical-text byte length.
-    pub current_text_bytes: usize,
+    pub(crate) current_text_bytes: usize,
     /// Previous canonical-text line count.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_line_count: Option<usize>,
+    pub(crate) previous_line_count: Option<usize>,
     /// Current canonical-text line count.
-    pub current_line_count: usize,
+    pub(crate) current_line_count: usize,
     /// Number of equal leading lines.
-    pub common_prefix_lines: usize,
+    pub(crate) common_prefix_lines: usize,
     /// Number of equal trailing lines.
-    pub common_suffix_lines: usize,
+    pub(crate) common_suffix_lines: usize,
     /// Replaced line region when one exists.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub changed_region: Option<RunChangeRegion>,
+    pub(crate) changed_region: Option<RunChangeRegion>,
 }
 
 /// `ffhn.run_report` schema.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "RawRunReport")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunReport {
     /// Frozen schema identity.
     pub(crate) schema_name: String,
@@ -156,8 +184,9 @@ pub struct RunReport {
     /// Reason code.
     pub(crate) reason_code: ReasonCode,
     /// Failure classification when the run failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) failure_class: Option<FailureClass>,
+    /// Structured detail for the primary run failure when one exists.
+    pub(crate) error_detail: Option<ProcessErrorDetail>,
     /// Target status after the run.
     pub(crate) target_status_after_run: TargetStatus,
     /// Compare basis.
@@ -177,82 +206,22 @@ pub struct RunReport {
     /// Compare subsection.
     pub(crate) compare: Option<RunCompareSection>,
     /// Machine-usable change summary.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) change: Option<RunChangeSection>,
     /// Persist subsection.
     pub(crate) persist: RunPersistSection,
     /// Best-effort notification deliveries attempted by the run.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) notifications: Vec<RunNotificationDelivery>,
     /// Reserved extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) extensions: Extensions,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRunReport {
-    schema_name: String,
-    schema_version: u32,
-    run_report_digest_sha256: String,
-    target_id: String,
-    run_started_at: String,
-    run_finished_at: String,
-    run_mode: RunMode,
-    run_outcome: RunOutcome,
-    reason_code: ReasonCode,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    failure_class: Option<FailureClass>,
-    target_status_after_run: TargetStatus,
-    compare_basis: CompareBasis,
-    previous_compare_digest_sha256: Option<String>,
-    current_compare_digest_sha256: Option<String>,
-    state_phase_before_run: StatePhase,
-    state_phase_after_run: StatePhase,
-    fetch: Option<RunFetchSection>,
-    extraction: Option<RunExtractionSection>,
-    compare: Option<RunCompareSection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    change: Option<RunChangeSection>,
-    persist: RunPersistSection,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    notifications: Vec<RunNotificationDelivery>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    extensions: Extensions,
-}
-
 impl RunReport {
-    /// Returns the run mode.
-    pub fn run_mode(&self) -> RunMode {
-        self.run_mode
-    }
-
-    /// Returns the run outcome.
-    pub fn run_outcome(&self) -> RunOutcome {
-        self.run_outcome
-    }
-
-    /// Returns the reason code.
-    pub fn reason_code(&self) -> ReasonCode {
-        self.reason_code
-    }
-
-    /// Returns the persisted target id string.
-    pub fn target_id(&self) -> &str {
-        self.target_id.as_str()
-    }
-
-    /// Returns the persist subsection.
-    pub fn persist(&self) -> &RunPersistSection {
-        &self.persist
-    }
-
-    /// Returns the attempted notification deliveries.
-    pub fn notifications(&self) -> &[RunNotificationDelivery] {
-        &self.notifications
-    }
-
     /// Computes and stores the report digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when FFHN cannot serialize the report body deterministically for the
+    /// digest computation.
     pub fn with_digest(mut self) -> Result<Self, CoreError> {
         self.run_report_digest_sha256 =
             stable_digest_omitting_field(&self, "run_report_digest_sha256")?;
@@ -260,9 +229,19 @@ impl RunReport {
     }
 
     /// Validates one run report.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError`] when the schema identity, digest, timestamps, persist contract,
+    /// outcome/reason coupling, extraction details, change summary, or notification deliveries do
+    /// not match FFHN's frozen run-report contract.
     pub fn validate(&self) -> Result<(), CoreError> {
         validate_run_report_identity(&self.schema_name, self.schema_version)?;
         validate_sha256(&self.run_report_digest_sha256)?;
+        self.error_detail
+            .as_ref()
+            .map(ProcessErrorDetail::validate)
+            .transpose()?;
         let expected_digest = stable_digest_omitting_field(self, "run_report_digest_sha256")?;
         if expected_digest != self.run_report_digest_sha256 {
             return Err(CoreError::contract(
@@ -271,24 +250,13 @@ impl RunReport {
         }
         validate_timestamp(&self.run_started_at)?;
         validate_timestamp(&self.run_finished_at)?;
-        if self.run_mode == RunMode::DryRun
-            && (self.persist.wrote_state
-                || self.persist.wrote_last_run
-                || self.persist.error.is_some()
-                || !self.notifications.is_empty())
-        {
-            return Err(CoreError::contract(
-                "dry_run reports must not persist state or emit notifications",
-            ));
-        }
-        if let Some(error) = &self.persist.error {
-            error.validate()?;
-            if self.persist.wrote_state && self.persist.wrote_last_run {
-                return Err(CoreError::contract(
-                    "run_report.persist.error requires at least one failed persist write",
-                ));
-            }
-        }
+        validate_timestamp_not_before(
+            "run_report.run_started_at",
+            &self.run_started_at,
+            "run_report.run_finished_at",
+            &self.run_finished_at,
+        )?;
+        validate_persist_contract(self)?;
         if let Some(previous) = &self.previous_compare_digest_sha256 {
             validate_sha256(previous)?;
         }
@@ -307,10 +275,10 @@ impl RunReport {
         if matches!(
             self.run_outcome,
             RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
-        ) && self.failure_class.is_some()
+        ) && (self.failure_class.is_some() || self.error_detail.is_some())
         {
             return Err(CoreError::contract(
-                "successful outcomes must not carry failure_class",
+                "successful outcomes must not carry failure_class or error_detail",
             ));
         }
         if matches!(
@@ -342,16 +310,18 @@ impl RunReport {
             && (self.fetch.is_some()
                 || self.extraction.is_some()
                 || self.compare.is_some()
-                || self.current_compare_digest_sha256.is_some())
+                || self.current_compare_digest_sha256.is_some()
+                || self.error_detail.is_some())
         {
             return Err(CoreError::contract(
-                "skipped_disabled must not carry fetch, extraction, compare, or current digests",
+                "skipped_disabled must not carry fetch, extraction, compare, current digests, or error_detail",
             ));
         }
         if matches!(
             self.run_outcome,
             RunOutcome::FailedTransient | RunOutcome::FailedPermanent | RunOutcome::SkippedDisabled
         ) && self.current_compare_digest_sha256.is_some()
+            && self.reason_code != ReasonCode::PersistError
         {
             return Err(CoreError::contract(
                 "failed or skipped runs must not carry current_compare_digest_sha256",
@@ -359,6 +329,11 @@ impl RunReport {
         }
         match self.run_outcome {
             RunOutcome::FailedTransient => {
+                if self.error_detail.is_none() {
+                    return Err(CoreError::contract(
+                        "failed_transient requires error_detail",
+                    ));
+                }
                 if self.failure_class != Some(FailureClass::Transient)
                     || self.reason_code.failure_class() != Some(FailureClass::Transient)
                 {
@@ -368,6 +343,11 @@ impl RunReport {
                 }
             }
             RunOutcome::FailedPermanent => {
+                if self.error_detail.is_none() {
+                    return Err(CoreError::contract(
+                        "failed_permanent requires error_detail",
+                    ));
+                }
                 if self.failure_class != Some(FailureClass::Permanent)
                     || self.reason_code.failure_class() != Some(FailureClass::Permanent)
                 {
@@ -421,36 +401,59 @@ impl RunReport {
     }
 }
 
-impl TryFrom<RawRunReport> for RunReport {
-    type Error = CoreError;
+fn validate_persist_contract(report: &RunReport) -> Result<(), CoreError> {
+    validate_persist_write_status(&report.persist.state_write)?;
+    validate_persist_write_status(&report.persist.last_run_write)?;
 
-    fn try_from(raw: RawRunReport) -> Result<Self, Self::Error> {
-        let report = Self {
-            schema_name: raw.schema_name,
-            schema_version: raw.schema_version,
-            run_report_digest_sha256: raw.run_report_digest_sha256,
-            target_id: raw.target_id.try_into()?,
-            run_started_at: raw.run_started_at,
-            run_finished_at: raw.run_finished_at,
-            run_mode: raw.run_mode,
-            run_outcome: raw.run_outcome,
-            reason_code: raw.reason_code,
-            failure_class: raw.failure_class,
-            target_status_after_run: raw.target_status_after_run,
-            compare_basis: raw.compare_basis,
-            previous_compare_digest_sha256: raw.previous_compare_digest_sha256,
-            current_compare_digest_sha256: raw.current_compare_digest_sha256,
-            state_phase_before_run: raw.state_phase_before_run,
-            state_phase_after_run: raw.state_phase_after_run,
-            fetch: raw.fetch,
-            extraction: raw.extraction,
-            compare: raw.compare,
-            change: raw.change,
-            persist: raw.persist,
-            notifications: raw.notifications,
-            extensions: raw.extensions,
-        };
-        report.validate()?;
-        Ok(report)
+    if report.run_mode == RunMode::DryRun {
+        if !report.persist.state_write.is_not_attempted() {
+            return Err(CoreError::contract(
+                "dry_run reports must not persist state or emit notifications",
+            ));
+        }
+        if !report.persist.last_run_write.is_not_attempted() {
+            return Err(CoreError::contract(
+                "dry_run reports must not persist state or emit notifications",
+            ));
+        }
+        if !report.notifications.is_empty() {
+            return Err(CoreError::contract(
+                "dry_run reports must not persist state or emit notifications",
+            ));
+        }
     }
+
+    let has_persist_failure = report.persist.has_failure();
+    if has_persist_failure {
+        if report.run_outcome != RunOutcome::FailedTransient {
+            return Err(CoreError::contract(
+                "persist write failures require failed_transient with reason_code = persist_error",
+            ));
+        }
+        if report.reason_code != ReasonCode::PersistError {
+            return Err(CoreError::contract(
+                "persist write failures require failed_transient with reason_code = persist_error",
+            ));
+        }
+        if report.failure_class != Some(FailureClass::Transient) {
+            return Err(CoreError::contract(
+                "persist write failures require failed_transient with reason_code = persist_error",
+            ));
+        }
+    }
+
+    if !has_persist_failure && report.reason_code == ReasonCode::PersistError {
+        return Err(CoreError::contract(
+            "reason_code = persist_error requires a failed persist write",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_persist_write_status(status: &PersistWriteStatus) -> Result<(), CoreError> {
+    if let PersistWriteStatus::Failed { error } = status {
+        error.validate()?;
+    }
+    Ok(())
 }

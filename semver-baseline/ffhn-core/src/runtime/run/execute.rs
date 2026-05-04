@@ -6,10 +6,11 @@ use htmlcut_core::interop::v1::{HtmlInput, execute_plan};
 use crate::canonical::{apply_canonicalizers, normalize_line_endings};
 use crate::fetch::{FetchFailure, fetch_target};
 use crate::stable_json::sha256_hex;
+use crate::time::elapsed_ms;
 use crate::{
     CoreError, EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord,
-    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, RunCompareSection, RunExtractionSection,
-    RunMode, RunPersistSection, RunReport, TargetPaths,
+    PersistWriteStatus, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, RunCompareSection,
+    RunExtractionSection, RunMode, RunPersistSection, RunReport, TargetPaths,
 };
 
 use super::super::interop::{
@@ -22,18 +23,19 @@ use super::super::state::{
     status_from_loaded_state, status_from_state,
 };
 use super::super::storage::now_utc;
-use super::super::target_load::load_target_document;
+use super::super::target_load::{TargetLoad, load_target_document};
 use super::change::build_change_section;
 use super::failures::{
-    finish_disabled_target_report, finish_fetch_failure_report, finish_live_state_failure_report,
+    finish_disabled_target_report, finish_live_state_failure_report,
     finish_lock_unavailable_report, live_state_failure_reason,
 };
 use super::outcome::{
-    reason_code_for_htmlcut_error, required_outer_html, run_outcome_from_digests,
+    reason_code_for_htmlcut_error, required_outer_html, required_selected_match,
+    run_outcome_from_digests,
 };
 use super::reporting::{
-    PersistFailureContext, finalize_failed_run, finalize_run_report, finish_persist_failure_report,
-    finish_report, invalid_target_run_report,
+    FailedRunContext, PersistFailureContext, finalize_failed_run, finalize_run_report,
+    finish_persist_failure_report, finish_report, invalid_target_run_report,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,13 +60,20 @@ pub(crate) fn run_once_with_options(
     paths: &TargetPaths,
     options: RunOptions,
 ) -> Result<RunReport, CoreError> {
+    paths.require_watch_root_directory()?;
     let run_started_at = now_utc()?;
     let started = Instant::now();
 
     let target = match load_target_document(paths)? {
-        Some(target) => target,
-        None => {
-            let report = invalid_target_run_report(paths, &run_started_at, options.mode, started)?;
+        TargetLoad::Valid(target) => target,
+        TargetLoad::Invalid(error_detail) => {
+            let report = invalid_target_run_report(
+                paths,
+                &run_started_at,
+                options.mode,
+                started,
+                error_detail,
+            )?;
             return finalize_run_report(report);
         }
     };
@@ -98,24 +107,29 @@ pub(crate) fn run_once_with_options(
 
     let fetch = match fetch_target(&target) {
         Ok(fetch) => fetch,
-        Err(FetchFailure {
-            reason_code,
-            report,
-        }) => {
-            return finish_fetch_failure_report(
+        Err(fetch_failure) => {
+            let FetchFailure {
+                reason_code,
+                error_detail,
+                report,
+            } = *fetch_failure;
+            return finalize_failed_run(
                 paths,
                 &target,
                 &state,
                 &run_started_at,
-                options,
-                reason_code,
-                report,
+                FailedRunContext {
+                    run_mode: options.mode,
+                    reason_code,
+                    error_detail,
+                    fetch: Some(report),
+                },
             );
         }
     };
 
     let extraction_started = Instant::now();
-    let plan = build_htmlcut_plan(&target)?;
+    let plan = build_htmlcut_plan(target.selection_config())?;
     let source = HtmlInput::new(target.target_id.clone(), fetch.html.clone())
         .map_err(|error| CoreError::htmlcut_interop(error.to_string()))?
         .with_input_base_url(fetch.final_url.clone());
@@ -132,17 +146,24 @@ pub(crate) fn run_once_with_options(
                 &target,
                 &state,
                 &run_started_at,
-                reason_code_for_htmlcut_error(error.error_code),
-                Some(fetch.report.clone()),
-                options,
+                FailedRunContext {
+                    run_mode: options.mode,
+                    reason_code: reason_code_for_htmlcut_error(error.error_code),
+                    error_detail: crate::ProcessErrorDetail::new(
+                        crate::ProcessErrorKind::HtmlcutInterop,
+                        format!("HTMLCut execution failed with {:?}", error.error_code),
+                        None,
+                    )
+                    .expect("htmlcut execution failure detail"),
+                    fetch: Some(fetch.report.clone()),
+                },
             );
         }
     };
-    let extraction_duration_ms = extraction_started.elapsed().as_millis() as u64;
+    let extraction_duration_ms = elapsed_ms(&extraction_started);
 
-    let selected_outer_html = required_outer_html(&htmlcut_result)?;
-    // required_outer_html already confirmed selected_matches is non-empty via its own first() check.
-    let selected_match = &htmlcut_result.selected_matches[0];
+    let selected_match = required_selected_match(&htmlcut_result)?;
+    let selected_outer_html = required_outer_html(selected_match)?;
     let comparison_input_text = normalize_line_endings(&selected_match.comparison_input_text);
     let comparison_input_sha256 = sha256_hex(comparison_input_text.as_bytes());
     let outer_html_sha256 = sha256_hex(selected_outer_html.as_bytes());
@@ -177,7 +198,7 @@ pub(crate) fn run_once_with_options(
     let canonical_text =
         apply_canonicalizers(&comparison_input_text, &target.compare.canonicalization)?;
     let current_compare_digest_sha256 = sha256_hex(canonical_text.as_bytes());
-    let compare_duration_ms = compare_started.elapsed().as_millis() as u64;
+    let compare_duration_ms = elapsed_ms(&compare_started);
 
     let previous_compare_digest_sha256 = prior_compare_digest(&state);
     let run_outcome = run_outcome_from_digests(
@@ -243,7 +264,7 @@ pub(crate) fn run_once_with_options(
                         extraction: Some(extraction_section.clone()),
                         compare: Some(compare_section.clone()),
                         change: Some(change_section.clone()),
-                        persist_duration_ms: persist_started.elapsed().as_millis() as u64,
+                        persist_duration_ms: elapsed_ms(&persist_started),
                         error: crate::ProcessErrorDetail::from(&error),
                     },
                 );
@@ -267,6 +288,7 @@ pub(crate) fn run_once_with_options(
             run_outcome,
             reason_code: crate::ReasonCode::Ok,
             failure_class: None,
+            error_detail: None,
             target_status_after_run: if options.mode == RunMode::Live {
                 status_from_loaded_state(persist_result.as_ref())
             } else {
@@ -284,12 +306,15 @@ pub(crate) fn run_once_with_options(
             extraction: Some(extraction_section),
             compare: Some(compare_section),
             change: Some(change_section),
-            persist: RunPersistSection {
-                duration_ms: persist_started.elapsed().as_millis() as u64,
-                wrote_state: options.mode == RunMode::Live && persist_result.is_some(),
-                wrote_last_run: false,
-                error: None,
-            },
+            persist: RunPersistSection::from_writes(
+                elapsed_ms(&persist_started),
+                if options.mode == RunMode::Live {
+                    PersistWriteStatus::Written
+                } else {
+                    PersistWriteStatus::NotAttempted
+                },
+                PersistWriteStatus::NotAttempted,
+            ),
             notifications: Vec::new(),
             extensions: None,
         },

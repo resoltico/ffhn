@@ -272,5 +272,5 @@ fn run_batch_counts_reports_with_reason_code_persist_error() {
     let entry = report.entries.first().expect("entry");
     let run_report = entry.run_report.as_ref().expect("run report");
     assert_eq!(run_report.reason_code, ReasonCode::PersistError);
-    assert!(run_report.persist.error.is_some());
+    assert!(run_report.persist.error().is_some());
 }

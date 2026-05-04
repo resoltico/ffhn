@@ -1,44 +1,46 @@
 use crate::{
-    ArtifactStatus, CoreError, ReasonCode, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION,
-    StatePhase, StatusReport, TargetDocument, TargetId, TargetPaths, TargetStatus,
+    CoreError, ProcessErrorDetail, ReasonCode, STATUS_REPORT_SCHEMA_NAME,
+    STATUS_REPORT_SCHEMA_VERSION, StatePhase, StatusReport, TargetDocument, TargetId, TargetPaths,
+    TargetStatus,
 };
 
 use super::lock::lock_shared;
-use super::state::{StateLoad, load_state, snapshot_digest_summary};
-use super::storage::read_toml;
-use super::target_load::load_target_document;
+use super::state::{StateLoad, load_state, snapshot_digest_summary, state_error_detail};
+use super::target_load::{TargetLoad, load_target_document, read_target_document};
 
 pub(crate) fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError> {
-    let target = read_toml::<TargetDocument>(&paths.target_file())?;
+    paths.require_watch_root_directory()?;
+    let target = read_target_document(&paths.target_file())?;
     validate_target_against_paths(paths, target)
 }
 
 pub(crate) fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
+    paths.require_watch_root_directory()?;
     match load_target_document(paths)? {
-        Some(target) => {
+        TargetLoad::Valid(target) => {
             let _lock = lock_shared(paths)?;
             status_for_valid_target(&target, load_state(paths))
         }
-        None => {
-            let report = invalid_target_status_report(paths);
+        TargetLoad::Invalid(error_detail) => {
+            let report = invalid_target_status_report(paths, error_detail);
             report.validate()?;
             Ok(report)
         }
     }
 }
 
-fn invalid_target_status_report(paths: &TargetPaths) -> StatusReport {
+fn invalid_target_status_report(
+    paths: &TargetPaths,
+    error_detail: ProcessErrorDetail,
+) -> StatusReport {
     StatusReport {
         schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
         schema_version: STATUS_REPORT_SCHEMA_VERSION,
         target_id: TargetId::new(paths.target_id()).expect("validated path target id"),
         target_status: TargetStatus::Invalid,
         reason_code: ReasonCode::ConfigInvalid,
+        error_detail: Some(error_detail),
         state_phase: None,
-        artifacts: ArtifactStatus {
-            current_valid: false,
-            previous_valid: false,
-        },
         current_snapshot: None,
         snapshot_history: Vec::new(),
         extensions: None,
@@ -69,56 +71,44 @@ fn status_for_valid_target(
             target_id: target.target_id.clone(),
             target_status: TargetStatus::Pending,
             reason_code: ReasonCode::Ok,
+            error_detail: None,
             state_phase: Some(StatePhase::NeverSucceeded),
-            artifacts: ArtifactStatus {
-                current_valid: true,
-                previous_valid: true,
-            },
             current_snapshot: None,
             snapshot_history: Vec::new(),
             extensions: None,
         },
-        StateLoad::Unreadable => StatusReport {
+        StateLoad::Unreadable(_) => StatusReport {
             schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
             schema_version: STATUS_REPORT_SCHEMA_VERSION,
             target_id: target.target_id.clone(),
             target_status: TargetStatus::Invalid,
             reason_code: ReasonCode::StateInvalid,
+            error_detail: state_error_detail(&state).cloned(),
             state_phase: Some(StatePhase::NeverSucceeded),
-            artifacts: ArtifactStatus {
-                current_valid: false,
-                previous_valid: false,
-            },
             current_snapshot: None,
             snapshot_history: Vec::new(),
             extensions: None,
         },
-        StateLoad::InvalidSchema(phase) => StatusReport {
+        StateLoad::InvalidDocument { phase, .. } => StatusReport {
             schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
             schema_version: STATUS_REPORT_SCHEMA_VERSION,
             target_id: target.target_id.clone(),
             target_status: TargetStatus::Invalid,
             reason_code: ReasonCode::StateInvalid,
+            error_detail: state_error_detail(&state).cloned(),
             state_phase: Some(phase.unwrap_or(StatePhase::NeverSucceeded)),
-            artifacts: ArtifactStatus {
-                current_valid: false,
-                previous_valid: false,
-            },
             current_snapshot: None,
             snapshot_history: Vec::new(),
             extensions: None,
         },
-        StateLoad::IntegrityMismatch(phase) => StatusReport {
+        StateLoad::IntegrityMismatch { phase, .. } => StatusReport {
             schema_name: STATUS_REPORT_SCHEMA_NAME.to_owned(),
             schema_version: STATUS_REPORT_SCHEMA_VERSION,
             target_id: target.target_id.clone(),
             target_status: TargetStatus::Invalid,
             reason_code: ReasonCode::IntegrityMismatch,
+            error_detail: state_error_detail(&state).cloned(),
             state_phase: Some(phase.unwrap_or(StatePhase::NeverSucceeded)),
-            artifacts: ArtifactStatus {
-                current_valid: false,
-                previous_valid: false,
-            },
             current_snapshot: None,
             snapshot_history: Vec::new(),
             extensions: None,
@@ -133,11 +123,8 @@ fn status_for_valid_target(
                 TargetStatus::Pending
             },
             reason_code: ReasonCode::Ok,
+            error_detail: None,
             state_phase: Some(loaded.document.state_phase),
-            artifacts: ArtifactStatus {
-                current_valid: true,
-                previous_valid: true,
-            },
             current_snapshot: loaded
                 .document
                 .current_snapshot
