@@ -3,6 +3,16 @@
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Path-gated the `contributor-devcontainer-gate` CI job so it fires only when devcontainer-relevant files actually change (`.devcontainer/`, the devcontainer helper scripts, or `check.sh`); non-devcontainer PRs now skip the full Docker build-and-run cycle entirely, reducing typical PR wall-clock time from ~45 minutes to ~3 minutes.
+- Added a `devcontainer-changes` detection job that computes a git diff of the PR's changed files against the devcontainer trigger paths before the gate is evaluated; the aggregate `Check` required-status job uses `if: always()` with explicit `${{ toJSON(needs.*.result) }}` failure detection so a correctly skipped `contributor-devcontainer-gate` does not prevent `Check` from being reported or block merge — only a failed or cancelled gate prevents success.
+- Added a Windows Defender exclusion for the Cargo `target/` directory in `cross-platform-rust-gate` before any Cargo operations begin, eliminating AV scan overhead that otherwise scans every file write during compilation.
+- Fixed a Windows-specific flaky test in the `ffhn-core` fetch suite where dropping a `TcpListener` did not guarantee immediate `ECONNREFUSED` — the port lingered and the 1-second timeout fired, producing `FetchTimeout` instead of `FetchNetworkError`; replaced the dropped-listener pattern with a server that accepts and reads the request then resets the stream, producing a reliable `FetchNetworkError` on all platforms.
+- Added §7.11 "In-progress work awareness" to `AGENTS.md` — a standing norm requiring agents to inspect open PRs before starting non-trivial work so existing in-flight theory is not destroyed by starting fresh; also corrected the §7.10 heading level and bumped the document version to 2.4.0.
+
 ## [6.0.0] - 2026-05-03
 
 ### Fixed
