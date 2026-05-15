@@ -179,11 +179,11 @@ jobs:
 
       - name: Audit dependencies
         shell: bash
-        run: cargo audit -D warnings
+        run: cargo xtask audit
 
       - name: Audit fuzz dependencies
         shell: bash
-        run: cargo audit --file fuzz/Cargo.lock -D warnings
+        run: cargo xtask audit --file fuzz/Cargo.lock
 
       - name: Enforce dependency policy
         shell: bash

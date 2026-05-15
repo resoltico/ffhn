@@ -33,9 +33,9 @@ pub use schema::{
     STATUS_REPORT_SCHEMA_VERSION, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
 };
 pub use state::{LastRunRecord, StateDocument, StoredBaseline};
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use target::NotificationAdapter;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use target::NotificationEndpoint;
 pub use target::{CanonicalizerSpec, NotificationRouteView, TargetDocument};
 #[cfg(any(test, doctest))]

@@ -51,18 +51,17 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
-        CommandSpec::new("cargo", ["audit", "-D", "warnings"], false)
+        CommandSpec::new("cargo", ["xtask", "audit"], false)
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
         CommandSpec::new(
             "cargo",
             [
+                "xtask",
                 "audit",
                 "--file",
                 fuzz_lockfile_path(repo_root).to_string_lossy().as_ref(),
-                "-D",
-                "warnings",
             ],
             false,
         )

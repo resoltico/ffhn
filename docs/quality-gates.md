@@ -97,8 +97,8 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 4. `shellcheck` over the same shell scripts
 5. `cargo fmt --check`
 6. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
-7. `cargo audit -D warnings`
-8. `cargo audit --file fuzz/Cargo.lock -D warnings`
+7. `cargo xtask audit`
+8. `cargo xtask audit --file fuzz/Cargo.lock`
 9. `cargo deny check advisories bans licenses sources`
 10. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with isolated managed `target` and `build` scratch roots
 11. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
@@ -192,12 +192,12 @@ The `ffhn-cli` test suite complements that repository lint by asserting that liv
 
 ## Fuzzing Policy
 
-The automatic gate security-audits the standalone fuzz lockfile, lint-checks the standalone fuzz package, and compile-smokes the maintained harnesses.
+The automatic gate security-audits the standalone fuzz lockfile, lint-checks the standalone fuzz package, and compile-smokes the maintained harnesses. FFHN routes RustSec auditing through `cargo xtask audit` so transient advisory-database fetch failures are retried by one maintained entrypoint instead of being reimplemented piecemeal across local and CI lanes.
 
 Automatic:
 
 ```bash
-cargo audit --file fuzz/Cargo.lock -D warnings
+cargo xtask audit --file fuzz/Cargo.lock
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings
 cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz

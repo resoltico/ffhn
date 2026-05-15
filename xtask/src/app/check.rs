@@ -1,20 +1,36 @@
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
+use std::process::Stdio;
 use std::{fs, path::PathBuf};
+use std::{thread, time::Duration};
 
 use crate::coverage::{
     coverage_clean_command, coverage_command, coverage_output_path, evaluate_coverage_report,
     read_coverage_report, tracked_files,
 };
 use crate::hygiene::{HygieneCleanMode, clean_hygiene, ensure_hygiene, prepare_artifact_layout};
-use crate::model::{CommandArtifactLayout, DynResult};
+use crate::model::{CommandArtifactLayout, CommandSpec, DynResult};
 use crate::plan::{
     check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_build_dir,
     semver_check_spec, semver_scratch_dir,
 };
 use crate::tooling::{CargoQaToolSpec, RustTooling, rust_tooling};
 
+use super::command::prepare_command;
 use super::command::{remove_dir_if_exists, run_spec};
+
+const AUDIT_RETRY_ATTEMPTS: usize = 3;
+#[cfg(test)]
+const AUDIT_RETRY_DELAY: Duration = Duration::from_millis(1);
+#[cfg(not(test))]
+const AUDIT_RETRY_DELAY: Duration = Duration::from_secs(5);
+const TRANSIENT_AUDIT_FETCH_MARKERS: [&str; 4] = [
+    "couldn't fetch advisory database",
+    "failed to prepare fetch",
+    "error sending request for url",
+    "An IO error occurred when talking to the server",
+];
 
 pub(crate) fn run_check(repo_root: &Path) -> DynResult<()> {
     println!("==> Rust gate");
@@ -77,6 +93,21 @@ pub(crate) fn run_coverage(repo_root: &Path) -> DynResult<()> {
         bootstrap_hint(),
     )?;
     run_coverage_with_tooling(repo_root, &tooling)
+}
+
+pub(crate) fn run_audit(repo_root: &Path, lockfile: Option<&Path>) -> DynResult<()> {
+    let tooling = rust_tooling(repo_root)?;
+    ensure_cargo_subcommand(
+        CargoQaToolSpec {
+            package_name: "cargo-audit",
+            subcommand_name: "audit",
+            expected_version: &tooling.cargo_audit_version,
+        },
+        bootstrap_hint(),
+    )?;
+
+    let spec = audit_spec(lockfile);
+    run_retrying_audit(repo_root, &spec)
 }
 
 fn run_coverage_with_tooling(repo_root: &Path, tooling: &RustTooling) -> DynResult<()> {
@@ -238,6 +269,64 @@ fn reported_version(output: &str) -> Option<&str> {
 
 fn bootstrap_hint() -> &'static str {
     "Run `./scripts/bootstrap-rust-tools.sh install-all` to install FFHN's pinned Rust toolchains and QA tools."
+}
+
+fn audit_spec(lockfile: Option<&Path>) -> CommandSpec {
+    let mut args = vec!["audit".to_owned()];
+    if let Some(lockfile) = lockfile {
+        args.push("--file".to_owned());
+        args.push(lockfile.to_string_lossy().into_owned());
+    }
+    args.push("-D".to_owned());
+    args.push("warnings".to_owned());
+    CommandSpec::new("cargo", args, false)
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace)
+}
+
+fn run_retrying_audit(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
+    let mut last_error = None;
+    for attempt in 1..=AUDIT_RETRY_ATTEMPTS {
+        let mut command = Command::new(&spec.program);
+        prepare_command(&mut command, repo_root, spec)?;
+        command.stdin(Stdio::inherit());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        let output = command.output()?;
+        io::stdout().write_all(&output.stdout)?;
+        io::stderr().write_all(&output.stderr)?;
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let retryable = is_transient_audit_fetch_failure(&combined);
+        let status_error = format!("command failed with status {}", output.status);
+        if retryable && attempt < AUDIT_RETRY_ATTEMPTS {
+            eprintln!(
+                "Transient RustSec advisory-database fetch failure on attempt {attempt}/{AUDIT_RETRY_ATTEMPTS}; retrying in {} seconds.",
+                AUDIT_RETRY_DELAY.as_secs()
+            );
+            thread::sleep(AUDIT_RETRY_DELAY);
+            continue;
+        }
+
+        last_error = Some(status_error);
+        break;
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| "command failed without a reported process status".to_owned())
+        .into())
+}
+
+fn is_transient_audit_fetch_failure(output: &str) -> bool {
+    TRANSIENT_AUDIT_FETCH_MARKERS
+        .iter()
+        .any(|marker| output.contains(marker))
 }
 
 fn remove_semver_artifacts(repo_root: &Path) -> DynResult<()> {

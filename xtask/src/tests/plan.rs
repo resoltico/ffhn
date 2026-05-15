@@ -80,10 +80,7 @@ fn check_plan_includes_all_strict_gates() {
             false,
         )
     );
-    assert!(
-        plan.iter()
-            .any(|spec| spec.args == ["audit", "-D", "warnings"])
-    );
+    assert!(plan.iter().any(|spec| spec.args == ["xtask", "audit"]));
     assert!(plan.iter().any(|spec| {
         spec.args == ["fmt", "--check"]
             && spec.artifact_layout == CommandArtifactLayout::ManagedWorkspace
@@ -91,6 +88,7 @@ fn check_plan_includes_all_strict_gates() {
     assert!(plan.iter().any(|spec| {
         spec.args
             == [
+                "xtask".to_owned(),
                 "audit".to_owned(),
                 "--file".to_owned(),
                 repo_root
@@ -99,8 +97,6 @@ fn check_plan_includes_all_strict_gates() {
                     .join("Cargo.lock")
                     .to_string_lossy()
                     .into_owned(),
-                "-D".to_owned(),
-                "warnings".to_owned(),
             ]
     }));
     assert!(plan.iter().any(|spec| {

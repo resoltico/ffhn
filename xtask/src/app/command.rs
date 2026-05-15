@@ -11,22 +11,14 @@ const AMBIENT_NATIVE_TOOLCHAIN_ENV_VARS: [&str; 5] =
 
 pub(crate) fn run_spec(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
     let mut command = Command::new(&spec.program);
-    command.current_dir(repo_root);
-    command.args(&spec.args);
+    prepare_command(&mut command, repo_root, spec)?;
     command.stdin(Stdio::inherit());
-    if spec.quiet_stdout {
-        command.stdout(Stdio::null());
+    command.stdout(if spec.quiet_stdout {
+        Stdio::null()
     } else {
-        command.stdout(Stdio::inherit());
-    }
+        Stdio::inherit()
+    });
     command.stderr(Stdio::inherit());
-    for variable in AMBIENT_NATIVE_TOOLCHAIN_ENV_VARS {
-        if !spec.env.contains_key(variable) {
-            command.env_remove(variable);
-        }
-    }
-    command.envs(&spec.env);
-    apply_artifact_layout(&mut command, repo_root, spec)?;
 
     let status = command.status()?;
     if status.success() {
@@ -34,6 +26,22 @@ pub(crate) fn run_spec(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
     }
 
     Err(format!("command failed with status {status}").into())
+}
+
+pub(crate) fn prepare_command(
+    command: &mut Command,
+    repo_root: &Path,
+    spec: &CommandSpec,
+) -> DynResult<()> {
+    command.current_dir(repo_root);
+    command.args(&spec.args);
+    for variable in AMBIENT_NATIVE_TOOLCHAIN_ENV_VARS {
+        if !spec.env.contains_key(variable) {
+            command.env_remove(variable);
+        }
+    }
+    command.envs(&spec.env);
+    apply_artifact_layout(command, repo_root, spec)
 }
 
 pub(crate) fn repo_root() -> DynResult<PathBuf> {

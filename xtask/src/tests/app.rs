@@ -7,7 +7,7 @@ use super::*;
 use crate::app::{TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root};
 
 #[cfg(unix)]
-use crate::app::{run_check, run_coverage, run_semver_check, run_spec};
+use crate::app::{run_audit, run_check, run_coverage, run_semver_check, run_spec};
 #[cfg(unix)]
 use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratch_dir};
 
@@ -276,9 +276,93 @@ fn run_from_routes_check_semver_and_coverage_subcommands_through_the_repo_root_o
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
         crate::run_from(["xtask", "check"]).expect("run check through cli");
+        crate::run_from(["xtask", "audit"]).expect("run audit through cli");
+        crate::run_from(["xtask", "audit", "--file", "fuzz/Cargo.lock"])
+            .expect("run audit --file through cli");
         crate::run_from(["xtask", "semver-check"]).expect("run semver-check through cli");
         crate::run_from(["xtask", "coverage"]).expect("run coverage through cli");
     });
+}
+
+#[cfg(unix)]
+#[test]
+fn run_audit_retries_transient_advisory_fetch_failures() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    let attempts_file = repo_root.path().join("audit-attempts.txt");
+    let tooling = sample_tooling();
+    let script = format!(
+        "#!/bin/sh\nattempts_file=\"{attempts_file}\"\nif [ \"$2\" = \"--version\" ] && [ \"$1\" = \"audit\" ]; then\n  printf 'cargo-audit {version}\\n'\n  exit 0\nfi\nif [ \"$1\" = \"audit\" ]; then\n  if [ ! -f \"$attempts_file\" ]; then\n    printf '1' > \"$attempts_file\"\n    printf \"error: couldn't fetch advisory database\\n\" >&2\n    printf \"Caused by:\\n  -> An IO error occurred when talking to the server\\n\" >&2\n    exit 1\n  fi\n  printf '2' > \"$attempts_file\"\n  exit 0\nfi\nexit 0\n",
+        attempts_file = attempts_file.display(),
+        version = tooling.cargo_audit_version,
+    );
+    write_executable(&bin_dir.join("cargo"), &script);
+
+    with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        run_audit(repo_root.path(), None).expect("transient audit failure should retry");
+    });
+
+    assert_eq!(
+        fs::read_to_string(attempts_file).expect("attempts file"),
+        "2"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_audit_does_not_retry_non_transient_failures() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    let attempts_file = repo_root.path().join("audit-attempts.txt");
+    let tooling = sample_tooling();
+    let script = format!(
+        "#!/bin/sh\nattempts_file=\"{attempts_file}\"\nif [ \"$2\" = \"--version\" ] && [ \"$1\" = \"audit\" ]; then\n  printf 'cargo-audit {version}\\n'\n  exit 0\nfi\nif [ \"$1\" = \"audit\" ]; then\n  count=0\n  if [ -f \"$attempts_file\" ]; then\n    count=$(cat \"$attempts_file\")\n  fi\n  count=$((count + 1))\n  printf '%s' \"$count\" > \"$attempts_file\"\n  printf 'found vulnerable crate\\n' >&2\n  exit 1\nfi\nexit 0\n",
+        attempts_file = attempts_file.display(),
+        version = tooling.cargo_audit_version,
+    );
+    write_executable(&bin_dir.join("cargo"), &script);
+
+    let error = with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        run_audit(repo_root.path(), None).expect_err("deterministic audit failure should surface")
+    });
+
+    assert!(error.to_string().contains("command failed with status"));
+    assert_eq!(
+        fs::read_to_string(attempts_file).expect("attempts file"),
+        "1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_audit_stops_after_the_final_transient_fetch_failure() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    let attempts_file = repo_root.path().join("audit-attempts.txt");
+    let tooling = sample_tooling();
+    let script = format!(
+        "#!/bin/sh\nattempts_file=\"{attempts_file}\"\nif [ \"$2\" = \"--version\" ] && [ \"$1\" = \"audit\" ]; then\n  printf 'cargo-audit {version}\\n'\n  exit 0\nfi\nif [ \"$1\" = \"audit\" ]; then\n  count=0\n  if [ -f \"$attempts_file\" ]; then\n    count=$(cat \"$attempts_file\")\n  fi\n  count=$((count + 1))\n  printf '%s' \"$count\" > \"$attempts_file\"\n  printf \"error: couldn't fetch advisory database\\n\" >&2\n  printf \"Caused by:\\n  -> An IO error occurred when talking to the server\\n\" >&2\n  exit 1\nfi\nexit 0\n",
+        attempts_file = attempts_file.display(),
+        version = tooling.cargo_audit_version,
+    );
+    write_executable(&bin_dir.join("cargo"), &script);
+
+    let error = with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        run_audit(repo_root.path(), None)
+            .expect_err("final transient audit failure should surface after the retry budget")
+    });
+
+    assert!(error.to_string().contains("command failed with status"));
+    assert_eq!(
+        fs::read_to_string(attempts_file).expect("attempts file"),
+        "3"
+    );
 }
 
 #[cfg(unix)]

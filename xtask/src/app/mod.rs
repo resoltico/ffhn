@@ -10,7 +10,7 @@ mod hygiene;
 mod semver;
 
 #[cfg(all(test, unix))]
-pub(crate) use check::{run_check, run_coverage, run_semver_check};
+pub(crate) use check::{run_audit, run_check, run_coverage, run_semver_check};
 #[cfg(test)]
 pub(crate) use command::TEST_REPO_ROOT_ENV;
 pub(crate) use command::remove_dir_if_exists;
@@ -27,6 +27,8 @@ const XTASK_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 const XTASK_AFTER_HELP: &str = "\
 Examples:
   cargo xtask check
+  cargo xtask audit
+  cargo xtask audit --file fuzz/Cargo.lock
   cargo xtask semver-check
   cargo xtask coverage
   cargo xtask hygiene report
@@ -52,6 +54,11 @@ enum Task {
         long_about = "Run the full maintainer quality gate, including shell checks, formatting, dependency policy, tests, dist smoke, and the final curated 100% coverage pass."
     )]
     Check,
+    #[command(
+        about = "Run the maintained RustSec audit lane with transient advisory-fetch retries.",
+        long_about = "Run the maintained RustSec audit lane with FFHN's bounded transient advisory-database fetch retry policy. By default this audits the workspace Cargo.lock; use --file to audit another maintained lockfile such as fuzz/Cargo.lock."
+    )]
+    Audit(AuditArgs),
     #[command(
         about = "Run only the maintained ffhn-core semver gate.",
         long_about = "Run only the maintained ffhn-core semver gate.\n\nThis lane uses the same baseline and release-type policy as cargo xtask check while skipping the rest of the maintainer suite."
@@ -87,6 +94,16 @@ struct RefreshSemverBaselineArgs {
     git_ref: String,
 }
 
+#[derive(Args)]
+struct AuditArgs {
+    #[arg(
+        long,
+        value_name = "LOCKFILE",
+        help = "Lockfile to audit. Defaults to the workspace Cargo.lock when omitted."
+    )]
+    file: Option<std::path::PathBuf>,
+}
+
 /// Parses the xtask CLI and dispatches the selected maintenance action.
 ///
 /// # Errors
@@ -108,6 +125,7 @@ where
 
     match cli.command {
         Task::Check => check::run_check(&repo_root),
+        Task::Audit(args) => check::run_audit(&repo_root, args.file.as_deref()),
         Task::SemverCheck => check::run_semver_check(&repo_root),
         Task::Coverage => check::run_coverage(&repo_root),
         Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),

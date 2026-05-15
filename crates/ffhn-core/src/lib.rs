@@ -29,9 +29,9 @@ pub use contract::{
     status_operation, status_report_document, status_report_write_error, unique_target_ids_limit,
 };
 pub use error::CoreError;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use model::NotificationAdapter;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use model::NotificationEndpoint;
 pub use model::{
     BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BaselinePhase,

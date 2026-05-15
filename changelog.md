@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a first-class artifact hygiene system: FFHN now keeps Cargo output in managed sibling roots by default, exposes `cargo xtask hygiene report|verify|clean`, isolates coverage and semver scratch under typed managed roots, validates the same policy in the contributor devcontainer, and documents the maintained cleanup workflow instead of relying on ad hoc `target/` deletion.
 - Rebuilt the maintained documentation index into a task-oriented routing page under `docs/README.md` and clarified the root README so the storefront now uses plain language, an explicit quick-start sequence, and direct links to the quick start, full docs index, and highest-signal contract references.
 - Standardized the public naming split across maintained docs: `FFHN` is now the prose product name, while lowercase `ffhn` is reserved for literal identifiers such as commands, crate names, schema ids, file names, release assets, and URLs; the repo-contract suite now enforces that distinction for public Markdown prose.
+- Routed maintained RustSec auditing through `cargo xtask audit`, which now owns bounded retries for transient advisory-database fetch failures and is shared by the local maintainer gate plus cross-platform CI instead of duplicating raw `cargo audit` calls in multiple lanes.
 
 ### Fixed
 
