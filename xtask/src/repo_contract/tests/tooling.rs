@@ -78,6 +78,7 @@ fn rust_tooling_manifest_owns_the_repo_toolchain_and_qa_versions() {
     let release = fs::read_to_string(repo_root.join(".github/workflows/release.yml"))
         .expect("read .github/workflows/release.yml");
     assert!(release.contains("bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain"));
+    assert!(release.contains("cache-bin: false"));
     assert!(!release.contains("RUST_STABLE_VERSION:"));
 
     let dockerfile = fs::read_to_string(repo_root.join(".devcontainer/Dockerfile"))
