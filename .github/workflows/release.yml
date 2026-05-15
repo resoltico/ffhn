@@ -18,9 +18,6 @@ concurrency:
   group: publication-${{ github.workflow }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
-env:
-  RUST_STABLE_VERSION: 1.95.0
-
 jobs:
   release-target-matrix:
     name: Compute release target matrix
@@ -65,7 +62,7 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          VERSION="$(./scripts/workspace-version.sh)"
+          VERSION="$(./scripts/workspace-package-field.sh version)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Workspace version: $VERSION"
 
@@ -144,27 +141,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes musl-tools
 
-      - name: Install Rust toolchain
+      - name: Install pinned Rust stable toolchain
         shell: bash
         run: |
           set -euo pipefail
-          retry() {
-            local attempts="$1"
-            shift
-            local attempt
-            for attempt in $(seq 1 "${attempts}"); do
-              if "$@"; then
-                return 0
-              fi
-              if [ "${attempt}" -lt "${attempts}" ]; then
-                sleep 5
-              fi
-            done
-            return 1
-          }
-          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal
-          retry 3 rustup default "${RUST_STABLE_VERSION}"
-          retry 3 rustup target add "${{ matrix.target_triple }}"
+          bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
+          rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -176,7 +158,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(./scripts/workspace-version.sh)"
+          VERSION="$(./scripts/workspace-package-field.sh version)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Workspace version: $VERSION"
 

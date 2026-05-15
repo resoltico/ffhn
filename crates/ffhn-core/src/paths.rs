@@ -12,11 +12,9 @@ pub struct TargetPaths {
 }
 
 impl TargetPaths {
-    /// Builds one target path set from a target id that is already expected to be contract-valid.
-    ///
-    /// This constructor panics when `target_id` violates FFHN's durable target-id contract.
-    /// Boundary-facing code should prefer [`TargetPaths::try_new`].
-    pub fn new(watch_root: impl Into<PathBuf>, target_id: impl AsRef<str>) -> Self {
+    /// Builds one target path set from a target id that already satisfied FFHN's durable
+    /// target-id contract inside the crate boundary.
+    pub(crate) fn new(watch_root: impl Into<PathBuf>, target_id: impl AsRef<str>) -> Self {
         Self {
             watch_root: watch_root.into(),
             target_id: TargetId::new(target_id.as_ref())

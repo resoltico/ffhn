@@ -19,8 +19,8 @@ pub struct BatchOutcomeCounts {
     pub(crate) failed_permanent: usize,
     /// Disabled skips.
     pub(crate) skipped_disabled: usize,
-    /// Live runs that emitted a run report but still failed a persist step.
-    pub(crate) persist_error: usize,
+    /// Runs that emitted a report but failed at least one persist step.
+    pub(crate) persist_failure: usize,
     /// Target entries with at least one failed or timed-out notification delivery.
     pub(crate) notification_failure: usize,
     /// Fatal process-level per-target failures.
@@ -58,9 +58,9 @@ impl BatchOutcomeCounts {
         self.skipped_disabled
     }
 
-    /// Returns the persist-error count.
-    pub const fn persist_error(&self) -> usize {
-        self.persist_error
+    /// Returns the persist-failure count.
+    pub const fn persist_failure(&self) -> usize {
+        self.persist_failure
     }
 
     /// Returns the notification-failure count.
@@ -83,6 +83,15 @@ pub struct BatchRunEntry {
     pub(crate) run_report: Option<RunReport>,
     /// Fatal process-level error when FFHN could not emit a run report.
     pub(crate) fatal_error: Option<ProcessErrorDetail>,
+}
+
+/// Coherent read-only view over one batch entry payload.
+#[derive(Clone, Copy, Debug)]
+pub enum BatchRunEntryView<'a> {
+    /// One structured per-target run report.
+    RunReport(&'a RunReport),
+    /// One fatal per-target process error.
+    FatalError(&'a ProcessErrorDetail),
 }
 
 /// Aggregate batch report emitted by multi-target runs.
@@ -177,6 +186,15 @@ impl BatchRunEntry {
     /// Returns the fatal process-level error when FFHN could not emit a run report.
     pub fn fatal_error(&self) -> Option<&ProcessErrorDetail> {
         self.fatal_error.as_ref()
+    }
+
+    /// Returns one coherent payload view instead of independent optional projections.
+    pub fn view(&self) -> BatchRunEntryView<'_> {
+        match (&self.run_report, &self.fatal_error) {
+            (Some(report), None) => BatchRunEntryView::RunReport(report),
+            (None, Some(error)) => BatchRunEntryView::FatalError(error),
+            _ => unreachable!("validated batch entries carry exactly one payload"),
+        }
     }
 
     /// Validates one batch entry.
@@ -373,7 +391,7 @@ fn compute_outcome_counts(
         failed_transient: 0,
         failed_permanent: 0,
         skipped_disabled: 0,
-        persist_error: 0,
+        persist_failure: 0,
         notification_failure: 0,
         fatal_error: 0,
     };
@@ -386,7 +404,7 @@ fn compute_outcome_counts(
             ));
         }
         if let Some(report) = entry.run_report() {
-            match report.run_outcome {
+            match report.run_outcome() {
                 RunOutcome::Initialized => counts.initialized += 1,
                 RunOutcome::Changed => counts.changed += 1,
                 RunOutcome::Unchanged => counts.unchanged += 1,
@@ -394,8 +412,8 @@ fn compute_outcome_counts(
                 RunOutcome::FailedPermanent => counts.failed_permanent += 1,
                 RunOutcome::SkippedDisabled => counts.skipped_disabled += 1,
             }
-            if report.reason_code == ReasonCode::PersistError {
-                counts.persist_error += 1;
+            if report.persist().has_failure() {
+                counts.persist_failure += 1;
             }
             if report
                 .notifications()

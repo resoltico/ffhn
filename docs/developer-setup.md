@@ -1,9 +1,9 @@
 ---
 afad: "4.0"
 domain: SETUP
-updated: "2026-04-30"
+updated: "2026-05-14"
 route:
-  keywords: [developer setup, devcontainer, docker desktop, rustup, Rust 1.95.0, nightly llvm-cov, cargo-fuzz, shellcheck, gh cli, clang override]
+  keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, cargo-fuzz, shellcheck, gh cli, compiler override]
   questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn release work?"]
 ---
 
@@ -25,13 +25,13 @@ Required for the preferred contributor workflow:
 
 Required for ordinary host-native local development:
 
-1. Rust `1.95.0` through `rustup`
+1. `rustup`
 2. a working system C toolchain
 
 Required for the maintained local gate (`./check.sh`):
 
-1. nightly Rust with `llvm-tools-preview`
-2. Cargo QA tools used by `cargo xtask`
+1. the pinned stable and coverage toolchains from [../rust-toolchain.toml](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
+2. the pinned Cargo QA tools used by `cargo xtask`
 3. `shellcheck`
 
 Required for public release work:
@@ -59,48 +59,26 @@ On macOS, install Apple Command Line Tools first if needed:
 xcode-select --install
 ```
 
-Then install Rust and the maintained FFHN toolchains:
+Then install `rustup`, enter the repository checkout, and let the repo-owned bootstrap script
+install the maintained FFHN toolchains and QA tools:
 
 ```bash
-curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain 1.95.0
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 source "$HOME/.cargo/env"
-rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-rustup component add clippy rustfmt llvm-tools-preview --toolchain 1.95.0
+./scripts/bootstrap-rust-tools.sh install-all
 ```
 
 Why this shape:
 
-1. Rust `1.95.0` is the workspace default from [`rust-toolchain.toml`](../rust-toolchain.toml)
-2. nightly exists for branch coverage and optional `cargo-fuzz`
-3. FFHN needs `rustup` control over both toolchains and their components
+1. [`rust-toolchain.toml`](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env) stay the only canonical owners of exact toolchain and QA-tool versions
+2. [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installs those pinned versions directly instead of depending on ambient host state
+3. the maintained coverage gate and manual fuzzing need the pinned coverage toolchain, while ordinary build/test/run work uses the pinned stable toolchain
 
 Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`. It is required for the maintained coverage gate and optional manual fuzzing.
 
-## Install Required Host-Native Cargo QA Tools
-
-On the maintained macOS path, install the required Cargo subcommands with the system compiler forced explicitly:
-
-```bash
-source "$HOME/.cargo/env"
-CC=clang CXX=clang++ cargo install cargo-nextest cargo-audit cargo-deny cargo-semver-checks cargo-outdated cargo-llvm-cov --locked
-```
-
-Why this shape:
-
-1. these tools live naturally beside `cargo` under the Rust-managed toolchain
-2. `--locked` uses each tool's checked-in lockfile
-3. `CC=clang CXX=clang++` protects fresh macOS machines from stale Homebrew LLVM shell overrides
-
-## Install Optional Host-Native `cargo-fuzz`
-
-Only install this if you plan to run the manual fuzz smokes from [../fuzz/README.md](../fuzz/README.md):
-
-```bash
-source "$HOME/.cargo/env"
-CC=clang CXX=clang++ cargo install cargo-fuzz --locked
-```
-
-`cargo-fuzz` is not required for `./check.sh`.
+The bootstrap script also installs the pinned `cargo-fuzz` and `cargo-outdated` tools. They are
+not part of the required correctness gate, but FFHN uses them for manual fuzzing and the separate
+dependency-freshness workflow.
 
 ## Install Host-Native ShellCheck
 
@@ -131,12 +109,15 @@ Release work uses `gh`, not the GitHub web UI. The maintained release choreograp
 
 ## Repository-Local Compiler Guards
 
-The workspace already forces two repository-local Cargo environment values through [../.cargo/config.toml](../.cargo/config.toml):
+The workspace still forces one repository-owned Cargo configuration surface through [../.cargo/config.toml](../.cargo/config.toml):
 
-1. `CC=clang`
-2. `CARGO_INCREMENTAL=0`
+1. `target-dir = "../.ffhn-artifacts/target"`
+2. `build-dir = "../.ffhn-artifacts/build"`
+3. `CARGO_INCREMENTAL=0`
 
-That means normal Cargo commands inside this repository already inherit the maintained compiler override and disable incremental compilation.
+The maintained shell entrypoints and the Rust `xtask` runner additionally scrub ambient
+`CC`, `CXX`, `CLANG_BIN`, `CPPFLAGS`, and `LDFLAGS` so stale host-native LLVM overrides do not
+poison the canonical FFHN commands.
 
 ## Fix Stale Compiler Overrides
 
@@ -148,10 +129,11 @@ failed to find tool "/opt/homebrew/opt/llvm/bin/clang"
 
 your shell is exporting a stale `CC` or `CXX` value that points at a removed Homebrew LLVM installation.
 
-Fix the shell config, or override it when installing tools:
+Fix the shell config, or clear the stale overrides before running ad hoc Cargo commands that bypass
+FFHN's maintained entrypoints:
 
 ```bash
-CC=clang CXX=clang++ cargo install cargo-nextest --locked
+env -u CC -u CXX -u CLANG_BIN -u CPPFLAGS -u LDFLAGS cargo build --locked
 ```
 
 ## Verify The Preferred Contributor Container
@@ -183,7 +165,6 @@ cargo nextest --version
 cargo audit --version
 cargo deny --version
 cargo semver-checks --version
-cargo outdated --version
 cargo llvm-cov --version
 shellcheck --version
 ./check.sh
@@ -205,20 +186,21 @@ cargo fuzz --version
 
 ## Disk Usage
 
-The largest FFHN disk consumers are build outputs under `target/` plus optional `fuzz/target/` data from manual fuzzing.
+The largest FFHN disk consumers are the managed sibling Cargo artifact roots under
+`../.ffhn-artifacts/` plus any manually generated `fuzz/artifacts/` data.
 
 For normal maintainer work:
 
-1. `target/llvm-cov-target` is cleaned again after coverage
-2. the semver lane's namespaced OS-temp scratch `CARGO_TARGET_DIR` is cleaned before and after semver-checks
+1. `cargo xtask check` and `cargo xtask coverage` prepare and clean managed scratch automatically
+2. `cargo xtask hygiene clean --mode safe` removes disposable scratch without touching the managed Cargo caches
+3. `cargo xtask hygiene clean --mode rebuildable` removes the managed Cargo caches too
 
 If you need to reclaim space:
 
 ```bash
-source "$HOME/.cargo/env"
-cargo llvm-cov clean --workspace
-cargo clean
-rm -rf fuzz/target fuzz/artifacts
+cargo xtask hygiene report
+cargo xtask hygiene clean --mode rebuildable
+rm -rf fuzz/artifacts
 ```
 
 Only remove `fuzz/corpus/*` entries if you explicitly mean to discard locally generated fuzz cases.

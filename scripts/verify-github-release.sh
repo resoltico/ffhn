@@ -11,7 +11,7 @@ release_version() {
         return
     fi
 
-    "${script_dir}/workspace-version.sh" "${repo_root}/Cargo.toml"
+    ffhn_workspace_version "${script_dir}" "${repo_root}"
 }
 
 print_usage() {
@@ -53,8 +53,6 @@ main() {
         return 0
     fi
 
-    ffhn_require_clean_tracked_checkout "${repo_root}"
-
     local tag_name="${1:-${RELEASE_TAG:-${GITHUB_REF_NAME:-}}}"
     readonly tag_name
     local expected_tag="v${version}"
@@ -64,6 +62,8 @@ main() {
     [[ -n "${tag_name}" ]] || ffhn_die "tag name is required"
     [[ "${tag_name}" == "${expected_tag}" ]] || ffhn_die \
         "expected tag ${expected_tag}, got ${tag_name}"
+
+    ffhn_require_clean_tracked_checkout "${repo_root}"
 
     local release_tag
     release_tag="$(gh release view "${tag_name}" --json tagName --jq '.tagName')"

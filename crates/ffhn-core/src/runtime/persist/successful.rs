@@ -1,12 +1,13 @@
 use crate::stable_json::stable_json;
 use crate::{
-    CoreError, ExtractionRecord, ReasonCode, RunOutcome, RunReport, STATE_SCHEMA_NAME,
-    STATE_SCHEMA_VERSION, StateDocument, StatePhase, TargetDocument, TargetPaths,
+    CoreError, ExtractionRecord, LastRunRecord, LastRunSnapshot, RunOutcome, RunReport,
+    TargetDocument, TargetPaths,
 };
 
+use super::super::domain::{PersistedBaselineState, PersistedState};
 use super::super::state::{StateLoad, prior_valid_state};
 use super::super::storage::write_json;
-use super::snapshot_store::{archive_current_snapshot, stage_current_snapshot};
+use super::snapshot_store::{stage_current_snapshot, stage_history_snapshot};
 use super::transaction::SnapshotPersistPlan;
 
 pub(crate) struct SuccessfulPersistInput<'a> {
@@ -22,7 +23,7 @@ pub(crate) struct SuccessfulPersistInput<'a> {
 pub(crate) fn persist_successful_run(
     paths: &TargetPaths,
     input: SuccessfulPersistInput<'_>,
-) -> Result<Option<StateDocument>, CoreError> {
+) -> Result<Option<PersistedState>, CoreError> {
     let extraction_json = stable_json(input.extraction_record)?;
     let prior = prior_valid_state(input.prior_state);
     let history_limit = input.target.storage.history_limit;
@@ -39,7 +40,7 @@ pub(crate) fn persist_successful_run(
                 current_reference,
                 Vec::new(),
                 staged_current_dir,
-                None,
+                Vec::new(),
                 Vec::new(),
                 true,
             )
@@ -53,9 +54,9 @@ pub(crate) fn persist_successful_run(
             &extraction_json,
         )?,
         RunOutcome::Unchanged => SnapshotPersistPlan::unchanged(
-            prior.and_then(|state| state.document.current_snapshot.clone()),
+            prior.and_then(|state| state.state.current_snapshot().cloned()),
             prior
-                .map(|state| state.document.snapshot_history.clone())
+                .map(|state| state.state.snapshot_history().to_vec())
                 .unwrap_or_default(),
         ),
         RunOutcome::FailedTransient | RunOutcome::FailedPermanent | RunOutcome::SkippedDisabled => {
@@ -65,25 +66,28 @@ pub(crate) fn persist_successful_run(
         }
     };
 
-    let state = StateDocument {
-        schema_name: STATE_SCHEMA_NAME.to_owned(),
-        schema_version: STATE_SCHEMA_VERSION,
-        target_id: input.target.target_id.clone(),
-        state_phase: StatePhase::HasBaseline,
-        last_run_at: Some(input.run_started_at.to_owned()),
-        last_run_outcome: Some(input.run_outcome),
-        last_reason_code: Some(ReasonCode::Ok),
-        current_snapshot: plan.current_snapshot.clone(),
-        snapshot_history: plan.snapshot_history.clone(),
-        extensions: None,
+    let state = PersistedState {
+        baseline: PersistedBaselineState::Ready {
+            current_snapshot: plan
+                .current_snapshot
+                .clone()
+                .expect("successful persistence requires a current snapshot"),
+            snapshot_history: plan.snapshot_history.clone(),
+        },
+        last_run: Some(LastRunRecord::new(
+            input.run_started_at.to_owned(),
+            input.run_outcome,
+            None,
+        )),
     };
-    state.validate()?;
-    plan.commit(paths, &state)?;
+    let state_document = state.to_document(input.target.target_id.clone())?;
+    plan.commit(paths, &state_document)?;
     Ok(Some(state))
 }
 
 pub(crate) fn write_last_run(paths: &TargetPaths, report: &RunReport) -> Result<(), CoreError> {
-    write_json(paths.last_run_file(), report)
+    let snapshot = LastRunSnapshot::new(report.clone())?;
+    write_json(paths.last_run_file(), &snapshot)
 }
 
 fn prepare_changed_snapshot_plan(
@@ -96,22 +100,24 @@ fn prepare_changed_snapshot_plan(
 ) -> Result<SnapshotPersistPlan, CoreError> {
     let (staged_current_dir, current_reference) =
         stage_current_snapshot(paths, canonical_text, outer_html, extraction_json)?;
-    let archived_snapshot = prior
+    let staged_history_snapshots = prior
         .and_then(|state| state.current.as_ref())
-        .map(|previous_current| archive_current_snapshot(paths, previous_current))
+        .map(|previous_current| stage_history_snapshot(paths, previous_current))
         .transpose()?;
     let (snapshot_history, pruned_snapshots) = rotate_snapshot_history(
         prior
-            .map(|state| state.document.snapshot_history.clone())
+            .map(|state| state.state.snapshot_history().to_vec())
             .unwrap_or_default(),
-        archived_snapshot.clone(),
+        staged_history_snapshots
+            .as_ref()
+            .map(|snapshot| snapshot.reference.clone()),
         history_limit,
     );
     Ok(SnapshotPersistPlan::with_staged_current(
         current_reference,
         snapshot_history,
         staged_current_dir,
-        archived_snapshot,
+        staged_history_snapshots.into_iter().collect(),
         pruned_snapshots,
         prior.is_none(),
     ))

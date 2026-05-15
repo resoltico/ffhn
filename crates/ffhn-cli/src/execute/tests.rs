@@ -7,6 +7,7 @@ use ffhn_core::{
 use super::batch::{merge_discovered_entries, render_batch_result, requested_run_mode};
 use super::discovery::{DiscoveredTarget, contract_message};
 use super::*;
+use crate::args::OutputFormat;
 
 fn empty_batch_report() -> BatchRunReport {
     BatchRunReport::new(
@@ -52,7 +53,12 @@ fn batch_rendering_helpers_cover_success_failure_and_error_paths() {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     assert_eq!(
-        render_batch_result(Ok(empty_batch_report()), &mut stdout, &mut stderr),
+        render_batch_result(
+            Ok(empty_batch_report()),
+            OutputFormat::Json,
+            &mut stdout,
+            &mut stderr,
+        ),
         0
     );
     assert!(stderr.is_empty());
@@ -60,7 +66,12 @@ fn batch_rendering_helpers_cover_success_failure_and_error_paths() {
     stdout.clear();
     stderr.clear();
     assert_eq!(
-        render_batch_result(Ok(fatal_batch_report()), &mut stdout, &mut stderr),
+        render_batch_result(
+            Ok(fatal_batch_report()),
+            OutputFormat::Json,
+            &mut stdout,
+            &mut stderr,
+        ),
         EXIT_CODE_RUN_FAILED
     );
     assert!(stderr.is_empty());
@@ -68,7 +79,12 @@ fn batch_rendering_helpers_cover_success_failure_and_error_paths() {
     stdout.clear();
     stderr.clear();
     assert_eq!(
-        render_batch_result(Err(CoreError::internal("boom")), &mut stdout, &mut stderr,),
+        render_batch_result(
+            Err(CoreError::internal("boom")),
+            OutputFormat::Json,
+            &mut stdout,
+            &mut stderr,
+        ),
         EXIT_CODE_FATAL
     );
     assert!(stdout.is_empty());
@@ -125,5 +141,25 @@ fn helper_functions_cover_mode_selection_merge_and_error_messages() {
     assert!(
         contract_message(CoreError::io("watchlist", io::Error::other("boom")))
             .contains("filesystem error")
+    );
+    assert!(
+        contract_message(CoreError::PersistTransaction {
+            summary:
+                "primary persist failure: filesystem error at watchlist/demo/state.json: write failed"
+                    .to_owned(),
+            primary: Box::new(CoreError::io(
+                "watchlist/demo/state.json",
+                io::Error::other("write failed")
+            )),
+            rollback: Some(Box::new(CoreError::io(
+                "watchlist/demo/snapshots/current",
+                io::Error::other("rollback failed"),
+            ))),
+            cleanup: vec![CoreError::io(
+                "watchlist/demo/snapshots/history",
+                io::Error::other("cleanup failed"),
+            )],
+        })
+        .contains("primary persist failure:")
     );
 }

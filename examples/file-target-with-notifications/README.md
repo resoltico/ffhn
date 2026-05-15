@@ -41,13 +41,13 @@ ffhn status --watch-root $WatchRoot --target release_notes
 ffhn run --watch-root $WatchRoot --target release_notes --dry-run
 ```
 
-The generated target keeps one best-effort notification hook:
+The generated target keeps one best-effort notification route:
 
-- POSIX materialization uses `program = "/bin/sh"` with args that run the checked-in [`append-notification.sh`](append-notification.sh) helper
-- PowerShell materialization uses the current PowerShell host executable with args that run the checked-in [`append-notification.ps1`](append-notification.ps1) helper
+- POSIX materialization writes one `[[notification_endpoints]]` entry with `kind = "process_stdin"` and `/bin/sh` args that run the checked-in [`append-notification.sh`](append-notification.sh) helper, plus one `[[notification_routes]]` entry that points at that endpoint
+- PowerShell materialization writes one `[[notification_endpoints]]` entry with `kind = "process_stdin"` and the current PowerShell host executable plus args that run the checked-in [`append-notification.ps1`](append-notification.ps1) helper, plus one `[[notification_routes]]` entry that points at that endpoint
 
-That hook only listens for `changed`, `failed_transient`, and `failed_permanent`, so the first successful `initialized` run does not append anything to `<watch_root>/release_notes/ffhn-release-notes-report.jsonl`.
+That route only listens for `changed`, `failed_transient`, and `failed_permanent`, so the first successful `initialized` run does not append anything to `<watch_root>/release_notes/ffhn-release-notes-report.jsonl`.
 
-When the hook does run, stdin carries one `ffhn.notification_payload` document whose embedded `run_report` is the pre-delivery snapshot: `notifications` is empty and `persist.last_run_write.status` is `not_attempted`.
+When the route does run, stdin carries one `ffhn.notification_payload` document whose embedded `run_report` is the pre-delivery snapshot: `notifications` is empty and `persist.last_run_write.status` is `not_attempted`.
 
-If you intentionally break that hook, FFHN preserves the content run outcome in `ffhn.run_report`, records the failed delivery in `notifications[]`, and exits the CLI with code `1`.
+If you intentionally break that route, FFHN preserves the content run outcome in `ffhn.run_report`, records the failed delivery in `notifications[]`, and exits the CLI with code `1`.

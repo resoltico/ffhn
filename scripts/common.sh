@@ -37,6 +37,21 @@ ffhn_normalize_bash_path() {
     printf '%s\n' "${candidate}"
 }
 
+ffhn_join_and_normalize_bash_path() {
+    local base_path="$1"
+    local relative_path="$2"
+
+    python3 - <<'PY' "${base_path}" "${relative_path}"
+import posixpath
+import sys
+
+base_path = sys.argv[1]
+relative_path = sys.argv[2]
+
+print(posixpath.normpath(posixpath.join(base_path, relative_path)))
+PY
+}
+
 ffhn_resolve_script_dir() {
     local source_path="$1"
 
@@ -88,9 +103,69 @@ ffhn_temp_root() {
     printf '%s\n' "${candidate}"
 }
 
+ffhn_cargo_build_config_value() {
+    local repo_root="$1"
+    local field_name="$2"
+
+    python3 - <<'PY' "${repo_root}" "${field_name}"
+import ast
+import pathlib
+import sys
+
+try:
+    import tomllib  # type: ignore[attr-defined]
+except ModuleNotFoundError:
+    tomllib = None
+
+repo_root = pathlib.Path(sys.argv[1])
+field_name = sys.argv[2]
+config_path = repo_root / ".cargo" / "config.toml"
+
+if not config_path.is_file():
+    raise SystemExit(0)
+
+text = config_path.read_text()
+
+if tomllib is not None:
+    document = tomllib.loads(text)
+else:
+    document = {"build": {}}
+    in_build = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_build = line[1:-1].strip() == "build"
+            continue
+        if not in_build or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        if key.strip() != field_name:
+            continue
+        raw_value = raw_value.strip()
+        if len(raw_value) >= 2 and raw_value[0] == raw_value[-1] == '"':
+            document["build"][field_name] = ast.literal_eval(raw_value)
+        elif len(raw_value) >= 2 and raw_value[0] == raw_value[-1] == "'":
+            document["build"][field_name] = raw_value[1:-1]
+        break
+
+value = document.get("build", {}).get(field_name)
+if isinstance(value, str):
+    print(value)
+PY
+}
+
 ffhn_cargo_target_dir() {
     local repo_root="$1"
-    local candidate="${CARGO_TARGET_DIR:-${repo_root}/target}"
+    local candidate="${CARGO_TARGET_DIR:-}"
+
+    if [[ -z "${candidate}" ]]; then
+        candidate="$(ffhn_cargo_build_config_value "${repo_root}" "target-dir")"
+    fi
+    if [[ -z "${candidate}" ]]; then
+        candidate="${repo_root}/target"
+    fi
 
     candidate="$(ffhn_normalize_bash_path "${candidate}")"
     if [[ "${candidate}" == /* ]]; then
@@ -98,7 +173,7 @@ ffhn_cargo_target_dir() {
         return
     fi
 
-    printf '%s\n' "${repo_root}/${candidate}"
+    printf '%s\n' "$(ffhn_join_and_normalize_bash_path "${repo_root}" "${candidate}")"
 }
 
 ffhn_require_clean_tracked_checkout() {
@@ -111,4 +186,14 @@ ffhn_require_clean_tracked_checkout() {
     tracked_status="$(git -C "${repo_root}" status --porcelain --untracked-files=no)"
     [[ -z "${tracked_status}" ]] || ffhn_die \
         "release scripts require a clean tracked checkout because source archives ship HEAD while local packages and checksums use the current checkout; commit or stash tracked changes first"
+}
+
+ffhn_docker_build() {
+    local progress="${FFHN_DOCKER_BUILD_PROGRESS:-plain}"
+
+    docker build --progress "${progress}" "$@"
+}
+
+ffhn_scrub_ambient_native_toolchain_env() {
+    unset CC CXX CLANG_BIN CPPFLAGS LDFLAGS
 }

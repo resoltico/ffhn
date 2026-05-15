@@ -6,16 +6,19 @@ use crate::model::DynResult;
 
 mod check;
 mod command;
+mod hygiene;
 mod semver;
 
 #[cfg(all(test, unix))]
 pub(crate) use check::{run_check, run_coverage, run_semver_check};
+#[cfg(test)]
+pub(crate) use command::TEST_REPO_ROOT_ENV;
+pub(crate) use command::remove_dir_if_exists;
 #[cfg(all(test, unix))]
 pub(crate) use command::run_spec;
 #[cfg(test)]
-pub(crate) use command::{
-    TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root,
-};
+pub(crate) use command::{remove_file_if_exists, repo_root};
+pub(crate) use hygiene::HygieneTask;
 #[cfg(test)]
 pub(crate) use semver::refresh_semver_baseline;
 
@@ -26,6 +29,8 @@ Examples:
   cargo xtask check
   cargo xtask semver-check
   cargo xtask coverage
+  cargo xtask hygiene report
+  cargo xtask hygiene clean --mode rebuildable
   cargo xtask refresh-semver-baseline --git-ref vX.Y.Z";
 
 #[derive(Parser)]
@@ -57,6 +62,14 @@ enum Task {
         long_about = "Run the curated 100% line-and-branch coverage gate plus its prerequisite checks without rerunning the broader maintainer gate."
     )]
     Coverage,
+    #[command(
+        about = "Inspect or repair the repository artifact hygiene policy.",
+        long_about = "Inspect or repair the maintained repository artifact hygiene policy, including managed Cargo artifact roots, repo-local scratch, and accidental legacy target trees."
+    )]
+    Hygiene {
+        #[command(subcommand)]
+        command: HygieneTask,
+    },
     #[command(
         about = "Refresh the checked-in ffhn-core semver baseline.",
         long_about = "Refresh the checked-in ffhn-core semver baseline from one published Git tag, branch, or commit."
@@ -97,6 +110,7 @@ where
         Task::Check => check::run_check(&repo_root),
         Task::SemverCheck => check::run_semver_check(&repo_root),
         Task::Coverage => check::run_coverage(&repo_root),
+        Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),
         Task::RefreshSemverBaseline(args) => {
             semver::refresh_semver_baseline(&repo_root, &args.git_ref)
         }

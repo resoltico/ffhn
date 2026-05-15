@@ -301,19 +301,45 @@ fn build_release_source_archives_script_creates_the_maintained_source_bundle_pai
 fn maintained_release_entrypoints_refuse_dirty_tracked_checkouts() {
     let repo = seed_release_script_repo();
     let repo_root = repo.path();
+    seed_release_dist_inventory(repo_root);
     fs::write(repo_root.join("README.md"), "# dirty\n").expect("dirty tracked README");
 
-    for (script_name, extra_args) in [
-        ("build-release-source-archives.sh", Vec::<&str>::new()),
-        ("build-release-checksums.sh", Vec::<&str>::new()),
-        ("build-release-artifact.sh", vec!["aarch64-apple-darwin"]),
-        ("publish-github-release.sh", Vec::<&str>::new()),
-        ("verify-github-release.sh", Vec::<&str>::new()),
+    for (script_name, extra_args, extra_env) in [
+        (
+            "build-release-source-archives.sh",
+            Vec::<&str>::new(),
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "build-release-checksums.sh",
+            Vec::<&str>::new(),
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "build-release-artifact.sh",
+            vec!["aarch64-apple-darwin"],
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "publish-github-release.sh",
+            Vec::<&str>::new(),
+            vec![("GH_TOKEN", "test-token"), ("RELEASE_TAG", "v9.9.9")],
+        ),
+        (
+            "verify-github-release.sh",
+            Vec::<&str>::new(),
+            vec![("GH_TOKEN", "test-token"), ("RELEASE_TAG", "v9.9.9")],
+        ),
     ] {
-        let output = bash_command()
+        let mut command = bash_command();
+        command
             .arg(release_script_argument(repo_root, script_name))
             .args(extra_args)
-            .current_dir(repo_root)
+            .current_dir(repo_root);
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+        let output = command
             .output()
             .unwrap_or_else(|error| panic!("run {script_name}: {error}"));
 
@@ -326,7 +352,57 @@ fn maintained_release_entrypoints_refuse_dirty_tracked_checkouts() {
         assert!(stderr.contains("commit or stash tracked changes"));
     }
 
-    assert!(!repo_root.join("dist/ffhn-source-9.9.9.zip").exists());
+    assert!(!repo_root.join("dist/ffhn-9.9.9-checksums.txt").exists());
+}
+
+#[test]
+fn release_entrypoints_report_operator_preconditions_before_dirty_checkout_guard() {
+    let repo = seed_release_script_repo();
+    let repo_root = repo.path();
+    fs::write(repo_root.join("README.md"), "# dirty\n").expect("dirty tracked README");
+
+    let invalid_target = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "build-release-artifact.sh",
+        ))
+        .arg("not-a-target")
+        .current_dir(repo_root)
+        .output()
+        .expect("run invalid target triple");
+    assert!(!invalid_target.status.success());
+    let invalid_target_stderr = String::from_utf8(invalid_target.stderr).expect("stderr utf8");
+    assert!(invalid_target_stderr.contains("unsupported release target triple: not-a-target"));
+    assert!(!invalid_target_stderr.contains("clean tracked checkout"));
+
+    for script_name in ["publish-github-release.sh", "verify-github-release.sh"] {
+        let output = bash_command()
+            .arg(release_script_argument(repo_root, script_name))
+            .arg("v9.9.9")
+            .current_dir(repo_root)
+            .output()
+            .unwrap_or_else(|error| panic!("run {script_name}: {error}"));
+        assert!(
+            !output.status.success(),
+            "{script_name} should fail without GH_TOKEN"
+        );
+        let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+        assert!(stderr.contains("GH_TOKEN is required"));
+        assert!(!stderr.contains("clean tracked checkout"));
+    }
+
+    let checksum_output = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "build-release-checksums.sh",
+        ))
+        .current_dir(repo_root)
+        .output()
+        .expect("run checksum builder on dirty checkout");
+    assert!(!checksum_output.status.success());
+    let checksum_stderr = String::from_utf8(checksum_output.stderr).expect("stderr utf8");
+    assert!(checksum_stderr.contains("missing maintained release assets"));
+    assert!(!checksum_stderr.contains("clean tracked checkout"));
 }
 
 #[test]

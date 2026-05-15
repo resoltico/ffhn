@@ -2,6 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use ffhn_core::{
+    BaselinePhase, BatchRunReport, ProcessErrorKind, RunFailureCause, RunMode, RunOutcome,
+    RunReport, StatusReport, StatusSummary,
+};
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use tempfile::tempdir;
@@ -31,26 +35,20 @@ fn available_powershell_program() -> Option<&'static str> {
         })
 }
 
-fn extract_help_example_block(help_text: &str, header: &str, footer: &str) -> String {
-    let mut in_block = false;
-    let mut lines = Vec::new();
+fn stdout_string(output: &std::process::Output) -> String {
+    String::from_utf8(output.stdout.clone()).expect("stdout utf8")
+}
 
-    for line in help_text.lines() {
-        if line == header {
-            in_block = true;
-            continue;
-        }
-        if in_block && line == footer {
-            break;
-        }
-        if in_block {
-            lines.push(line.strip_prefix("  ").unwrap_or(line));
-        }
-    }
+fn parse_run_report_output(output: &std::process::Output) -> RunReport {
+    serde_json::from_slice(&output.stdout).expect("run report json")
+}
 
-    let mut block = lines.join("\n");
-    block.push('\n');
-    block
+fn parse_batch_run_report_output(output: &std::process::Output) -> BatchRunReport {
+    serde_json::from_slice(&output.stdout).expect("batch run report json")
+}
+
+fn parse_status_report_output(output: &std::process::Output) -> StatusReport {
+    serde_json::from_slice(&output.stdout).expect("status report json")
 }
 
 #[test]
@@ -62,7 +60,7 @@ fn status_emits_one_json_document() {
         target_dir.join("target.toml"),
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -95,97 +93,86 @@ canonicalization = []
     )
     .expect("write target.toml");
 
-    let mut command = Command::cargo_bin("ffhn").expect("ffhn binary");
-    command
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .current_dir(temp.path())
         .args(["status", "--target", "demo"])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.status_report\""))
-        .stdout(contains("\"reason_code\":\"ok\""));
+        .output()
+        .expect("status output");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.schema_name(), "ffhn.status_report");
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_pending());
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::NeverSucceeded));
 }
 
 #[test]
-fn help_output_teaches_target_layout_examples_and_invalid_detail() {
-    let mut run_help = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_help
-        .args(["run", "--help"])
-        .assert()
-        .success()
-        .stdout(contains("<watch_root>/<target_id>/target.toml"))
-        .stdout(contains("target_id = \"demo_file\""))
-        .stdout(contains("target_id = \"demo_http\""))
-        .stdout(contains("user_agent = \"ffhn/example\""))
-        .stdout(contains("accept = \"text/html,application/xhtml+xml\""))
-        .stdout(contains(
-            "Use lowercase letters or digits, with single internal '-' or '_' separators.",
-        ))
-        .stdout(contains(
-            "The watch root itself must already exist and be a directory.",
-        ))
-        .stdout(contains(
-            "--all scans only immediate subdirectories of the watch root.",
-        ))
-        .stdout(contains(
-            "Valid disabled targets are skipped during --all discovery.",
-        ))
-        .stdout(contains(
-            "Status and --dry-run wait behind any active live run so they inspect one stable target view.",
-        ))
-        .stdout(contains(
-            "Explicit --target requests whose target.toml path is missing or unreadable stay fatal process errors.",
-        ));
-
-    let mut status_help = Command::cargo_bin("ffhn").expect("ffhn binary");
-    status_help
-        .args(["status", "--help"])
-        .assert()
-        .success()
-        .stdout(contains("<watch_root>/<target_id>/target.toml"))
-        .stdout(contains("structured error_detail"))
-        .stdout(contains(
-            "Status waits behind any active live run so it can inspect one stable target view.",
-        ))
-        .stdout(contains(
-            "The watch root itself must already exist and be a directory.",
-        ))
-        .stdout(contains(
-            "Missing or unreadable target.toml paths remain fatal process errors.",
-        ));
-}
-
-#[test]
-fn run_help_http_example_validates_as_written() {
-    let help_output = Command::cargo_bin("ffhn")
+fn help_output_separates_grammar_examples_output_and_operational_notes() {
+    let run_help = Command::cargo_bin("ffhn")
         .expect("ffhn binary")
         .args(["run", "--help"])
         .output()
         .expect("run help");
-    assert!(help_output.status.success());
-    let help_text = String::from_utf8(help_output.stdout).expect("help utf8");
-    let example =
-        extract_help_example_block(&help_text, "Minimal HTTP target:", "Discovery notes:");
+    assert!(run_help.status.success());
+    let run_help = stdout_string(&run_help);
+    assert!(run_help.contains(
+        "Usage: ffhn run (--target <ID>... | --all) [--watch-root <PATH>] [--jobs <N>] [--dry-run] [--format <FORMAT>]"
+    ));
+    assert!(run_help.contains("Examples:"));
+    assert!(run_help.contains("ffhn run --target demo"));
+    assert!(run_help.contains("ffhn run --all --jobs 4"));
+    assert!(run_help.contains("Output:"));
+    assert!(run_help.contains("ffhn.run_report"));
+    assert!(run_help.contains("selected format"));
+    assert!(run_help.contains("ffhn.batch_run_report"));
+    assert!(run_help.contains("Operational notes:"));
+    assert!(
+        run_help.contains(
+            "Use lowercase letters or digits, with single internal '-' or '_' separators."
+        )
+    );
+    assert!(run_help.contains("The watch root must already exist and be a directory."));
+    assert!(run_help.contains(
+        "`--all` discovers only immediate watch-root subdirectories containing `target.toml`."
+    ));
+    assert!(run_help.contains(
+        "Disabled targets are discovered and reported normally, but they are not executed."
+    ));
+    assert!(run_help.contains(
+        "Explicit `--target` requests whose `target.toml` path is missing or unreadable emit structured `target_unavailable` results instead of raw fatal stderr."
+    ));
+    assert!(!run_help.contains("Target layout:"));
+    assert!(!run_help.contains("schema_name = \"ffhn.target\""));
 
-    let temp = tempdir().expect("tempdir");
-    let watch_root = temp.path().join("watch-root");
-    let target_dir = watch_root.join("demo_http");
-    fs::create_dir_all(&target_dir).expect("create target dir");
-    fs::write(target_dir.join("target.toml"), example).expect("write help example target");
-
-    let watch_root_string = watch_root.to_string_lossy().into_owned();
-    let mut status = Command::cargo_bin("ffhn").expect("ffhn binary");
-    status
-        .args([
-            "status",
-            "--watch-root",
-            &watch_root_string,
-            "--target",
-            "demo_http",
-        ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"ok\""))
-        .stdout(contains("\"target_status\":\"pending\""));
+    let status_help = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
+        .args(["status", "--help"])
+        .output()
+        .expect("status help");
+    assert!(status_help.status.success());
+    let status_help = stdout_string(&status_help);
+    assert!(
+        status_help
+            .contains("Usage: ffhn status --target <ID> [--watch-root <PATH>] [--format <FORMAT>]")
+    );
+    assert!(status_help.contains("Examples:"));
+    assert!(status_help.contains("ffhn status --target demo"));
+    assert!(status_help.contains("Output:"));
+    assert!(status_help.contains("ffhn.status_report"));
+    assert!(status_help.contains("selected format"));
+    assert!(status_help.contains("structured `status.error_detail`"));
+    assert!(status_help.contains("Operational notes:"));
+    assert!(
+        status_help.contains(
+            "`enabled = true|false` so disablement stays separate from baseline readiness"
+        )
+    );
+    assert!(status_help.contains(
+        "Status waits behind any active live run so it can inspect one stable target view."
+    ));
+    assert!(status_help.contains("The watch root must already exist and be a directory."));
+    assert!(!status_help.contains("Target layout:"));
 }
 
 #[test]
@@ -197,8 +184,8 @@ fn invalid_target_and_state_reports_surface_structured_error_detail() {
     fs::create_dir_all(&target_dir).expect("create target dir");
     fs::write(target_dir.join("target.toml"), "not = [valid").expect("write invalid target");
 
-    let mut invalid_status = Command::cargo_bin("ffhn").expect("ffhn binary");
-    invalid_status
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -206,14 +193,31 @@ fn invalid_target_and_state_reports_surface_structured_error_detail() {
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"config_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"toml\""))
-        .stdout(contains("target.toml"));
+        .output()
+        .expect("invalid status");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), None);
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidConfig { .. }
+    ));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Toml
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .path()
+            .expect("path")
+            .contains("target.toml")
+    );
 
-    let mut invalid_run = Command::cargo_bin("ffhn").expect("ffhn binary");
-    invalid_run
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -221,17 +225,22 @@ fn invalid_target_and_state_reports_surface_structured_error_detail() {
             "--target",
             "demo",
         ])
-        .assert()
-        .failure()
-        .stdout(contains("\"reason_code\":\"config_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"toml\""))
-        .stdout(contains("target.toml"));
+        .output()
+        .expect("invalid run");
+    assert!(!output.status.success());
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_outcome(), RunOutcome::FailedPermanent);
+    assert_eq!(report.failure_cause(), Some(RunFailureCause::ConfigInvalid));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Toml
+    );
 
     fs::write(
         target_dir.join("target.toml"),
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -258,8 +267,8 @@ canonicalization = []
     )
     .expect("write contract-invalid target");
 
-    let mut contract_invalid_status = Command::cargo_bin("ffhn").expect("ffhn binary");
-    contract_invalid_status
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -267,15 +276,30 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"config_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"contract\""))
-        .stdout(contains("fetch.user_agent must not be empty"))
-        .stdout(contains("target.toml"));
+        .output()
+        .expect("contract invalid status");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), None);
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidConfig { .. }
+    ));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Contract
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .message()
+            .contains("fetch.user_agent must not be empty")
+    );
 
-    let mut contract_invalid_run = Command::cargo_bin("ffhn").expect("ffhn binary");
-    contract_invalid_run
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -283,12 +307,23 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .failure()
-        .stdout(contains("\"reason_code\":\"config_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"contract\""))
-        .stdout(contains("fetch.user_agent must not be empty"))
-        .stdout(contains("target.toml"));
+        .output()
+        .expect("contract invalid run");
+    assert!(!output.status.success());
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_outcome(), RunOutcome::FailedPermanent);
+    assert_eq!(report.failure_cause(), Some(RunFailureCause::ConfigInvalid));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Contract
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .message()
+            .contains("fetch.user_agent must not be empty")
+    );
 
     let state_test_file_path = std::env::temp_dir().join("source.html");
     fs::write(
@@ -296,7 +331,7 @@ canonicalization = []
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -326,8 +361,8 @@ canonicalization = []
     .expect("rewrite valid target");
     fs::write(target_dir.join("state.json"), "{not json").expect("write invalid state");
 
-    let mut invalid_state = Command::cargo_bin("ffhn").expect("ffhn binary");
-    invalid_state
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -335,17 +370,26 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"state_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"json\""))
-        .stdout(contains("state.json"));
+        .output()
+        .expect("invalid state");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidState { .. }
+    ));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Json
+    );
 
     fs::write(
         target_dir.join("state.json"),
         r#"{
   "schema_name": "ffhn.state",
-  "schema_version": 1,
+  "schema_version": 3,
   "target_id": "demo",
   "state_phase": "has_baseline",
   "last_run_at": "2026-04-05T10:15:30Z",
@@ -357,8 +401,8 @@ canonicalization = []
     )
     .expect("write contract-invalid state");
 
-    let mut contract_invalid_state = Command::cargo_bin("ffhn").expect("ffhn binary");
-    contract_invalid_state
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -366,14 +410,27 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"state_invalid\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"contract\""))
-        .stdout(contains(
-            "state_phase has_baseline requires current_snapshot",
-        ))
-        .stdout(contains("state.json"));
+        .output()
+        .expect("contract invalid state");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidState { .. }
+    ));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Contract
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .message()
+            .contains("unknown field `current_snapshot`")
+    );
 }
 
 #[test]
@@ -390,7 +447,7 @@ fn contract_invalid_extraction_reports_surface_contract_error_and_artifact_path(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -419,8 +476,8 @@ canonicalization = []
     )
     .expect("write target");
 
-    let mut run_once = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_once
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -428,34 +485,37 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"run_outcome\":\"initialized\""));
+        .output()
+        .expect("initial run");
+    assert!(output.status.success());
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
 
     fs::write(
         target_dir.join("snapshots/current/extraction.json"),
         r#"{
-  "schema_name": "ffhn.extraction_record",
-  "schema_version": 1,
-  "interop_profile": "htmlcut-v0",
-  "htmlcut_plan_digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "htmlcut_result_digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_name": "wrong",
+  "schema_version": 3,
   "comparison_input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "outer_html_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "strategy_kind": "css_selector",
-  "selection_mode": "single",
+  "selection_kind": "css_selector",
+  "selection_match": "single",
   "output_kind": "outer_html",
   "candidate_count": 1,
   "selected_candidate_index": 1,
-  "match_metadata": {"selector":"main"},
+  "selection_evidence": {
+    "kind": "css_selector",
+    "path": "html > body > main",
+    "tag_name": "main"
+  },
   "warning_codes": [],
   "created_at": "2026-04-05T10:15:30Z"
 }"#,
     )
     .expect("write contract-invalid extraction record");
 
-    let mut invalid_extraction = Command::cargo_bin("ffhn").expect("ffhn binary");
-    invalid_extraction
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -463,18 +523,39 @@ canonicalization = []
             "--target",
             "demo",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"reason_code\":\"integrity_mismatch\""))
-        .stdout(contains("\"error_detail\":{\"kind\":\"contract\""))
-        .stdout(contains(
-            "ffhn.extraction_record interop_profile must match the FFHN HTMLCut profile",
-        ))
-        .stdout(contains("snapshots/current/extraction.json"));
+        .output()
+        .expect("invalid extraction status");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::IntegrityMismatch { .. }
+    ));
+    assert_eq!(
+        report.error_detail().expect("error detail").kind(),
+        ProcessErrorKind::Contract
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .message()
+            .contains("schema_name must be \"ffhn.extraction_record\"")
+    );
+    assert!(
+        report
+            .error_detail()
+            .expect("error detail")
+            .path()
+            .expect("error path")
+            .contains("snapshots/current/extraction.json")
+    );
 }
 
 #[test]
-fn missing_target_paths_are_fatal_process_errors() {
+fn missing_target_paths_emit_structured_unavailable_documents() {
     let temp = tempdir().expect("tempdir");
     let watch_root = temp.path().join("watch-root");
     fs::create_dir_all(&watch_root).expect("create watch root");
@@ -490,8 +571,9 @@ fn missing_target_paths_are_fatal_process_errors() {
             "missing_target",
         ])
         .assert()
-        .code(3)
-        .stderr(contains("target.toml"));
+        .success()
+        .stdout(contains("\"kind\":\"unavailable_target\""))
+        .stdout(contains("target.toml"));
 
     let mut missing_run = Command::cargo_bin("ffhn").expect("ffhn binary");
     missing_run
@@ -503,8 +585,9 @@ fn missing_target_paths_are_fatal_process_errors() {
             "missing_target",
         ])
         .assert()
-        .code(3)
-        .stderr(contains("target.toml"));
+        .failure()
+        .stdout(contains("\"cause\":\"target_unavailable\""))
+        .stdout(contains("target.toml"));
 }
 
 #[test]
@@ -524,6 +607,7 @@ fn explicit_single_target_commands_require_a_real_watch_root_directory() {
         ])
         .assert()
         .code(3)
+        .stderr(contains("error: filesystem error"))
         .stderr(contains("watch root does not exist"))
         .stderr(contains("missing-watch-root"))
         .stderr(predicates::str::contains("target.toml").not());
@@ -543,6 +627,7 @@ fn explicit_single_target_commands_require_a_real_watch_root_directory() {
         ])
         .assert()
         .code(3)
+        .stderr(contains("error: filesystem error"))
         .stderr(contains("watch root is not a directory"))
         .stderr(predicates::str::contains("target.toml").not());
 
@@ -558,8 +643,22 @@ fn explicit_single_target_commands_require_a_real_watch_root_directory() {
         ])
         .assert()
         .code(3)
+        .stderr(contains("error: filesystem error"))
         .stderr(contains("watch root is not a directory"))
         .stderr(predicates::str::contains("target.toml").not());
+}
+
+#[test]
+fn run_without_target_selection_names_the_all_alternative() {
+    Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
+        .args(["run"])
+        .assert()
+        .code(2)
+        .stderr(contains("one of '--target <ID>' or '--all' is required"))
+        .stderr(contains(
+            "Usage: ffhn run (--target <ID>... | --all) [--watch-root <PATH>] [--jobs <N>] [--dry-run]",
+        ));
 }
 
 #[cfg(unix)]
@@ -584,8 +683,8 @@ fn readme_quick_start_file_example_flow_stays_runnable() {
         String::from_utf8_lossy(&materialized.stderr)
     );
 
-    let mut run_once = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_once
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -593,14 +692,15 @@ fn readme_quick_start_file_example_flow_stays_runnable() {
             "--target",
             "release_notes",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.run_report\""))
-        .stdout(contains("\"run_outcome\":\"initialized\""))
-        .stdout(contains("\"reason_code\":\"ok\""));
+        .output()
+        .expect("readme run");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
+    assert_eq!(report.failure_cause(), None);
 
-    let mut status = Command::cargo_bin("ffhn").expect("ffhn binary");
-    status
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -608,13 +708,16 @@ fn readme_quick_start_file_example_flow_stays_runnable() {
             "--target",
             "release_notes",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.status_report\""))
-        .stdout(contains("\"target_status\":\"ready\""));
+        .output()
+        .expect("readme status");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_ready());
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
 
-    let mut run_all = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_all
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -623,15 +726,16 @@ fn readme_quick_start_file_example_flow_stays_runnable() {
             "--jobs",
             "4",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.batch_run_report\""))
-        .stdout(contains("\"requested_targets\":[\"release_notes\"]"))
-        .stdout(contains("\"max_concurrency\":4"))
-        .stdout(contains("\"unchanged\":1"));
+        .output()
+        .expect("readme run all");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_batch_run_report_output(&output);
+    assert_eq!(report.requested_targets(), ["release_notes"]);
+    assert_eq!(report.max_concurrency(), 4);
+    assert_eq!(report.outcome_counts().unchanged(), 1);
 
-    let mut dry_run = Command::cargo_bin("ffhn").expect("ffhn binary");
-    dry_run
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -640,11 +744,12 @@ fn readme_quick_start_file_example_flow_stays_runnable() {
             "release_notes",
             "--dry-run",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.run_report\""))
-        .stdout(contains("\"run_mode\":\"dry_run\""))
-        .stdout(contains("\"run_outcome\":\"unchanged\""));
+        .output()
+        .expect("readme dry run");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Unchanged);
 }
 
 #[test]
@@ -673,8 +778,8 @@ fn powershell_quick_start_file_example_flow_stays_runnable_when_available() {
         String::from_utf8_lossy(&materialized.stderr)
     );
 
-    let mut run_once = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_once
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -682,14 +787,15 @@ fn powershell_quick_start_file_example_flow_stays_runnable_when_available() {
             "--target",
             "release_notes",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.run_report\""))
-        .stdout(contains("\"run_outcome\":\"initialized\""))
-        .stdout(contains("\"reason_code\":\"ok\""));
+        .output()
+        .expect("powershell run");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
+    assert_eq!(report.failure_cause(), None);
 
-    let mut status = Command::cargo_bin("ffhn").expect("ffhn binary");
-    status
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "status",
             "--watch-root",
@@ -697,13 +803,16 @@ fn powershell_quick_start_file_example_flow_stays_runnable_when_available() {
             "--target",
             "release_notes",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.status_report\""))
-        .stdout(contains("\"target_status\":\"ready\""));
+        .output()
+        .expect("powershell status");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_ready());
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
 
-    let mut run_all = Command::cargo_bin("ffhn").expect("ffhn binary");
-    run_all
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -712,15 +821,16 @@ fn powershell_quick_start_file_example_flow_stays_runnable_when_available() {
             "--jobs",
             "4",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.batch_run_report\""))
-        .stdout(contains("\"requested_targets\":[\"release_notes\"]"))
-        .stdout(contains("\"max_concurrency\":4"))
-        .stdout(contains("\"unchanged\":1"));
+        .output()
+        .expect("powershell run all");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_batch_run_report_output(&output);
+    assert_eq!(report.requested_targets(), ["release_notes"]);
+    assert_eq!(report.max_concurrency(), 4);
+    assert_eq!(report.outcome_counts().unchanged(), 1);
 
-    let mut dry_run = Command::cargo_bin("ffhn").expect("ffhn binary");
-    dry_run
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
         .args([
             "run",
             "--watch-root",
@@ -729,11 +839,12 @@ fn powershell_quick_start_file_example_flow_stays_runnable_when_available() {
             "release_notes",
             "--dry-run",
         ])
-        .assert()
-        .success()
-        .stdout(contains("\"schema_name\":\"ffhn.run_report\""))
-        .stdout(contains("\"run_mode\":\"dry_run\""))
-        .stdout(contains("\"run_outcome\":\"unchanged\""));
+        .output()
+        .expect("powershell dry run");
+    assert!(output.status.success(), "{}", stdout_string(&output));
+    let report = parse_run_report_output(&output);
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Unchanged);
 }
 
 #[test]
@@ -749,6 +860,66 @@ fn run_all_on_missing_watch_root_fails_instead_of_succeeding_empty() {
         .failure()
         .stderr(contains("filesystem error"))
         .stderr(contains("watch root does not exist"));
+}
+
+#[test]
+fn status_reports_disabled_enablement_separately_from_pending_baseline_state() {
+    let temp = tempdir().expect("tempdir");
+    let watch_root = temp.path().join("watch-root");
+    let watch_root_string = watch_root.to_string_lossy().into_owned();
+    let source_path = temp.path().join("source.html");
+    let target_dir = watch_root.join("demo");
+    fs::create_dir_all(&target_dir).expect("create target dir");
+    fs::write(&source_path, "<html><body><main>Hello</main></body></html>").expect("source");
+    fs::write(
+        target_dir.join("target.toml"),
+        format!(
+            r#"
+schema_name = "ffhn.target"
+schema_version = 3
+target_id = "demo"
+display_name = "Demo"
+enabled = false
+
+[target]
+kind = "file"
+file_path = {source_path:?}
+
+[fetch]
+engine = "file"
+max_bytes = 2000000
+
+[selection]
+kind = "css_selector"
+selector = "main"
+match = "single"
+output = "outer_html"
+whitespace = "normalize"
+rewrite_urls = false
+
+[compare]
+basis = "canonical_text_sha256"
+canonicalization = []
+"#
+        ),
+    )
+    .expect("write disabled target");
+
+    let output = Command::cargo_bin("ffhn")
+        .expect("ffhn binary")
+        .args([
+            "status",
+            "--watch-root",
+            &watch_root_string,
+            "--target",
+            "demo",
+        ])
+        .output()
+        .expect("disabled status");
+    assert!(output.status.success());
+    let report = parse_status_report_output(&output);
+    assert_eq!(report.enabled(), Some(false));
+    assert!(matches!(report.status(), StatusSummary::Pending));
 }
 
 #[test]
@@ -770,7 +941,7 @@ fn run_all_ignores_directories_without_a_target_marker() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -806,6 +977,6 @@ canonicalization = []
         .failure()
         .stdout(contains("\"requested_targets\":[\"broken\",\"demo\"]"))
         .stdout(contains("\"target_id\":\"broken\""))
-        .stdout(contains("\"fatal_error\":{\"kind\":\"io\""))
+        .stdout(contains("\"cause\":\"target_unavailable\""))
         .stdout(predicates::str::contains("\"target_id\":\"notes\"").not());
 }

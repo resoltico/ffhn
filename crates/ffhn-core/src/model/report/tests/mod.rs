@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    HTMLCUT_INTEROP_PROFILE, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
-    STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, TargetId,
+    LAST_RUN_SNAPSHOT_SCHEMA_NAME, LAST_RUN_SNAPSHOT_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME,
+    RUN_REPORT_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, TargetId,
 };
 
 pub(super) use super::checks::{validate_notification_delivery, validate_run_change_section};
@@ -33,10 +33,23 @@ pub(super) fn failed_notification(
 
 pub(super) fn persist_section(
     duration_ms: u64,
-    state_write: PersistWriteStatus,
+    state_commit: PersistWriteStatus,
     last_run_write: PersistWriteStatus,
 ) -> RunPersistSection {
-    RunPersistSection::from_writes(duration_ms, state_write, last_run_write)
+    RunPersistSection::from_writes(
+        if state_commit.is_not_attempted() {
+            0
+        } else {
+            duration_ms
+        },
+        state_commit,
+        if last_run_write.is_not_attempted() {
+            0
+        } else {
+            duration_ms
+        },
+        last_run_write,
+    )
 }
 
 pub(super) fn valid_run_report() -> RunReport {
@@ -45,19 +58,16 @@ pub(super) fn valid_run_report() -> RunReport {
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
         target_id: target_id("demo"),
+        display_name: Some("Demo".to_owned()),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: RunMode::Live,
-        run_outcome: RunOutcome::Changed,
-        reason_code: ReasonCode::Ok,
-        failure_class: None,
-        error_detail: None,
-        target_status_after_run: TargetStatus::Ready,
+        result: RunResult::Changed,
         compare_basis: CompareBasis::CanonicalTextSha256,
         previous_compare_digest_sha256: Some(DIGEST.to_owned()),
         current_compare_digest_sha256: Some(DIGEST.to_owned()),
-        state_phase_before_run: StatePhase::HasBaseline,
-        state_phase_after_run: StatePhase::HasBaseline,
+        baseline_phase_before_run: BaselinePhase::HasBaseline,
+        baseline_phase_after_run: BaselinePhase::HasBaseline,
         fetch: Some(RunFetchSection {
             engine: FetchEngine::Http,
             final_url: Some("https://example.com/final".to_owned()),
@@ -67,13 +77,10 @@ pub(super) fn valid_run_report() -> RunReport {
             duration_ms: 12,
         }),
         extraction: Some(RunExtractionSection {
-            interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-            htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-            htmlcut_result_digest_sha256: DIGEST.to_owned(),
             comparison_input_sha256: DIGEST.to_owned(),
             outer_html_sha256: DIGEST.to_owned(),
-            strategy_kind: SelectionKind::CssSelector,
-            selection_mode: SelectionMatch::Single,
+            selection_kind: SelectionKind::CssSelector,
+            selection_match: SelectionMatch::Single,
             output_kind: OutputKind::OuterHtml,
             candidate_count: 1,
             selected_candidate_index: 1,
@@ -140,7 +147,7 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
             failed_transient: 0,
             failed_permanent: 0,
             skipped_disabled: 0,
-            persist_error: 0,
+            persist_failure: 0,
             notification_failure: 0,
             fatal_error: 1,
         },
@@ -150,6 +157,7 @@ pub(super) fn valid_batch_report() -> BatchRunReport {
 
 mod batch;
 mod helpers;
+mod last_run;
 mod notification;
 mod run;
 mod status;

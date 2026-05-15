@@ -20,7 +20,6 @@ fn seed_release_script_repo() -> tempfile::TempDir {
         "common.sh",
         "release-targets.sh",
         "workspace-package-field.sh",
-        "workspace-version.sh",
         "build-release-source-archives.sh",
         "build-release-artifact.sh",
         "build-release-checksums.sh",
@@ -86,6 +85,23 @@ version = "9.9.9"
 
 fn release_script_argument(repo_root: &Path, script_name: &str) -> String {
     crate::release::bash_source_argument_for_tests(&repo_root.join("scripts").join(script_name))
+}
+
+fn seed_release_dist_inventory(repo_root: &Path) {
+    let dist = repo_root.join("dist");
+    fs::create_dir_all(&dist).expect("create dist");
+
+    for asset in [
+        "ffhn-source-9.9.9.zip",
+        "ffhn-source-9.9.9.tar.gz",
+        "ffhn-9.9.9-aarch64-apple-darwin.tar.gz",
+        "ffhn-9.9.9-x86_64-apple-darwin.tar.gz",
+        "ffhn-9.9.9-x86_64-unknown-linux-musl.tar.gz",
+        "ffhn-9.9.9-x86_64-pc-windows-msvc.zip",
+    ] {
+        fs::write(dist.join(asset), format!("dummy asset for {asset}\n"))
+            .unwrap_or_else(|error| panic!("write {asset}: {error}"));
+    }
 }
 
 #[test]
@@ -300,8 +316,10 @@ repo_root="{repo_root}"
 absolute_target_root="{absolute_target_root}"
 source "$script_dir/common.sh"
 
+expected_default_root="$(cd "$repo_root/.." && pwd)/.ffhn-artifacts/target"
+
 unset CARGO_TARGET_DIR
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/target" ]]
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$expected_default_root" ]]
 
 export CARGO_TARGET_DIR="custom-target"
 [[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/custom-target" ]]

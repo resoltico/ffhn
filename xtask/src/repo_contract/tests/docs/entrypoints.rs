@@ -57,6 +57,39 @@ fn storefront_readme_and_docs_index_route_readers_to_getting_started() {
 }
 
 #[test]
+fn docs_index_lists_every_maintained_top_level_doc() {
+    let repo_root = repo_root();
+    let docs_root = repo_root.join("docs");
+    let docs_index = fs::read_to_string(docs_root.join("README.md")).expect("read docs index");
+    let mut missing = Vec::new();
+
+    for entry in fs::read_dir(&docs_root).expect("read docs directory") {
+        let entry = entry.expect("docs entry");
+        let path = entry.path();
+        let is_markdown = path.extension().is_some_and(|extension| extension == "md");
+        if !is_markdown || path.file_name().is_some_and(|name| name == "README.md") {
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .expect("docs markdown filename")
+            .to_string_lossy()
+            .into_owned();
+        let link = format!("[{file_name}]({file_name})");
+        if !docs_index.contains(&link) {
+            missing.push(file_name);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "docs/README.md must list every maintained top-level docs markdown file:\n{}",
+        missing.join("\n")
+    );
+}
+
+#[test]
 fn contributor_docs_route_maintainers_to_the_committed_devcontainer() {
     let repo_root = repo_root();
     let docs_index = fs::read_to_string(repo_root.join("docs/README.md")).expect("read docs index");

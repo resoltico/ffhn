@@ -1,13 +1,45 @@
 use crate::CoreError;
 
 use super::TargetId;
-use super::{Extensions, ReasonCode, RunOutcome, SnapshotReference, SnapshotSlot, StatePhase};
+use super::{
+    BaselinePhase, Extensions, RunFailureCause, RunOutcome, SnapshotReference, SnapshotSlot,
+};
 
 mod access;
 #[cfg(test)]
 mod tests;
 mod validation;
 mod wire;
+
+/// Persisted baseline state inside `ffhn.state`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StoredBaseline {
+    /// No successful baseline exists yet.
+    Pending,
+    /// One current baseline exists and may carry retained history snapshots.
+    Ready {
+        /// Current snapshot ref.
+        current_snapshot: SnapshotReference,
+        /// Older retained snapshots, newest first.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        snapshot_history: Vec<SnapshotReference>,
+    },
+}
+
+/// Last persisted live-run summary inside `ffhn.state`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LastRunRecord {
+    /// Most recent attempted live-run timestamp.
+    run_at: String,
+    /// Stable run outcome for the last live attempt.
+    outcome: RunOutcome,
+    /// Local cause for the failed run when the last attempt failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cause: Option<RunFailureCause>,
+}
 
 /// Persisted FFHN state schema.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,18 +50,10 @@ pub struct StateDocument {
     pub(crate) schema_version: u32,
     /// Target id.
     pub(crate) target_id: TargetId,
-    /// Current state phase.
-    pub(crate) state_phase: StatePhase,
-    /// Most recent attempted run time.
-    pub(crate) last_run_at: Option<String>,
-    /// Most recent attempted run outcome.
-    pub(crate) last_run_outcome: Option<RunOutcome>,
-    /// Most recent attempted run reason.
-    pub(crate) last_reason_code: Option<ReasonCode>,
-    /// Current snapshot ref.
-    pub(crate) current_snapshot: Option<SnapshotReference>,
-    /// Older retained snapshots, newest first.
-    pub(crate) snapshot_history: Vec<SnapshotReference>,
+    /// Current baseline state.
+    pub(crate) baseline: StoredBaseline,
+    /// Most recent attempted live run when one exists.
+    pub(crate) last_run: Option<LastRunRecord>,
     /// Reserved extensions.
     pub(crate) extensions: Extensions,
 }

@@ -1,6 +1,12 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct MarkdownFence {
+    pub(super) language: Option<String>,
+    pub(super) body: String,
+}
+
 pub(super) fn marked_section(text: &str, marker_id: &str) -> Result<String, String> {
     let start_marker = format!("<!-- contract:{marker_id}:start -->");
     let end_marker = format!("<!-- contract:{marker_id}:end -->");
@@ -17,6 +23,42 @@ pub(super) fn marked_section(text: &str, marker_id: &str) -> Result<String, Stri
 
 pub(super) fn production_source_text(text: &str) -> &str {
     text.split("\n#[cfg(test)]").next().unwrap_or(text)
+}
+
+pub(super) fn fenced_code_blocks(text: &str) -> Vec<MarkdownFence> {
+    let mut fences = Vec::new();
+    let mut current_language = None;
+    let mut current_lines = Vec::new();
+    let mut in_fence = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if let Some(info_string) = trimmed.strip_prefix("```") {
+            if in_fence {
+                fences.push(MarkdownFence {
+                    language: current_language.take(),
+                    body: current_lines.join("\n"),
+                });
+                current_lines.clear();
+                in_fence = false;
+            } else {
+                let language = info_string
+                    .split_whitespace()
+                    .next()
+                    .filter(|language| !language.is_empty())
+                    .map(str::to_owned);
+                current_language = language;
+                in_fence = true;
+            }
+            continue;
+        }
+
+        if in_fence {
+            current_lines.push(line.to_owned());
+        }
+    }
+
+    fences
 }
 
 pub(super) fn code_segments(text: &str) -> Vec<String> {
@@ -89,6 +131,29 @@ pub(super) fn repo_file_mentions(text: &str) -> BTreeSet<String> {
     mentions
 }
 
+pub(super) fn prose_lines_without_frontmatter_or_code(text: &str) -> Vec<(usize, String)> {
+    let (line_offset, text) = strip_frontmatter_block(text);
+    let mut lines = Vec::new();
+    let mut in_fence = false;
+
+    for (index, line) in text.lines().enumerate() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+
+        let stripped = strip_inline_code_and_link_targets(line);
+        if !stripped.trim().is_empty() {
+            lines.push((line_offset + index + 1, stripped));
+        }
+    }
+
+    lines
+}
+
 pub(super) fn looks_like_repo_file_mention(token: &str) -> bool {
     if token.is_empty()
         || token.starts_with("http://")
@@ -158,6 +223,85 @@ pub(super) fn resolve_repo_path(
     ]
     .into_iter()
     .find(|candidate| candidate.exists())
+}
+
+fn strip_frontmatter_block(text: &str) -> (usize, &str) {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return (0, text);
+    };
+    let Some(end) = rest.find("\n---\n") else {
+        return (0, text);
+    };
+    let body_start = end + "\n---\n".len();
+    let line_offset = text[..("---\n".len() + body_start)].lines().count();
+    (line_offset, &rest[body_start..])
+}
+
+fn strip_inline_code_and_link_targets(line: &str) -> String {
+    let mut output = String::new();
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut in_inline_code = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'`' {
+            in_inline_code = !in_inline_code;
+            index += 1;
+            continue;
+        }
+        if in_inline_code {
+            index += 1;
+            continue;
+        }
+        if byte == b'!' && bytes.get(index + 1) == Some(&b'[') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b']' {
+                index += 1;
+            }
+            if index < bytes.len() && bytes.get(index + 1) == Some(&b'(') {
+                index += 2;
+                while index < bytes.len() && bytes[index] != b')' {
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+            } else if index < bytes.len() {
+                index += 1;
+            }
+            continue;
+        }
+
+        if byte == b'[' {
+            output.push('[');
+            index += 1;
+            while index < bytes.len() && bytes[index] != b']' {
+                output.push(bytes[index] as char);
+                index += 1;
+            }
+            if index < bytes.len() {
+                output.push(']');
+                if bytes.get(index + 1) == Some(&b'(') {
+                    index += 2;
+                    while index < bytes.len() && bytes[index] != b')' {
+                        index += 1;
+                    }
+                    if index < bytes.len() {
+                        index += 1;
+                    }
+                    continue;
+                }
+                index += 1;
+            }
+            continue;
+        }
+
+        output.push(byte as char);
+        index += 1;
+    }
+
+    output
 }
 
 pub(super) fn repo_relative_path(repo_root: &Path, path: &Path) -> PathBuf {

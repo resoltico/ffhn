@@ -119,12 +119,18 @@ impl From<&CoreError> for ProcessErrorDetail {
                 message: message.clone(),
                 path: None,
             },
+            CoreError::PersistTransaction { summary, .. } => Self {
+                kind: ProcessErrorKind::PersistTransaction,
+                message: summary.clone(),
+                path: None,
+            },
         }
     }
 }
 
 /// Stable process-error kind vocabulary used by FFHN reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProcessErrorKind {
     /// Filesystem or lock I/O error.
     Io,
@@ -144,22 +150,42 @@ pub enum ProcessErrorKind {
     HtmlcutInterop,
     /// Internal FFHN invariant failure.
     Internal,
+    /// Persistence transaction failed and rollback or cleanup details were captured.
+    PersistTransaction,
+}
+
+impl ProcessErrorKind {
+    /// Returns the stable schema vocabulary token.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Io => "io",
+            Self::Json => "json",
+            Self::Toml => "toml",
+            Self::Url => "url",
+            Self::TimeFormat => "time_format",
+            Self::TimeParse => "time_parse",
+            Self::Contract => "contract",
+            Self::HtmlcutInterop => "htmlcut_interop",
+            Self::Internal => "internal",
+            Self::PersistTransaction => "persist_transaction",
+        }
+    }
 }
 
 /// Stable notification-delivery outcome vocabulary used inside `ffhn.run_report`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NotificationDeliveryOutcome {
-    /// The hook exited successfully.
+    /// The route process exited successfully.
     Delivered {
-        /// Exit status returned by the hook process.
+        /// Exit status returned by the route process.
         exit_code: i32,
     },
-    /// The hook timed out before it produced a successful exit status.
+    /// The route process timed out before it produced a successful exit status.
     TimedOut {
         /// Best-effort timeout detail.
         error: String,
     },
-    /// The hook failed before a successful exit status.
+    /// The route process failed before a successful exit status.
     Failed {
         /// Exit status when the process exited normally.
         exit_code: Option<i32>,
@@ -170,13 +196,25 @@ pub(crate) enum NotificationDeliveryOutcome {
 
 /// Stable notification-delivery status vocabulary for the public Rust report API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NotificationDeliveryStatus {
-    /// The hook exited successfully.
+    /// The route process exited successfully.
     Delivered,
-    /// The hook timed out before a successful exit.
+    /// The route process timed out before a successful exit.
     TimedOut,
-    /// The hook failed before a successful exit.
+    /// The route process failed before a successful exit.
     Failed,
+}
+
+impl NotificationDeliveryStatus {
+    /// Returns the stable schema vocabulary token.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Delivered => "delivered",
+            Self::TimedOut => "timed_out",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 impl NotificationDeliveryOutcome {
@@ -206,13 +244,13 @@ impl NotificationDeliveryOutcome {
         }
     }
 
-    /// Returns whether the hook exited successfully.
+    /// Returns whether the route process exited successfully.
     #[cfg(test)]
     pub const fn is_delivered(&self) -> bool {
         matches!(self, Self::Delivered { .. })
     }
 
-    /// Returns whether the hook timed out.
+    /// Returns whether the route process timed out.
     #[cfg(test)]
     pub const fn is_timed_out(&self) -> bool {
         matches!(self, Self::TimedOut { .. })
@@ -222,8 +260,8 @@ impl NotificationDeliveryOutcome {
 /// Best-effort notification delivery result inside `ffhn.run_report`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RunNotificationDelivery {
-    /// Hook name from `target.toml`.
-    pub(crate) hook_name: String,
+    /// Route name from `target.toml`.
+    pub(crate) route_name: String,
     /// Delivery duration in milliseconds.
     pub(crate) duration_ms: u64,
     /// Stable delivery result.
@@ -232,24 +270,24 @@ pub(crate) struct RunNotificationDelivery {
 
 impl RunNotificationDelivery {
     pub(crate) fn delivered(
-        hook_name: impl Into<String>,
+        route_name: impl Into<String>,
         duration_ms: u64,
         exit_code: i32,
     ) -> Self {
         Self {
-            hook_name: hook_name.into(),
+            route_name: route_name.into(),
             duration_ms,
             outcome: NotificationDeliveryOutcome::Delivered { exit_code },
         }
     }
 
     pub(crate) fn timed_out(
-        hook_name: impl Into<String>,
+        route_name: impl Into<String>,
         duration_ms: u64,
         error: impl Into<String>,
     ) -> Self {
         Self {
-            hook_name: hook_name.into(),
+            route_name: route_name.into(),
             duration_ms,
             outcome: NotificationDeliveryOutcome::TimedOut {
                 error: error.into(),
@@ -258,13 +296,13 @@ impl RunNotificationDelivery {
     }
 
     pub(crate) fn failed(
-        hook_name: impl Into<String>,
+        route_name: impl Into<String>,
         duration_ms: u64,
         exit_code: Option<i32>,
         error: impl Into<String>,
     ) -> Self {
         Self {
-            hook_name: hook_name.into(),
+            route_name: route_name.into(),
             duration_ms,
             outcome: NotificationDeliveryOutcome::Failed {
                 exit_code,
@@ -273,9 +311,9 @@ impl RunNotificationDelivery {
         }
     }
 
-    /// Returns the hook name from `target.toml`.
-    pub fn hook_name(&self) -> &str {
-        &self.hook_name
+    /// Returns the route name from `target.toml`.
+    pub fn route_name(&self) -> &str {
+        &self.route_name
     }
 
     /// Returns the delivery duration in milliseconds.
@@ -293,13 +331,13 @@ impl RunNotificationDelivery {
         self.outcome.status()
     }
 
-    /// Returns whether the hook exited successfully.
+    /// Returns whether the route process exited successfully.
     #[cfg(test)]
     pub const fn is_delivered(&self) -> bool {
         self.outcome.is_delivered()
     }
 
-    /// Returns whether the hook timed out.
+    /// Returns whether the route process timed out.
     #[cfg(test)]
     pub const fn is_timed_out(&self) -> bool {
         self.outcome.is_timed_out()
@@ -316,15 +354,15 @@ impl RunNotificationDelivery {
     }
 }
 
-/// `ffhn.notification_payload` schema written to hook stdin.
+/// `ffhn.notification_payload` schema written to route-process stdin.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NotificationPayload {
     /// Frozen schema identity.
     pub(crate) schema_name: String,
     /// Frozen schema version.
     pub(crate) schema_version: u32,
-    /// Hook name receiving the payload.
-    pub(crate) hook_name: String,
+    /// Route name receiving the payload.
+    pub(crate) route_name: String,
     /// Timestamp when FFHN started this delivery attempt.
     pub(crate) delivery_started_at: String,
     /// Structured pre-delivery run snapshot.
@@ -344,9 +382,9 @@ impl NotificationPayload {
         self.schema_version
     }
 
-    /// Returns the hook name receiving this payload.
-    pub fn hook_name(&self) -> &str {
-        &self.hook_name
+    /// Returns the route name receiving this payload.
+    pub fn route_name(&self) -> &str {
+        &self.route_name
     }
 
     /// Returns the notification-delivery start timestamp.
@@ -364,11 +402,11 @@ impl NotificationPayload {
         self.extensions.as_ref()
     }
 
-    /// Validates one hook-stdin payload.
+    /// Validates one route-process-stdin payload.
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError`] when the schema identity is wrong, the hook name is empty, the
+    /// Returns [`CoreError`] when the schema identity is wrong, the route name is empty, the
     /// delivery timestamp is invalid, or the embedded run report violates FFHN's pre-delivery
     /// notification contract.
     pub fn validate(&self) -> Result<(), CoreError> {
@@ -378,7 +416,7 @@ impl NotificationPayload {
             self.schema_version,
             NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
         )?;
-        require_non_empty("notification_payload.hook_name", &self.hook_name)?;
+        require_non_empty("notification_payload.route_name", &self.route_name)?;
         validate_timestamp(&self.delivery_started_at)?;
         self.run_report.validate()?;
         if self.run_report.run_mode != RunMode::Live {

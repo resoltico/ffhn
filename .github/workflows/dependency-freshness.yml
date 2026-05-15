@@ -1,0 +1,38 @@
+name: Dependency Freshness
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-freshness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-outdated:
+    name: Cargo dependency freshness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pinned Rust stable toolchain
+        shell: bash
+        run: bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
+
+      - name: Install pinned Rust QA tools
+        shell: bash
+        run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
+
+      - name: Check root dependency freshness
+        shell: bash
+        run: cargo outdated --workspace --root-deps-only --exit-code 1
+
+      - name: Check fuzz dependency freshness
+        shell: bash
+        run: cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1

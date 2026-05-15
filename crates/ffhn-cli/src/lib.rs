@@ -12,7 +12,6 @@ pub const EXIT_CODE_FATAL: i32 = 3;
 mod args;
 mod error;
 mod execute;
-mod help;
 mod metadata;
 mod render;
 #[cfg(test)]

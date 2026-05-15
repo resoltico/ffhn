@@ -5,17 +5,13 @@ set -euo pipefail
 # shellcheck source=scripts/common.sh
 . "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
 
-workspace_version() {
-    "${script_dir}/workspace-version.sh" "${repo_root}/Cargo.toml"
-}
-
 release_version() {
     if [[ -n "${RELEASE_VERSION:-}" ]]; then
         printf '%s\n' "${RELEASE_VERSION}"
         return
     fi
 
-    workspace_version
+    ffhn_workspace_version "${script_dir}" "${repo_root}"
 }
 
 checksum_line() {
@@ -72,8 +68,6 @@ main() {
     fi
     [[ $# -eq 0 ]] || ffhn_usage_error "${command_name}" "this script does not accept arguments"
 
-    ffhn_require_clean_tracked_checkout "${repo_root}"
-
     local version
     version="$(release_version)"
     readonly version
@@ -84,9 +78,6 @@ main() {
     readonly manifest_name
     local manifest_path="${output_dir}/${manifest_name}"
     readonly manifest_path
-
-    mkdir -p "${output_dir}"
-    : > "${manifest_path}"
 
     local expected_assets=()
     local asset_name
@@ -124,6 +115,11 @@ Populate ./dist with the full inventory first:
 EOF
 )"
     fi
+
+    ffhn_require_clean_tracked_checkout "${repo_root}"
+
+    mkdir -p "${output_dir}"
+    : > "${manifest_path}"
 
     for asset_name in "${expected_assets[@]}"; do
         local local_path="${output_dir}/${asset_name}"

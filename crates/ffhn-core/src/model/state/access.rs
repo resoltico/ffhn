@@ -16,38 +16,82 @@ impl StateDocument {
         self.target_id.as_str()
     }
 
-    /// Returns the persisted state phase.
-    pub fn state_phase(&self) -> StatePhase {
-        self.state_phase
+    /// Returns the persisted baseline state.
+    pub const fn baseline(&self) -> &StoredBaseline {
+        &self.baseline
     }
 
-    /// Returns the last persisted run timestamp when one exists.
-    pub fn last_run_at(&self) -> Option<&str> {
-        self.last_run_at.as_deref()
+    /// Returns the persisted baseline phase.
+    pub fn baseline_phase(&self) -> BaselinePhase {
+        self.baseline.baseline_phase()
     }
 
-    /// Returns the last persisted run outcome when one exists.
-    pub fn last_run_outcome(&self) -> Option<RunOutcome> {
-        self.last_run_outcome
-    }
-
-    /// Returns the last persisted reason code when one exists.
-    pub fn last_reason_code(&self) -> Option<ReasonCode> {
-        self.last_reason_code
+    /// Returns the last persisted live-run summary when one exists.
+    pub const fn last_run(&self) -> Option<&LastRunRecord> {
+        self.last_run.as_ref()
     }
 
     /// Returns the current snapshot reference when one exists.
     pub fn current_snapshot(&self) -> Option<&SnapshotReference> {
-        self.current_snapshot.as_ref()
+        match &self.baseline {
+            StoredBaseline::Pending => None,
+            StoredBaseline::Ready {
+                current_snapshot, ..
+            } => Some(current_snapshot),
+        }
     }
 
     /// Returns retained historical snapshots in newest-first order.
     pub fn snapshot_history(&self) -> &[SnapshotReference] {
-        &self.snapshot_history
+        match &self.baseline {
+            StoredBaseline::Pending => &[],
+            StoredBaseline::Ready {
+                snapshot_history, ..
+            } => snapshot_history,
+        }
     }
 
     /// Returns any reserved extensions.
     pub fn extensions(&self) -> Option<&std::collections::BTreeMap<String, serde_json::Value>> {
         self.extensions.as_ref()
+    }
+}
+
+impl StoredBaseline {
+    /// Returns the baseline phase summarized by this stored state.
+    pub const fn baseline_phase(&self) -> BaselinePhase {
+        match self {
+            Self::Pending => BaselinePhase::NeverSucceeded,
+            Self::Ready { .. } => BaselinePhase::HasBaseline,
+        }
+    }
+}
+
+impl LastRunRecord {
+    pub(crate) const fn new(
+        run_at: String,
+        outcome: crate::RunOutcome,
+        cause: Option<RunFailureCause>,
+    ) -> Self {
+        Self {
+            run_at,
+            outcome,
+            cause,
+        }
+    }
+
+    /// Returns the stable run outcome represented by this stored summary.
+    pub const fn outcome(&self) -> crate::RunOutcome {
+        self.outcome
+    }
+
+    /// Returns the persisted live-run timestamp.
+    pub fn run_at(&self) -> &str {
+        &self.run_at
+    }
+
+    /// Returns the run-failure cause when the stored outcome failed.
+    pub const fn failure_cause(&self) -> Option<RunFailureCause> {
+        self.cause
     }
 }

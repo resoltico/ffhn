@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: TARGETS
-updated: "2026-04-30"
+updated: "2026-05-14"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
-  questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification hooks work?"]
+  questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification routes work?"]
 ---
 
 # Target Configuration
@@ -14,7 +14,7 @@ FFHN loads one `ffhn.target` document from `<watch_root>/<target_id>/target.toml
 Every target document requires:
 
 1. `schema_name = "ffhn.target"`
-2. `schema_version = 1`
+2. `schema_version = 3`
 3. `target_id`
 4. `display_name`
 5. `enabled`
@@ -23,16 +23,20 @@ Every target document requires:
 8. `[selection]`
 9. `[compare]`
 
-Optional sections are `[storage]`, `[[notifications]]`, top-level `[extensions]`, and reserved `[fetch.extensions]`.
-FFHN currently preserves those extension objects structurally but does not interpret them semantically, so they are reserved for forward-compatible metadata rather than current runtime behavior.
+Optional sections are `[storage]`, `[[notification_endpoints]]`, `[[notification_routes]]`, top-level `[extensions]`, and reserved
+`[fetch.extensions]`. FFHN preserves those extension objects structurally but does not interpret
+them semantically.
 
 `enabled` has three user-facing effects:
 
 1. live explicit runs return `skipped_disabled`
 2. `run --all` excludes the target from discovery when the directory has a `target.toml` marker and that document is otherwise valid
-3. explicit dry-runs still inspect the target instead of short-circuiting
+3. explicit dry-runs continue through validation, fetch, extraction, and compare
 
-The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md) are repo-contract-tested against the current schema, so they are the canonical example entrypoints in this repository.
+The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and
+[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md)
+are repo-contract-tested against the current schema, so they are the canonical example entrypoints
+in this repository.
 
 ## `target_id` Rules
 
@@ -62,6 +66,11 @@ FFHN supports two target source families.
 [target]
 kind = "http"
 source_url = "https://example.com"
+
+[fetch]
+engine = "http"
+user_agent = "ffhn/example"
+accept = "text/html"
 ```
 
 Rules:
@@ -88,7 +97,9 @@ Rules:
 2. `source_url` is forbidden
 3. `fetch.engine` must be `file`
 
-The `file_path` above is schematic. For a checked-in runnable file-target example that materializes a real absolute path to included sample HTML, use [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md).
+The `file_path` above is schematic. For a checked-in runnable file-target example that materializes
+a real absolute path to included sample HTML, use
+[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md).
 
 ## Fetch Section
 
@@ -116,8 +127,9 @@ Additional HTTP-only rules:
 4. `headers` keys and values must be non-empty when present
 5. `fetch.engine = "file"` is forbidden
 
-HTTP responses with no `Content-Type` header are still accepted and decoded as UTF-8 by default.
-`fetch_unsupported_content_type` is reserved for responses that do send a non-HTML/XHTML media type.
+HTTP responses with no `Content-Type` header are accepted and decoded as UTF-8 by default.
+`fetch_unsupported_content_type` is reserved for responses that do send a non-HTML/XHTML media
+type.
 
 ### File fetch rules
 
@@ -141,6 +153,13 @@ Shared fields:
 2. `output = "text" | "inner_html" | "outer_html"`
 3. `whitespace = "preserve" | "normalize"`
 4. `rewrite_urls = true | false`
+
+`rewrite_urls` follows HTMLCut's effective-base rules:
+
+1. HTTP targets pass their final `http` or `https` fetch URL into HTMLCut as the input base URL
+2. file targets do not invent an input base URL from `file://...`
+3. file targets can rewrite relative URLs when the document itself resolves an effective HTTP(S) base, such as `<base href="https://example.com/docs/">`
+4. when `rewrite_urls = true` and no effective HTTP(S) base resolves, FFHN keeps the extraction successful and surfaces the HTMLCut warning code `EFFECTIVE_BASE_URL_UNRESOLVED` in `warning_codes`
 
 ### Candidate selection
 
@@ -189,9 +208,13 @@ The canonicalization pipeline is an ordered list of:
 4. `strip_regex`
 5. `lowercase`
 
-`compare.canonicalization` may also be empty. In that case FFHN hashes the LF-normalized extraction output directly without any additional caller-configured transforms.
+`compare.canonicalization` may also be empty. In that case FFHN hashes the LF-normalized
+extraction output directly without any additional caller-configured transforms.
 
-FFHN always normalizes extraction output line endings to LF before compare-time hashing, and the final canonical text is LF-normalized again after the configured pipeline completes. `normalize_newlines` therefore remains a stable explicit vocabulary value, but it only makes that otherwise implicit LF-normalization step visible inside the configured pipeline.
+FFHN always normalizes extraction output line endings to LF before compare-time hashing, and the
+final canonical text is LF-normalized again after the configured pipeline completes.
+`normalize_newlines` therefore remains a stable explicit vocabulary value, but it serves as an
+explicit declaration of that otherwise implicit LF-normalization step.
 
 `strip_regex` additionally requires:
 
@@ -225,25 +248,35 @@ That means the history directory can hold at most `history_limit - 1` older snap
 
 ## Notifications
 
-Notifications are best-effort process hooks.
+Notifications are best-effort delivery routes. FFHN models them in two layers:
+
+1. `[[notification_endpoints]]` define reusable delivery adapters
+2. `[[notification_routes]]` bind run outcomes to one named endpoint
+
+The current adapter vocabulary has one member: `process_stdin`.
 
 POSIX append-only JSONL sink:
 
 ```toml
-[[notifications]]
+[[notification_endpoints]]
 name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
+kind = "process_stdin"
 program = "/bin/sh"
 args = ["-c", "cat >> /tmp/ffhn-report.jsonl"]
 timeout_ms = 1000
+
+[[notification_routes]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+endpoint = "log-json"
 ```
 
 PowerShell append-only JSONL sink:
 
 ```toml
-[[notifications]]
+[[notification_endpoints]]
 name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
+kind = "process_stdin"
 program = "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
 args = [
   "-NoLogo",
@@ -253,10 +286,16 @@ args = [
   "C:\\Temp\\ffhn-report.jsonl",
 ]
 timeout_ms = 1000
+
+[[notification_routes]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+endpoint = "log-json"
 ```
 
-FFHN writes one compact JSON document followed by a newline to hook stdin, so simple append-based sinks produce valid JSONL.
-Use the shell host and absolute paths that exist on the target machine. The checked-in
+FFHN writes one compact JSON document followed by a newline to the route process stdin, so simple
+append-based sinks produce valid JSONL. Use the shell host and absolute paths that exist on the
+target machine. The checked-in
 [examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md)
 shows the same append-only pattern through repo-owned POSIX and PowerShell helpers.
 
@@ -264,15 +303,18 @@ Defaults:
 
 | Field | Default |
 | --- | --- |
-| `timeout_ms` | `5000` |
+| `notification_endpoints.timeout_ms` | `5000` |
 
 Rules:
 
-1. `name` values must be unique within the target
-2. `on` must list at least one unique run outcome
-3. `program` must be an absolute path
-4. every `args` entry must be non-empty
-5. `timeout_ms` must be in `100..60000`
+1. `notification_endpoints.name` values must be unique within the target
+2. `notification_routes.name` values must be unique within the target
+3. `notification_routes.on` must list at least one unique run outcome
+4. `notification_routes.endpoint` must reference an existing `notification_endpoints.name`
+5. `notification_endpoints.kind` must be `process_stdin`
+6. `notification_endpoints.program` must be an absolute path
+7. every `notification_endpoints.args` entry must be non-empty
+8. `notification_endpoints.timeout_ms` must be in `100..60000`
 
 Supported `on` values match the run-outcome vocabulary:
 
@@ -283,19 +325,24 @@ Supported `on` values match the run-outcome vocabulary:
 5. `failed_permanent`
 6. `skipped_disabled`
 
-`skipped_disabled` deliveries only arise from live explicit runs on disabled targets. `run --all` excludes valid disabled targets before batch execution, and dry-run never delivers notifications.
+`skipped_disabled` deliveries arise only from live runs on disabled targets. `run --all` keeps
+valid disabled targets visible in the batch result as `skipped_disabled` entries, and dry-run
+never delivers notifications.
 
-FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the hook process on stdin and also sets these environment variables:
+FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the route process on
+stdin and also sets these environment variables:
 
 1. `FFHN_TARGET_ID`
 2. `FFHN_RUN_OUTCOME`
-3. `FFHN_REASON_CODE`
+3. `FFHN_FAILURE_CAUSE`
 4. `FFHN_RUN_MODE`
 5. `FFHN_FAILURE_CLASS` (empty string for non-failure outcomes)
 
 That stdin payload wraps the run report snapshot FFHN had before delivery results were appended, so
 `run_report.notifications` is empty and `run_report.persist.last_run_write.status` is
 `not_attempted`. If an earlier live persist substep already failed,
-`run_report.persist.state_write.status` may already be `failed` inside the stdin payload.
+`run_report.persist.state_commit.status` may already be `failed` inside the stdin payload.
 
-Hook failures do not rewrite the run outcome, but they are still operationally significant: FFHN records them in `run_report.notifications`, captures stderr text when it can, and makes the CLI exit with code `1`.
+Route-process failures do not rewrite the run result, but they remain operationally significant:
+FFHN records them in `run_report.notifications`, captures stderr text when it can, and makes the
+CLI exit with code `1`.

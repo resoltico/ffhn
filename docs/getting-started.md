@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: GETTING_STARTED
-updated: "2026-05-01"
+updated: "2026-05-14"
 route:
   keywords: [getting started, install, quick start, release package, sample page, windows]
   questions: ["how do I install ffhn?", "how do I try ffhn quickly?", "what is the fastest verified ffhn sample flow?", "where are the packaged install commands?"]
@@ -19,16 +19,21 @@ If you want the short storefront overview first, start at [../README.md](../READ
 - Install a release package if you want a ready-made platform binary and use the portable local-file quick start below.
 - Use the checked-in file-target sample if you already have a repository checkout and want the shortest verified live run.
 
-If you are working directly from the repository without installing the binary, replace `ffhn` in the commands below with `cargo run -p ffhn-cli --`.
-
 ## Build From Source
 
 ```bash
 cargo build --release --locked -p ffhn-cli --bin ffhn
-./target/release/ffhn --help
+../.ffhn-artifacts/target/release/ffhn --help
 ```
 
-Maintained builds are pinned to Rust `1.95.0` through [../rust-toolchain.toml](../rust-toolchain.toml). Regular builds and normal CLI usage do not need nightly Rust; nightly is only part of the coverage and fuzzing workflows.
+Maintained source builds use the stable workspace toolchain pinned in [../rust-toolchain.toml](../rust-toolchain.toml). The exact maintainer toolchain set lives in [../tooling/rust-tooling.env](../tooling/rust-tooling.env). Regular builds and normal CLI usage do not need the pinned coverage/nightly toolchain; that path is only part of coverage and fuzzing workflows.
+FFHN keeps Cargo output in the managed sibling roots documented in [hygiene.md](hygiene.md), so the compiled binary lands under the active configured target root instead of the repository tree. On Windows, the equivalent built binary path is `..\\.ffhn-artifacts\\target\\release\\ffhn.exe`.
+
+If you want to run without building first, the repository checkout path is:
+
+```bash
+cargo run --release --locked -p ffhn-cli --bin ffhn -- --help
+```
 
 ## Install Prebuilt Release Package
 
@@ -95,7 +100,7 @@ cat >"$HTML_FILE" <<'HTML'
 HTML
 cat >"$TARGET_DIR/target.toml" <<EOF
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -119,7 +124,7 @@ selector = "main"
 basis = "canonical_text_sha256"
 canonicalization = []
 EOF
-ffhn run --watch-root "$WATCH_ROOT" --target demo_file
+ffhn run --watch-root "$WATCH_ROOT" --target demo_file --format summary
 ```
 
 Keep that same `$WATCH_ROOT` in your shell for the next commands.
@@ -135,7 +140,7 @@ Set-Content -Path $HtmlFile -Encoding utf8 -NoNewline -Value '<html><body><main>
 $TomlFilePath = $HtmlFile -replace '\\','/'
 @"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -159,7 +164,7 @@ selector = "main"
 basis = "canonical_text_sha256"
 canonicalization = []
 "@ | Set-Content -Path (Join-Path $TargetDir "target.toml") -Encoding utf8
-ffhn run --watch-root $WatchRoot --target demo_file
+ffhn run --watch-root $WatchRoot --target demo_file --format summary
 ```
 
 Keep that same `$WatchRoot` in your PowerShell session for the next commands.
@@ -167,21 +172,21 @@ Keep that same `$WatchRoot` in your PowerShell session for the next commands.
 Inspect the current status for that same target:
 
 ```bash
-ffhn status --watch-root "$WATCH_ROOT" --target demo_file
+ffhn status --watch-root "$WATCH_ROOT" --target demo_file --format json-pretty
 ```
 
 ```powershell
-ffhn status --watch-root $WatchRoot --target demo_file
+ffhn status --watch-root $WatchRoot --target demo_file --format json-pretty
 ```
 
 Inspect everything without mutating snapshots or run reports:
 
 ```bash
-ffhn run --watch-root "$WATCH_ROOT" --target demo_file --dry-run
+ffhn run --watch-root "$WATCH_ROOT" --target demo_file --dry-run --format summary
 ```
 
 ```powershell
-ffhn run --watch-root $WatchRoot --target demo_file --dry-run
+ffhn run --watch-root $WatchRoot --target demo_file --dry-run --format summary
 ```
 
 When you are done with that disposable target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.
@@ -196,7 +201,7 @@ Materialize and run the checked-in local example once on macOS or Linux:
 WATCH_ROOT="$(mktemp -d)"
 ./examples/file-target-with-notifications/materialize-target.sh \
   "$WATCH_ROOT/release_notes/target.toml"
-ffhn run --watch-root "$WATCH_ROOT" --target release_notes
+ffhn run --watch-root "$WATCH_ROOT" --target release_notes --format summary
 ```
 
 Keep that same `$WATCH_ROOT` in your shell for the next commands.
@@ -208,7 +213,7 @@ $WatchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid
 New-Item -ItemType Directory -Force $WatchRoot | Out-Null
 .\examples\file-target-with-notifications\materialize-target.ps1 `
   "$WatchRoot\release_notes\target.toml"
-ffhn run --watch-root $WatchRoot --target release_notes
+ffhn run --watch-root $WatchRoot --target release_notes --format summary
 ```
 
 Keep that same `$WatchRoot` in your PowerShell session for the next commands.
@@ -216,31 +221,31 @@ Keep that same `$WatchRoot` in your PowerShell session for the next commands.
 Inspect the current status for that same checked-in example target:
 
 ```bash
-ffhn status --watch-root "$WATCH_ROOT" --target release_notes
+ffhn status --watch-root "$WATCH_ROOT" --target release_notes --format json-pretty
 ```
 
 ```powershell
-ffhn status --watch-root $WatchRoot --target release_notes
+ffhn status --watch-root $WatchRoot --target release_notes --format json-pretty
 ```
 
 Run the full watch root in parallel:
 
 ```bash
-ffhn run --watch-root "$WATCH_ROOT" --all --jobs 4
+ffhn run --watch-root "$WATCH_ROOT" --all --jobs 4 --format summary
 ```
 
 ```powershell
-ffhn run --watch-root $WatchRoot --all --jobs 4
+ffhn run --watch-root $WatchRoot --all --jobs 4 --format summary
 ```
 
 Inspect that same checked-in example without mutating snapshots or run reports:
 
 ```bash
-ffhn run --watch-root "$WATCH_ROOT" --target release_notes --dry-run
+ffhn run --watch-root "$WATCH_ROOT" --target release_notes --dry-run --format summary
 ```
 
 ```powershell
-ffhn run --watch-root $WatchRoot --target release_notes --dry-run
+ffhn run --watch-root $WatchRoot --target release_notes --dry-run --format summary
 ```
 
 When you are done with that disposable repository-backed target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.

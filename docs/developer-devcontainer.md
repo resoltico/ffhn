@@ -1,9 +1,9 @@
 ---
 afad: "4.0"
 domain: DEVCONTAINER
-updated: "2026-05-04"
+updated: "2026-05-14"
 route:
-  keywords: [devcontainer, docker desktop, contributor container, vscode, dev containers, rust 1.95, cargo xtask, ffhn contributor workflow]
+  keywords: [devcontainer, docker desktop, contributor container, vscode, dev containers, rust toolchain, cargo xtask, ffhn contributor workflow]
   questions: ["what is the preferred FFHN contributor workflow?", "how do I use the FFHN devcontainer?", "does FFHN have a contributor container?", "how do I validate the FFHN devcontainer?", "how do I run the full FFHN maintainer gate inside the devcontainer?"]
 ---
 
@@ -36,7 +36,7 @@ container images.
 
 ## Current Base Image
 
-The contributor image is pinned to Ubuntu `26.04`.
+The contributor image is pinned to Ubuntu `24.04`.
 
 Why:
 
@@ -48,21 +48,19 @@ Why:
 
 The image bakes in:
 
-1. Rust `1.95.0`
-2. nightly Rust with `llvm-tools-preview`
-3. `cargo-nextest`, `cargo-audit`, `cargo-deny`, `cargo-semver-checks`, `cargo-outdated`, `cargo-llvm-cov`, and `cargo-fuzz`
-4. `clang`, `shellcheck`, `gh`, and Linux build tooling
-5. the Linux `x86_64-unknown-linux-musl` Rust target for local Linux package work
+1. the pinned stable and coverage Rust toolchains from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
+2. `cargo-nextest`, `cargo-audit`, `cargo-deny`, `cargo-semver-checks`, `cargo-outdated`, `cargo-llvm-cov`, and `cargo-fuzz`
+3. `clang`, `shellcheck`, `gh`, and Linux build tooling
+4. the Linux `x86_64-unknown-linux-musl` Rust target for local Linux package work
 
-The devcontainer also mounts named volumes for Cargo registry/git caches, the user cache
-directory, the workspace `target/` tree, and the standalone fuzz package `fuzz/target/` tree so
-container rebuilds do not force a full dependency redownload and so Docker-backed contributor runs
-do not rely on writing heavy Rust build output back through the host bind mount.
+The devcontainer mounts named volumes for Cargo registry/git caches and the user cache directory.
+That user cache volume owns FFHN's managed artifact roots, including
+`/home/vscode/.cache/ffhn-artifacts/target` and `/home/vscode/.cache/ffhn-artifacts/build`, so
+container rebuilds do not force a full dependency redownload and Docker-backed contributor runs do
+not write heavy Rust build output back through the host bind mount.
 
-The maintained semver lane does not write its isolated `CARGO_TARGET_DIR` into that mounted
-workspace tree. It uses a namespaced Linux temp directory inside the container instead, because
-mounted host filesystems can leave undeletable `.smbdelete*` tombstones behind when
-`cargo semver-checks` churns large scratch trees.
+The maintained semver lane uses isolated scratch directories under those managed roots rather than
+writing into the repository tree.
 
 ## First Open With VS Code
 
@@ -90,7 +88,7 @@ cargo nextest --version
 
 Expected shape:
 
-1. `rustc` reports `1.95.0`
+1. `rustc` reports the stable toolchain pinned in [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
 2. Cargo QA tools resolve without host setup
 3. `./check.sh --help` works from the mounted workspace
 
@@ -112,7 +110,7 @@ That script:
 1. builds the contributor image from [../.devcontainer/Dockerfile](../.devcontainer/Dockerfile)
 2. poisons the mounted cache and build-output volumes with root-owned files
 3. verifies that [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh) repairs writability for the contributor user
-4. checks the pinned Rust, Cargo QA, `shellcheck`, `gh`, `clang`, and `./check.sh --help` contract on the raw Docker image
+4. checks the pinned toolchains and Cargo QA versions from [../tooling/rust-tooling.env](../tooling/rust-tooling.env), plus `shellcheck`, `gh`, `clang`, and `./check.sh --help`, on the raw Docker image
 5. builds a small Dev Container CLI helper from the already-built contributor image, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
 
 Run the full maintainer gate through the same contributor image and persistent cache volumes:
@@ -125,8 +123,8 @@ That script:
 
 1. rebuilds the committed contributor image under the stable local tag `ffhn-devcontainer:local`
 2. reuses the canonical `ffhn-cargo-registry`, `ffhn-cargo-git`, and `ffhn-user-cache` volumes
-3. reuses the canonical `ffhn-target` and `ffhn-fuzz-target` build-output volumes
-4. repairs cache and build-output ownership through [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh)
+3. points Cargo at `/home/vscode/.cache/ffhn-artifacts/{target,build}` inside that mounted cache volume
+4. repairs cache and managed-artifact ownership through [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh)
 5. marks the mounted repository as a Git safe directory for the raw Docker session
 6. runs the maintained `./check.sh` gate inside the contributor container
 
@@ -136,14 +134,15 @@ For ad hoc terminal use without VS Code beyond the maintained full-gate path, ru
 the mounted repository:
 
 ```bash
-docker build -t ffhn-devcontainer -f .devcontainer/Dockerfile .devcontainer
+docker build -t ffhn-devcontainer -f .devcontainer/Dockerfile .
 docker run --rm -it \
   -v "$PWD:/workspaces/ffhn" \
   -v ffhn-cargo-registry:/home/vscode/.cargo/registry \
   -v ffhn-cargo-git:/home/vscode/.cargo/git \
   -v ffhn-user-cache:/home/vscode/.cache \
-  -v ffhn-target:/workspaces/ffhn/target \
-  -v ffhn-fuzz-target:/workspaces/ffhn/fuzz/target \
+  -e CARGO_HOME=/home/vscode/.cargo \
+  -e CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target \
+  -e CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build \
   -w /workspaces/ffhn \
   ffhn-devcontainer \
   bash
@@ -173,8 +172,9 @@ The post-start hook:
 
 exists for one specific reason: named Docker volumes can be left behind with root-owned cache or
 build-output entries after ad hoc container sessions. When that happens, `cargo` stops being able
-to write to its registry, git, cache, `target/`, or `fuzz/target/` directories. The repair hook
-recreates missing directories and repairs ownership only when the mounted path is not writable.
+to write to its registry, git, cache, or managed artifact roots under
+`/home/vscode/.cache/ffhn-artifacts/`. The repair hook recreates missing directories and repairs
+ownership only when the mounted path is not writable.
 
 ## CI Gate Behavior
 

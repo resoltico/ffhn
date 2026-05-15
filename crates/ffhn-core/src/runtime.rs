@@ -1,3 +1,4 @@
+mod domain;
 pub(crate) mod interop;
 mod lock;
 mod persist;

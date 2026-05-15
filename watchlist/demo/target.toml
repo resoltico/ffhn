@@ -1,5 +1,5 @@
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Example Main Article"
 enabled = true

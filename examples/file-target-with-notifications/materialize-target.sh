@@ -20,7 +20,7 @@ mkdir -p "$destination_dir"
 
 cat >"$destination" <<EOF
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "release_notes"
 display_name = "Local Release Notes Example"
 enabled = true
@@ -53,10 +53,15 @@ kind = "collapse_whitespace"
 [storage]
 history_limit = 8
 
-[[notifications]]
+[[notification_endpoints]]
 name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
+kind = "process_stdin"
 program = "/bin/sh"
 args = ["${escaped_hook_script_path}", "${escaped_hook_log_path}"]
 timeout_ms = 1000
+
+[[notification_routes]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+endpoint = "log-json"
 EOF

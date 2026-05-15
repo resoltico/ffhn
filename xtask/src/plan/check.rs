@@ -3,15 +3,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::model::{CommandSpec, DynResult};
+use crate::model::{CommandArtifactLayout, CommandSpec, DynResult};
+use crate::tooling::RustTooling;
 
 use super::{
     core_manifest_path, fuzz_lockfile_path, fuzz_manifest_path, release_binary_path,
-    semver_baseline_path, semver_release_type, semver_scratch_dir,
+    semver_baseline_path, semver_build_dir, semver_release_type, semver_scratch_dir,
 };
 
 /// Builds the ordered command plan for `cargo xtask check`.
-pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
+pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<Vec<CommandSpec>> {
     let scripts = shell_script_paths(repo_root)?;
     let mut plan = Vec::new();
 
@@ -20,134 +21,167 @@ pub(crate) fn check_plan(repo_root: &Path) -> DynResult<Vec<CommandSpec>> {
             "bash",
             std::iter::once("-n".to_owned()).chain(path_strings(&scripts)),
             false,
-            false,
         ));
         plan.push(CommandSpec::new(
             "shellcheck",
             path_strings(&scripts),
             false,
-            false,
         ));
     }
 
-    plan.push(CommandSpec::new("cargo", ["fmt", "--check"], false, false));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--all-features",
-            "--locked",
-            "--",
-            "-D",
-            "warnings",
-        ],
-        false,
-        true,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "outdated",
-            "--workspace",
-            "--root-deps-only",
-            "--exit-code",
-            "1",
-        ],
-        false,
-        false,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "outdated",
-            "--manifest-path",
-            fuzz_manifest_path(repo_root).to_string_lossy().as_ref(),
-            "--root-deps-only",
-            "--exit-code",
-            "1",
-        ],
-        false,
-        false,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        ["audit", "-D", "warnings"],
-        false,
-        false,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "audit",
-            "--file",
-            fuzz_lockfile_path(repo_root).to_string_lossy().as_ref(),
-            "-D",
-            "warnings",
-        ],
-        false,
-        false,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        ["deny", "check", "advisories", "bans", "licenses", "sources"],
-        false,
-        false,
-    ));
+    plan.push(
+        CommandSpec::new("cargo", ["fmt", "--check"], false)
+            .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new("cargo", ["audit", "-D", "warnings"], false)
+            .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "audit",
+                "--file",
+                fuzz_lockfile_path(repo_root).to_string_lossy().as_ref(),
+                "-D",
+                "warnings",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            ["deny", "check", "advisories", "bans", "licenses", "sources"],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
     plan.push(semver_check_spec(repo_root)?);
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "check",
-            "--manifest-path",
-            fuzz_manifest_path(repo_root).to_string_lossy().as_ref(),
-            "--bins",
-            "--locked",
-        ],
-        false,
-        true,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "nextest",
-            "run",
-            "--no-fail-fast",
-            "--workspace",
-            "--all-targets",
-            "--all-features",
-            "--locked",
-        ],
-        false,
-        true,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        ["test", "--workspace", "--doc", "--all-features", "--locked"],
-        false,
-        true,
-    ));
-    plan.push(CommandSpec::new(
-        "cargo",
-        [
-            "build",
-            "--profile",
-            "dist",
-            "-p",
-            "ffhn-cli",
-            "--bin",
-            "ffhn",
-            "--locked",
-        ],
-        false,
-        true,
-    ));
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "check",
+                "--manifest-path",
+                fuzz_manifest_path(repo_root).to_string_lossy().as_ref(),
+                "--bins",
+                "--locked",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "clippy",
+                "--manifest-path",
+                fuzz_manifest_path(repo_root).to_string_lossy().as_ref(),
+                "--bins",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                &tooling.coverage_toolchain_arg(),
+                "fuzz",
+                "check",
+                "--fuzz-dir",
+                "fuzz",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "nextest",
+                "run",
+                "--no-fail-fast",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            ["test", "--workspace", "--doc", "--all-features", "--locked"],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "doc",
+                "--workspace",
+                "--all-features",
+                "--no-deps",
+                "--locked",
+            ],
+            false,
+        )
+        .with_envs([("RUSTDOCFLAGS", "-D warnings")])
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
+        CommandSpec::new(
+            "cargo",
+            [
+                "build",
+                "--profile",
+                "dist",
+                "-p",
+                "ffhn-cli",
+                "--bin",
+                "ffhn",
+                "--locked",
+            ],
+            false,
+        )
+        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
     plan.push(CommandSpec::new(
         release_binary_path(repo_root),
         ["--version"],
         true,
-        false,
     ));
 
     Ok(plan)
@@ -186,12 +220,17 @@ pub(crate) fn semver_check_spec(repo_root: &Path) -> DynResult<CommandSpec> {
             "--all-features",
         ],
         false,
-        true,
     )
-    .with_envs([(
-        "CARGO_TARGET_DIR",
-        semver_scratch_dir(repo_root).to_string_lossy().into_owned(),
-    )]))
+    .with_envs([
+        (
+            "CARGO_TARGET_DIR",
+            semver_scratch_dir(repo_root).to_string_lossy().into_owned(),
+        ),
+        (
+            "CARGO_BUILD_BUILD_DIR",
+            semver_build_dir(repo_root).to_string_lossy().into_owned(),
+        ),
+    ]))
 }
 
 pub(crate) fn collect_shell_script_paths<I>(entries: I) -> DynResult<Vec<PathBuf>>

@@ -5,5 +5,9 @@ pub const CLI_OUTPUT_WRITE_ERROR: &str = "could not write CLI output";
 
 /// Writes one human-readable CLI error line to stderr.
 pub fn write_cli_error(stderr: &mut (impl Write + ?Sized), message: &str) -> io::Result<()> {
-    writeln!(stderr, "{message}")
+    let normalized = message
+        .strip_prefix("error: ")
+        .or_else(|| message.strip_prefix("error:"))
+        .unwrap_or(message);
+    writeln!(stderr, "error: {normalized}")
 }

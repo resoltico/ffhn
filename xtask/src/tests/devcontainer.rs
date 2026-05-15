@@ -102,7 +102,7 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
 
     assert_eq!(json["name"], "FFHN Contributor");
     assert_eq!(json["build"]["dockerfile"], "Dockerfile");
-    assert_eq!(json["build"]["context"], ".");
+    assert_eq!(json["build"]["context"], "..");
     assert_eq!(json["workspaceFolder"], "/workspaces/ffhn");
     assert_eq!(
         json["workspaceMount"],
@@ -115,6 +115,14 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
     assert_eq!(json["remoteUser"], "vscode");
     assert_eq!(json["updateRemoteUserUID"], true);
     assert_eq!(json["containerEnv"]["CARGO_HOME"], "/home/vscode/.cargo");
+    assert_eq!(
+        json["containerEnv"]["CARGO_TARGET_DIR"],
+        "/home/vscode/.cache/ffhn-artifacts/target"
+    );
+    assert_eq!(
+        json["containerEnv"]["CARGO_BUILD_BUILD_DIR"],
+        "/home/vscode/.cache/ffhn-artifacts/build"
+    );
     assert_eq!(json["containerEnv"]["FFHN_DEVCONTAINER"], "1");
 
     let mounts = json["mounts"].as_array().expect("mount array");
@@ -130,31 +138,34 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
             .iter()
             .any(|mount| mount == "source=ffhn-user-cache,target=/home/vscode/.cache,type=volume")
     );
-    assert!(
-        mounts
-            .iter()
-            .any(|mount| mount == "source=ffhn-target,target=/workspaces/ffhn/target,type=volume")
-    );
-    assert!(
-        mounts.iter().any(|mount| mount
-            == "source=ffhn-fuzz-target,target=/workspaces/ffhn/fuzz/target,type=volume")
-    );
+    assert_eq!(mounts.len(), 3);
 }
 
 #[test]
-fn committed_devcontainer_dockerfile_pins_ubuntu_26_04_and_bakes_repo_tools() {
+fn committed_devcontainer_dockerfile_pins_the_24_04_devcontainer_base_and_bakes_repo_tools() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
     let dockerfile = fs::read_to_string(repo_root.join(".devcontainer/Dockerfile"))
         .expect("read devcontainer Dockerfile");
 
-    assert!(dockerfile.contains("FROM ubuntu:26.04@sha256:"));
+    assert!(dockerfile.contains("FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:"));
+    assert!(
+        dockerfile.contains("COPY tooling/rust-tooling.env /usr/local/share/ffhn/rust-tooling.env")
+    );
+    assert!(dockerfile.contains(
+        "COPY scripts/bootstrap-rust-tools.sh /usr/local/share/ffhn/bootstrap-rust-tools.sh"
+    ));
     assert!(dockerfile.contains("if getent passwd 1000 >/dev/null; then"));
     assert!(dockerfile.contains("usermod --login vscode"));
     assert!(dockerfile.contains("ENV RUSTUP_HOME=/usr/local/rustup"));
-    assert!(dockerfile.contains("rustup target add x86_64-unknown-linux-musl --toolchain 1.95.0"));
-    assert!(dockerfile.contains("cargo install cargo-nextest cargo-audit cargo-deny cargo-semver-checks cargo-outdated cargo-llvm-cov cargo-fuzz --locked"));
+    assert!(
+        dockerfile.contains("ENV FFHN_RUST_TOOLING_ENV=/usr/local/share/ffhn/rust-tooling.env")
+    );
+    assert!(dockerfile.contains("bash /usr/local/share/ffhn/bootstrap-rust-tools.sh install-all"));
+    assert!(dockerfile.contains(
+        "rustup target add x86_64-unknown-linux-musl --toolchain \"${RUST_STABLE_TOOLCHAIN}\""
+    ));
     assert!(dockerfile.contains("USER vscode"));
 }
 
@@ -188,10 +199,11 @@ fn run_devcontainer_check_uses_the_committed_image_and_canonical_cache_volumes()
     assert!(script.contains("ffhn-cargo-registry:/home/vscode/.cargo/registry"));
     assert!(script.contains("ffhn-cargo-git:/home/vscode/.cargo/git"));
     assert!(script.contains("ffhn-user-cache:/home/vscode/.cache"));
-    assert!(script.contains("ffhn-target:/workspaces/ffhn/target"));
-    assert!(script.contains("ffhn-fuzz-target:/workspaces/ffhn/fuzz/target"));
+    assert!(script.contains("CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target"));
+    assert!(script.contains("CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build"));
     assert!(script.contains("FFHN_DEVCONTAINER_SKIP_BUILD"));
     assert!(script.contains("docker image inspect"));
+    assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("./scripts/devcontainer-prepare-user-home.sh"));
     assert!(script.contains("git config --global --add safe.directory /workspaces/ffhn"));
     assert!(script.contains("./check.sh"));
@@ -206,16 +218,29 @@ fn validate_devcontainer_repairs_workspace_volumes_and_exercises_client_path() {
         .expect("read validate-devcontainer.sh");
 
     assert!(script.contains("FFHN_DEVCONTAINER_VOLUME_MODE"));
-    assert!(script.contains("ffhn-devcontainer-fuzz-target-$$"));
-    assert!(script.contains("/workspaces/ffhn/target/root-owned"));
-    assert!(script.contains("/workspaces/ffhn/fuzz/target"));
+    assert!(script.contains("CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target"));
+    assert!(script.contains("CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build"));
+    assert!(script.contains("${HOME}/.cache"));
     assert!(script.contains("scripts/devcontainer-cli-helper.Dockerfile"));
+    assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("--build-arg \"BASE_IMAGE=${image_tag}\""));
     assert!(script.contains("readonly FFHN_VALIDATE_REPO_ROOT"));
     assert!(script.contains("--volume \"${repo_root}:/workspaces/ffhn\""));
     assert!(!script.contains("--volume \"${repo_root}:/workspaces/ffhn:ro\""));
     assert!(script.contains("devcontainer up --remove-existing-container"));
     assert!(script.contains("devcontainer exec --workspace-folder"));
+}
+
+#[test]
+fn common_shell_helper_defines_linear_docker_build_progress_by_default() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let script = fs::read_to_string(repo_root.join("scripts/common.sh")).expect("read common.sh");
+
+    assert!(script.contains("ffhn_docker_build()"));
+    assert!(script.contains("FFHN_DOCKER_BUILD_PROGRESS:-plain"));
+    assert!(script.contains("docker build --progress \"${progress}\" \"$@\""));
 }
 
 #[test]

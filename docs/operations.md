@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: OPERATIONS
-updated: "2026-05-04"
+updated: "2026-05-14"
 route:
   keywords: [operations, check.sh, release scripts, ci workflow, dist profile, github release, supported targets, release packages, checksum manifest]
   questions: ["how do I operate ffhn locally?", "how do the ffhn release scripts work?", "which standalone targets does ffhn publish?", "which FFHN release assets are published?"]
@@ -38,6 +38,8 @@ Targeted maintainer commands:
 ```bash
 cargo xtask semver-check
 cargo xtask coverage
+cargo xtask hygiene report
+cargo xtask hygiene clean --mode safe
 cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 ./scripts/validate-devcontainer.sh
 ./scripts/run-devcontainer-check.sh
@@ -51,7 +53,7 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 2. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
 3. `devcontainer-changes`: detects whether any devcontainer-relevant path changed in the PR or push; outputs a boolean that gates the next job
 4. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; fires only when `devcontainer-changes` reports a relevant path was touched — specifically `.devcontainer/`, the devcontainer helper scripts, or `check.sh`; skipped otherwise because the rust-gate already proves the code
-5. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64; excludes `target/` from Windows Defender before Cargo operations begin
+5. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64; excludes the managed Cargo artifact roots from Windows Defender before Cargo operations begin
 6. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
 7. `check`: aggregate required-status job; uses `if: always()` with explicit failure detection so a skipped `contributor-devcontainer-gate` — the correct outcome when no devcontainer-relevant files changed — does not block merge; only a failed or cancelled job prevents success
 
@@ -80,9 +82,8 @@ That surface is for repository work only:
 3. validate the contributor container through [`validate-devcontainer.sh`](../scripts/validate-devcontainer.sh)
 4. run the full maintainer gate headlessly through [`run-devcontainer-check.sh`](../scripts/run-devcontainer-check.sh)
 
-That contributor workflow keeps Cargo caches, the workspace `target/` tree, and the standalone
-fuzz package `fuzz/target/` tree on named Docker volumes rather than on the repository bind
-mount.
+That contributor workflow keeps Cargo caches and the managed artifact roots under the mounted user
+cache volume rather than writing heavy build output through the repository bind mount.
 
 The contributor container is not a published artifact and not part of the release-asset inventory.
 
@@ -132,7 +133,6 @@ The maintained release scripts are:
 9. [`release-targets.sh`](../scripts/release-targets.sh): target inventory and asset-name helpers used by CI and scripts
 10. [`verify-github-release.sh`](../scripts/verify-github-release.sh): assert the published release is non-draft, non-prerelease, and asset-complete
 11. [`workspace-package-field.sh`](../scripts/workspace-package-field.sh): robustly extract one string field from `[workspace.package]` in `Cargo.toml`
-12. [`workspace-version.sh`](../scripts/workspace-version.sh): compatibility wrapper around `workspace-package-field.sh version`
 
 Each maintained release helper supports `--help` for local inspection instead of requiring source reading first.
 

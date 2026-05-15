@@ -16,6 +16,7 @@ mod fuzz;
 mod git;
 mod markdown;
 mod parsing;
+mod tooling;
 
 use catalog::assert_public_target_example_contract;
 #[cfg(unix)]
@@ -23,7 +24,8 @@ use catalog::render_cli_catalog_section;
 use git::{git_tracked_relative_paths, repo_root};
 use markdown::{
     assert_registered_document_ids, assert_registered_operation_ids, code_segments,
-    extract_cli_operation_ids, extract_document_ids, looks_like_contract_document_id,
-    markdown_link_targets, marked_section, production_source_text, repo_file_mentions,
-    repo_relative_path, resolve_repo_path, string_literals,
+    extract_cli_operation_ids, extract_document_ids, fenced_code_blocks,
+    looks_like_contract_document_id, markdown_link_targets, marked_section, production_source_text,
+    prose_lines_without_frontmatter_or_code, repo_file_mentions, repo_relative_path,
+    resolve_repo_path, string_literals,
 };

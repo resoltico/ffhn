@@ -22,7 +22,9 @@ fn run_command_returns_zero_for_initialized_reports() {
     ]);
     handle.join().expect("server join");
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"run_outcome\":\"initialized\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::Initialized);
+    assert_eq!(report.failure_cause(), None);
     assert!(stderr.is_empty());
 }
 
@@ -42,7 +44,9 @@ fn run_command_returns_zero_for_disabled_reports() {
         "demo".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"run_outcome\":\"skipped_disabled\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::SkippedDisabled);
+    assert_eq!(report.failure_cause(), None);
     assert!(stderr.is_empty());
 }
 
@@ -64,7 +68,12 @@ fn run_command_returns_failed_exit_for_structured_run_failures() {
     ]);
     handle.join().expect("server join");
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"reason_code\":\"fetch_http_server_error\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::FailedTransient);
+    assert_eq!(
+        report.failure_cause(),
+        Some(ffhn_core::RunFailureCause::FetchHttpServerError)
+    );
     assert!(stderr.is_empty());
 }
 
@@ -83,7 +92,7 @@ fn run_command_supports_dry_run_and_batch_rendering() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -122,11 +131,30 @@ canonicalization = []
         "--dry-run".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"run_mode\":\"dry_run\""));
-    assert!(stdout.contains("\"run_outcome\":\"initialized\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_mode(), ffhn_core::RunMode::DryRun);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::Initialized);
     assert!(stderr.is_empty());
 
     write_target(&watch_root, "https://example.com", false);
+    let (exit_code, stdout, stderr) = run_vec(vec![
+        "ffhn".to_owned(),
+        "run".to_owned(),
+        "--watch-root".to_owned(),
+        watch_root_string.clone(),
+        "--target".to_owned(),
+        "demo".to_owned(),
+        "--dry-run".to_owned(),
+    ]);
+    assert_eq!(exit_code, 0);
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_mode(), ffhn_core::RunMode::DryRun);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::SkippedDisabled);
+    assert!(matches!(report.body(), ffhn_core::RunBodyView::None));
+    assert!(report.persist().state_commit().is_not_attempted());
+    assert!(report.persist().last_run_write().is_not_attempted());
+    assert!(stderr.is_empty());
+
     let (exit_code, stdout, stderr) = run_vec(vec![
         "ffhn".to_owned(),
         "run".to_owned(),
@@ -138,11 +166,59 @@ canonicalization = []
         "--dry-run".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"schema_name\":\"ffhn.batch_run_report\""));
-    assert!(stdout.contains("\"max_concurrency\":2"));
-    assert!(stdout.contains("\"requested_targets\":[\"demo_file\"]"));
-    assert!(stdout.contains("\"target_id\":\"demo_file\""));
-    assert!(!stdout.contains("\"target_id\":\"demo\""));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.run_mode(), ffhn_core::RunMode::DryRun);
+    assert_eq!(report.max_concurrency(), 2);
+    assert_eq!(report.requested_targets(), ["demo", "demo_file"]);
+    assert_eq!(report.entries().len(), 2);
+    assert_eq!(report.outcome_counts().skipped_disabled(), 1);
+    assert!(stderr.is_empty());
+}
+
+#[test]
+fn run_and_status_commands_support_summary_and_pretty_json_output_formats() {
+    let temp = tempdir().expect("tempdir");
+    let watch_root = temp.path().join("watchlist");
+    let watch_root_string = watch_root.to_string_lossy().into_owned();
+    let source_path = temp.path().join("source.html");
+    fs::write(&source_path, "<html><body><main>Hello</main></body></html>").expect("source");
+    write_named_file_target(&watch_root, "demo_file", "demo_file", &source_path, true);
+
+    let (exit_code, stdout, stderr) = run_vec(vec![
+        "ffhn".to_owned(),
+        "run".to_owned(),
+        "--watch-root".to_owned(),
+        watch_root_string.clone(),
+        "--target".to_owned(),
+        "demo_file".to_owned(),
+        "--format".to_owned(),
+        "summary".to_owned(),
+    ]);
+    assert_eq!(exit_code, 0);
+    assert!(stdout.contains("Run report"));
+    assert!(stdout.contains("Mode: live"));
+    assert!(stdout.contains("Outcome: initialized"));
+    assert!(stdout.contains("Baseline phase: never_succeeded -> has_baseline"));
+    assert!(stdout.contains("Fetch: engine=file"));
+    assert!(stdout.contains("Extraction: kind=css_selector, match=single, output=outer_html"));
+    assert!(stdout.contains("Compare: basis=canonical_text_sha256"));
+    assert!(stdout.contains("Change: kind=initialized"));
+    assert!(stderr.is_empty());
+
+    let (exit_code, stdout, stderr) = run_vec(vec![
+        "ffhn".to_owned(),
+        "status".to_owned(),
+        "--watch-root".to_owned(),
+        watch_root_string,
+        "--target".to_owned(),
+        "demo_file".to_owned(),
+        "--format".to_owned(),
+        "json-pretty".to_owned(),
+    ]);
+    assert_eq!(exit_code, 0);
+    assert!(stdout.starts_with("{\n  \"schema_name\": \"ffhn.status_report\""));
+    let report = parse_status_report(&stdout);
+    assert_eq!(report.display_name(), Some("demo_file"));
     assert!(stderr.is_empty());
 }
 
@@ -168,9 +244,9 @@ fn run_command_batch_covers_live_failure_render_and_validation_fatal_paths() {
         "demo_invalid".to_owned(),
     ]);
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"schema_name\":\"ffhn.batch_run_report\""));
-    assert!(stdout.contains("\"run_mode\":\"live\""));
-    assert!(stdout.contains("\"failed_permanent\":1"));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.run_mode(), ffhn_core::RunMode::Live);
+    assert_eq!(report.outcome_counts().failed_permanent(), 1);
     assert!(stderr.is_empty());
 
     let (url, handle) = serve_once("500 Internal Server Error", "text/html", "boom");
@@ -187,7 +263,8 @@ fn run_command_batch_covers_live_failure_render_and_validation_fatal_paths() {
     ]);
     handle.join().expect("transient server join");
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"failed_transient\":1"));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.outcome_counts().failed_transient(), 1);
     assert!(stderr.is_empty());
 
     write_named_file_target(&watch_root, "demo_fatal", "demo_fatal", &source_path, true);
@@ -203,8 +280,17 @@ fn run_command_batch_covers_live_failure_render_and_validation_fatal_paths() {
         "demo_fatal".to_owned(),
     ]);
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"fatal_error\":1"));
-    assert!(stdout.contains("\"fatal_error\":{\"kind\":\"io\""));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.outcome_counts().fatal_error(), 1);
+    let fatal_entry = report
+        .entries()
+        .iter()
+        .find(|entry| entry.target_id() == "demo_fatal")
+        .expect("fatal entry");
+    assert_eq!(
+        fatal_entry.fatal_error().expect("fatal error").kind(),
+        ffhn_core::ProcessErrorKind::Io
+    );
     assert!(stderr.is_empty());
 
     let mut broken_stdout = BrokenWriter;
@@ -221,11 +307,9 @@ fn run_command_batch_covers_live_failure_render_and_validation_fatal_paths() {
         &mut stderr,
     );
     assert_eq!(exit_code, EXIT_CODE_FATAL);
-    assert!(
-        String::from_utf8(stderr)
-            .expect("stderr utf8")
-            .contains("watch root does not exist")
-    );
+    let stderr = String::from_utf8(stderr).expect("stderr utf8");
+    assert!(stderr.contains("error: filesystem error"));
+    assert!(stderr.contains("watch root does not exist"));
 
     let (exit_code, stdout, stderr) = run_vec(vec![
         "ffhn".to_owned(),
@@ -266,8 +350,12 @@ fn run_command_reports_persist_failures_as_structured_run_failures() {
     ]);
     handle.join().expect("server join");
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"run_outcome\":\"failed_transient\""));
-    assert!(stdout.contains("\"reason_code\":\"persist_error\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::FailedTransient);
+    assert_eq!(
+        report.failure_cause(),
+        Some(ffhn_core::RunFailureCause::PersistError)
+    );
     assert!(stderr.is_empty());
 }
 
@@ -297,10 +385,19 @@ fn run_command_returns_failed_exit_when_final_last_run_write_fails() {
     handle.join().expect("server join");
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"run_outcome\":\"failed_transient\""));
-    assert!(stdout.contains("\"reason_code\":\"persist_error\""));
-    assert!(stdout.contains("\"last_run_write\":{\"status\":\"failed\""));
-    assert!(stdout.contains("\"error\":{\"kind\":\"io\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::Initialized);
+    assert_eq!(report.failure_cause(), None);
+    assert!(report.persist().last_run_write().is_failed());
+    assert_eq!(
+        report
+            .persist()
+            .last_run_write()
+            .error()
+            .expect("last_run write error")
+            .kind(),
+        ffhn_core::ProcessErrorKind::Io
+    );
     assert!(stderr.is_empty());
 }
 
@@ -316,7 +413,7 @@ fn run_command_returns_failed_exit_when_notification_delivery_fails() {
     fs::write(
         watch_root.join("demo").join("target.toml"),
         format!(
-            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n",
+            "{}\n[[notification_endpoints]]\nname = \"broken\"\nkind = \"process_stdin\"\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n\n[[notification_routes]]\nname = \"broken\"\non = [\"initialized\"]\nendpoint = \"broken\"\n",
             fs::read_to_string(watch_root.join("demo").join("target.toml")).expect("read target")
         ),
     )
@@ -332,14 +429,25 @@ fn run_command_returns_failed_exit_when_notification_delivery_fails() {
     ]);
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"run_outcome\":\"initialized\""));
-    assert!(stdout.contains("\"outcome\":{\"status\":\"failed\""));
-    assert!(stdout.contains("hook-broke"));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::Initialized);
+    let deliveries = report.notifications().collect::<Vec<_>>();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(
+        deliveries[0].status(),
+        ffhn_core::NotificationDeliveryStatus::Failed
+    );
+    assert!(
+        deliveries[0]
+            .error()
+            .expect("notification error")
+            .contains("hook-broke")
+    );
     assert!(stderr.is_empty());
 }
 
 #[test]
-fn batch_run_command_counts_last_run_write_failures_in_persist_error_bucket() {
+fn batch_run_command_counts_last_run_write_failures_in_persist_failure_bucket() {
     let temp = tempdir().expect("tempdir");
     let watch_root = temp.path().join("watchlist");
     let watch_root_string = watch_root.to_string_lossy().into_owned();
@@ -374,9 +482,29 @@ fn batch_run_command_counts_last_run_write_failures_in_persist_error_bucket() {
     blocked_handle.join().expect("blocked join");
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"persist_error\":1"));
-    assert!(stdout.contains("\"target_id\":\"blocked\""));
-    assert!(stdout.contains("\"error\":{\"kind\":\"io\""));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.outcome_counts().initialized(), 2);
+    assert_eq!(report.outcome_counts().persist_failure(), 1);
+    let blocked_entry = report
+        .entries()
+        .iter()
+        .find(|entry| entry.target_id() == "blocked")
+        .expect("blocked entry");
+    let blocked_report = blocked_entry.run_report().expect("blocked run report");
+    assert_eq!(
+        blocked_report.run_outcome(),
+        ffhn_core::RunOutcome::Initialized
+    );
+    assert_eq!(blocked_report.failure_cause(), None);
+    assert_eq!(
+        blocked_report
+            .persist()
+            .last_run_write()
+            .error()
+            .expect("last_run write error")
+            .kind(),
+        ffhn_core::ProcessErrorKind::Io
+    );
     assert!(stderr.is_empty());
 }
 
@@ -394,7 +522,7 @@ fn batch_run_command_returns_failed_exit_when_only_notification_delivery_fails()
     fs::write(
         watch_root.join("broken").join("target.toml"),
         format!(
-            "{}\n[[notifications]]\nname = \"broken\"\non = [\"initialized\"]\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n",
+            "{}\n[[notification_endpoints]]\nname = \"broken\"\nkind = \"process_stdin\"\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"echo hook-broke >&2; exit 7\"]\ntimeout_ms = 1000\n\n[[notification_routes]]\nname = \"broken\"\non = [\"initialized\"]\nendpoint = \"broken\"\n",
             fs::read_to_string(watch_root.join("broken").join("target.toml")).expect("read target")
         ),
     )
@@ -412,10 +540,27 @@ fn batch_run_command_returns_failed_exit_when_only_notification_delivery_fails()
     ]);
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"initialized\":2"));
-    assert!(stdout.contains("\"target_id\":\"broken\""));
-    assert!(stdout.contains("\"outcome\":{\"status\":\"failed\""));
-    assert!(stdout.contains("hook-broke"));
+    let report = parse_batch_run_report(&stdout);
+    assert_eq!(report.outcome_counts().initialized(), 2);
+    assert_eq!(report.outcome_counts().notification_failure(), 1);
+    let broken_entry = report
+        .entries()
+        .iter()
+        .find(|entry| entry.target_id() == "broken")
+        .expect("broken entry");
+    let broken_report = broken_entry.run_report().expect("broken run report");
+    let deliveries = broken_report.notifications().collect::<Vec<_>>();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(
+        deliveries[0].status(),
+        ffhn_core::NotificationDeliveryStatus::Failed
+    );
+    assert!(
+        deliveries[0]
+            .error()
+            .expect("notification error")
+            .contains("hook-broke")
+    );
     assert!(stderr.is_empty());
 }
 
@@ -437,8 +582,12 @@ fn run_command_reports_unreadable_state_as_a_structured_failure() {
     ]);
 
     assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
-    assert!(stdout.contains("\"run_outcome\":\"failed_permanent\""));
-    assert!(stdout.contains("\"reason_code\":\"state_invalid\""));
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::FailedPermanent);
+    assert_eq!(
+        report.failure_cause(),
+        Some(ffhn_core::RunFailureCause::StateInvalid)
+    );
     assert!(stderr.is_empty());
 }
 
@@ -476,7 +625,7 @@ fn run_and_status_return_fatal_when_lock_path_is_not_a_directory() {
 }
 
 #[test]
-fn run_and_status_return_fatal_when_target_toml_is_unreadable_as_a_file() {
+fn run_and_status_report_unavailable_when_target_toml_is_not_a_file() {
     let temp = tempdir().expect("tempdir");
     let watch_root = temp.path().join("watchlist");
     let watch_root_string = watch_root.to_string_lossy().into_owned();
@@ -491,9 +640,14 @@ fn run_and_status_return_fatal_when_target_toml_is_unreadable_as_a_file() {
         "--target".to_owned(),
         "demo".to_owned(),
     ]);
-    assert_eq!(exit_code, EXIT_CODE_FATAL);
-    assert!(stdout.is_empty());
-    assert!(stderr.contains("filesystem error"));
+    assert_eq!(exit_code, EXIT_CODE_RUN_FAILED);
+    let report = parse_run_report(&stdout);
+    assert_eq!(report.run_outcome(), ffhn_core::RunOutcome::FailedPermanent);
+    assert_eq!(
+        report.failure_cause(),
+        Some(ffhn_core::RunFailureCause::TargetUnavailable)
+    );
+    assert!(stderr.is_empty());
 
     let (exit_code, stdout, stderr) = run_vec(vec![
         "ffhn".to_owned(),
@@ -503,9 +657,13 @@ fn run_and_status_return_fatal_when_target_toml_is_unreadable_as_a_file() {
         "--target".to_owned(),
         "demo".to_owned(),
     ]);
-    assert_eq!(exit_code, EXIT_CODE_FATAL);
-    assert!(stdout.is_empty());
-    assert!(stderr.contains("filesystem error"));
+    assert_eq!(exit_code, 0);
+    let report = parse_status_report(&stdout);
+    assert!(matches!(
+        report.status(),
+        ffhn_core::StatusSummary::UnavailableTarget { .. }
+    ));
+    assert!(stderr.is_empty());
 }
 
 #[test]
@@ -524,7 +682,9 @@ fn status_and_writer_failures_cover_cli_fatal_paths() {
         "demo".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"schema_name\":\"ffhn.status_report\""));
+    let report = parse_status_report(&stdout);
+    assert_eq!(report.schema_name(), STATUS_REPORT_SCHEMA_NAME);
+    assert!(report.status().is_pending());
     assert!(stderr.is_empty());
 
     fs::write(watch_root.join("demo").join("state.json"), "{not json").expect("broken state");
@@ -537,9 +697,13 @@ fn status_and_writer_failures_cover_cli_fatal_paths() {
         "demo".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"schema_name\":\"ffhn.status_report\""));
-    assert!(stdout.contains("\"target_status\":\"invalid\""));
-    assert!(stdout.contains("\"reason_code\":\"state_invalid\""));
+    let report = parse_status_report(&stdout);
+    assert_eq!(report.schema_name(), STATUS_REPORT_SCHEMA_NAME);
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        ffhn_core::StatusSummary::InvalidState { .. }
+    ));
     assert!(stderr.is_empty());
 
     fs::write(watch_root.join("demo").join("state.json"), [0xff]).expect("unreadable state");
@@ -552,8 +716,12 @@ fn status_and_writer_failures_cover_cli_fatal_paths() {
         "demo".to_owned(),
     ]);
     assert_eq!(exit_code, 0);
-    assert!(stdout.contains("\"target_status\":\"invalid\""));
-    assert!(stdout.contains("\"reason_code\":\"state_invalid\""));
+    let report = parse_status_report(&stdout);
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        ffhn_core::StatusSummary::InvalidState { .. }
+    ));
     assert!(stderr.is_empty());
 
     fs::remove_file(watch_root.join("demo").join("state.json")).expect("remove broken state");
@@ -613,7 +781,7 @@ fn status_and_writer_failures_cover_cli_fatal_paths() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true

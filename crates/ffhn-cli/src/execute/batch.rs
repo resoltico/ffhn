@@ -7,8 +7,9 @@ use ffhn_core::{
     run_batch,
 };
 
+use crate::args::OutputFormat;
 use crate::error::write_cli_error;
-use crate::render::render_json_document;
+use crate::render::render_batch_report;
 use crate::{EXIT_CODE_FATAL, EXIT_CODE_RUN_FAILED};
 
 use super::discovery::DiscoveredTarget;
@@ -22,6 +23,9 @@ pub(super) fn run_report_requires_failed_exit(report: &ffhn_core::RunReport) -> 
     }
     if report.run_mode() != RunMode::Live {
         return false;
+    }
+    if report.persist().has_failure() {
+        return true;
     }
     run_report_has_notification_failures(report)
 }
@@ -46,6 +50,7 @@ pub(super) fn requested_run_mode(dry_run: bool) -> RunMode {
 
 pub(super) fn render_batch_result(
     batch_result: Result<BatchRunReport, CoreError>,
+    output_format: OutputFormat,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
@@ -54,10 +59,10 @@ pub(super) fn render_batch_result(
             let outcome_counts = report.outcome_counts();
             let has_structured_failures = outcome_counts.failed_transient()
                 + outcome_counts.failed_permanent()
-                + outcome_counts.persist_error()
+                + outcome_counts.persist_failure()
                 + outcome_counts.fatal_error()
                 > 0;
-            match render_json_document(stdout, &report) {
+            match render_batch_report(stdout, &report, output_format) {
                 Err(_) => {
                     let _ = write_cli_error(stderr, &batch_run_report_write_error());
                     EXIT_CODE_FATAL

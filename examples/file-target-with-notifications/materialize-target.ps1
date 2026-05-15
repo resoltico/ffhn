@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Force $destinationDir | Out-Null
 
 $content = @"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "release_notes"
 display_name = "Local Release Notes Example"
 enabled = true
@@ -54,12 +54,17 @@ kind = "collapse_whitespace"
 [storage]
 history_limit = 8
 
-[[notifications]]
+[[notification_endpoints]]
 name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
+kind = "process_stdin"
 program = $(Convert-ToTomlString $hookProgramPath)
 args = ["-NoLogo", "-NoProfile", "-File", $(Convert-ToTomlString $hookScriptPath), $(Convert-ToTomlString $hookLogPath)]
 timeout_ms = 1000
+
+[[notification_routes]]
+name = "log-json"
+on = ["changed", "failed_transient", "failed_permanent"]
+endpoint = "log-json"
 "@
 
 Set-Content -Path $destination -Value $content -Encoding UTF8

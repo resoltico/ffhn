@@ -10,9 +10,10 @@ use super::*;
 use crate::error::CLI_OUTPUT_WRITE_ERROR;
 use crate::execute::{collect_watch_root_directories, discover_watch_root_targets};
 use ffhn_core::{
-    BATCH_RUN_REPORT_SCHEMA_NAME, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID,
-    RUN_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_NAME, cli_contract, cli_operation,
-    document_write_error, duplicate_target_ids_usage_error, positive_batch_concurrency_usage_error,
+    BATCH_RUN_REPORT_SCHEMA_NAME, BatchRunReport, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID,
+    RUN_REPORT_SCHEMA_NAME, RunReport, STATUS_REPORT_SCHEMA_NAME, StatusReport, cli_contract,
+    cli_operation, document_write_error, duplicate_target_ids_usage_error,
+    positive_batch_concurrency_usage_error, run_target_selection_usage_error,
 };
 
 fn run_vec<I, T>(args: I) -> (i32, String, String)
@@ -28,6 +29,18 @@ where
         String::from_utf8(stdout).expect("stdout utf8"),
         String::from_utf8(stderr).expect("stderr utf8"),
     )
+}
+
+fn parse_run_report(stdout: &str) -> RunReport {
+    serde_json::from_str(stdout).expect("run report json")
+}
+
+fn parse_batch_run_report(stdout: &str) -> BatchRunReport {
+    serde_json::from_str(stdout).expect("batch run report json")
+}
+
+fn parse_status_report(stdout: &str) -> StatusReport {
+    serde_json::from_str(stdout).expect("status report json")
 }
 
 fn workspace_package_field(manifest: &str, field: &str) -> Option<String> {
@@ -101,7 +114,7 @@ fn write_named_http_target(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "{declared_target_id}"
 display_name = "{dir_name}"
 enabled = {enabled}
@@ -150,7 +163,7 @@ fn write_named_file_target(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "{declared_target_id}"
 display_name = "{dir_name}"
 enabled = {enabled}

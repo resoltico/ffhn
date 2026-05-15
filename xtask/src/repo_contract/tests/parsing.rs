@@ -99,12 +99,12 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     .expect("write guide");
     fs::write(
         repo_root.join("examples/example.toml"),
-        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"example\"\ndisplay_name = \"Example\"\nenabled = true\n\n[target]\nkind = \"http\"\nsource_url = \"https://example.com\"\n\n[fetch]\nengine = \"http\"\nmethod = \"GET\"\ntimeout_ms = 15000\nmax_bytes = 2000000\nuser_agent = \"ffhn/example\"\nfollow_redirects = true\naccept = \"text/html\"\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
+        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"example\"\ndisplay_name = \"Example\"\nenabled = true\n\n[target]\nkind = \"http\"\nsource_url = \"https://example.com\"\n\n[fetch]\nengine = \"http\"\nmethod = \"GET\"\ntimeout_ms = 15000\nmax_bytes = 2000000\nuser_agent = \"ffhn/example\"\nfollow_redirects = true\naccept = \"text/html\"\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
     )
     .expect("write example target");
     fs::write(
         repo_root.join("watchlist/demo/target.toml"),
-        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
+        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
     )
     .expect("write watchlist target");
     fs::create_dir_all(repo_root.join("watchlist/demo/lock")).expect("create watchlist lock dir");
@@ -126,7 +126,7 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     .expect("write ignored watchlist snapshot");
     fs::write(
         repo_root.join(".codex/PROTOCOL_AFAD.md"),
-        "Protocol: `AGENT_FIRST_DOCUMENTATION`\nVersion: `4.0`\n",
+        "# Protocol\n\n**Version:** 4.0\n",
     )
     .expect("write protocol");
 
@@ -216,18 +216,23 @@ fn parse_afad_frontmatter_handles_missing_and_malformed_blocks() {
 
     assert_eq!(
         parse_protocol_afad_version("Protocol: `AGENT_FIRST_DOCUMENTATION`\nVersion: `4.0`\n")
-            .expect("protocol version"),
-        "4.0"
+            .expect_err("noncanonical protocol syntax"),
+        "missing **Version:** line"
     );
     assert_eq!(
         parse_protocol_afad_version("PROTOCOL: AGENT_FIRST_DOCUMENTATION\nVERSION: 3.5\n")
-            .expect("legacy protocol version"),
-        "3.5"
+            .expect_err("legacy protocol syntax"),
+        "missing **Version:** line"
     );
     assert_eq!(
         parse_protocol_afad_version("**Version:** 4.0\n**Updated:** 2026-04-24\n")
             .expect("markdown protocol version"),
         "4.0"
+    );
+    assert_eq!(
+        parse_protocol_afad_version("**Version:**   \n")
+            .expect_err("empty markdown protocol version"),
+        "**Version:** line is empty"
     );
     assert!(parse_protocol_afad_version("VERSION:\n").is_err());
     assert!(parse_protocol_afad_version("Protocol: `AGENT_FIRST_DOCUMENTATION`\n").is_err());
@@ -315,4 +320,14 @@ fn parse_afad_frontmatter_handles_missing_and_malformed_blocks() {
         ])
     );
     assert!(extract_document_ids("ffhn.").is_empty());
+    assert_eq!(
+        prose_lines_without_frontmatter_or_code(
+            "---\nafad: \"4.0\"\nroute:\n  keywords: [ffhn]\n---\n# FFHN Docs\nUse FFHN in prose and `ffhn` in code.\n[Docs](https://github.com/resoltico/ffhn)\n```bash\nffhn --help\n```\n![Screenshot](docs/image.png)\n"
+        ),
+        vec![
+            (6, "# FFHN Docs".to_owned()),
+            (7, "Use FFHN in prose and  in code.".to_owned()),
+            (8, "[Docs]".to_owned()),
+        ]
+    );
 }

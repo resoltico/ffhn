@@ -18,6 +18,12 @@ container shell.
 
 FFHN documentation is expected to move with the code.
 
+Naming rule for reader-facing material:
+
+1. use `FFHN` for the product in prose, headings, changelog entries, and explanatory documentation
+2. use `ffhn` only for literal identifiers such as the command name, crate names, schema ids, file names, release asset names, and URLs
+3. when you expand the acronym, use `Focused Fragment History Notifier`
+
 Update these pages when behavior changes:
 
 1. CLI behavior, exit codes, or target discovery: [docs/cli.md](docs/cli.md) and [README.md](README.md)

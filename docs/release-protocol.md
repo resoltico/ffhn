@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-01"
+updated: "2026-05-14"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -32,7 +32,7 @@ Run:
 
 ```bash
 PRIMARY_CHECKOUT="$(git rev-parse --show-toplevel)"
-VERSION="$(./scripts/workspace-version.sh)"
+VERSION="$(./scripts/workspace-package-field.sh version)"
 TAG="v${VERSION}"
 RELEASE_BRANCH="release/${VERSION}"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -88,7 +88,7 @@ That keeps the release worktree clean without discarding the real unpublished st
 
 If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${VERSION}` from the updated `origin/main`.
 
-Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). Rust `1.95.0` remains the default FFHN toolchain. Nightly is installed alongside it only for the coverage gate and optional manual sanitizer-backed fuzz runs.
+Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). The stable workspace toolchain is owned by [../rust-toolchain.toml](../rust-toolchain.toml), and the exact maintainer toolchain plus QA-tool versions are owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env). The pinned coverage/nightly toolchain exists only for the coverage gate and optional manual sanitizer-backed fuzz runs.
 
 Run the single local quality gate first:
 
@@ -104,10 +104,11 @@ cargo xtask check
 
 That gate must succeed before any final release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
 
-If the host checkout lives on a fragile or slow filesystem, the maintained host-native gate and
-the release-artifact builder both honor a caller-provided `CARGO_TARGET_DIR`. Pointing that at an
-OS-temp directory is supported and keeps heavy Cargo output off the repository mount while leaving
-the maintained commands unchanged.
+FFHN keeps normal Cargo output out of the repository tree by default through
+[../.cargo/config.toml](../.cargo/config.toml), which points the maintained host-native path at the
+managed sibling artifact roots documented in [hygiene.md](hygiene.md). If the release session needs
+a different location, override both `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` for the session
+instead of reintroducing repo-local build output.
 
 Then verify:
 

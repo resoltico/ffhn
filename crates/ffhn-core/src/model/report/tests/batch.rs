@@ -21,6 +21,12 @@ fn batch_run_report_accessors_expose_the_public_contract() {
     assert_eq!(report.max_concurrency(), 2);
     assert_eq!(report.entries().len(), 2);
     assert_eq!(report.entries()[0].target_id(), "demo");
+    match report.entries()[0].view() {
+        BatchRunEntryView::RunReport(run_report) => {
+            assert_eq!(run_report.run_outcome(), RunOutcome::Changed);
+        }
+        other => panic!("unexpected first entry view: {other:?}"),
+    }
     assert_eq!(
         report.entries()[0]
             .run_report()
@@ -29,6 +35,12 @@ fn batch_run_report_accessors_expose_the_public_contract() {
         RunOutcome::Changed
     );
     assert_eq!(report.entries()[1].target_id(), "fatal_target");
+    match report.entries()[1].view() {
+        BatchRunEntryView::FatalError(error) => {
+            assert_eq!(error.kind(), ProcessErrorKind::Io);
+        }
+        other => panic!("unexpected second entry view: {other:?}"),
+    }
     assert_eq!(
         report.entries()[1]
             .fatal_error()
@@ -43,7 +55,7 @@ fn batch_run_report_accessors_expose_the_public_contract() {
     assert_eq!(outcome_counts.failed_transient(), 0);
     assert_eq!(outcome_counts.failed_permanent(), 0);
     assert_eq!(outcome_counts.skipped_disabled(), 0);
-    assert_eq!(outcome_counts.persist_error(), 0);
+    assert_eq!(outcome_counts.persist_failure(), 0);
     assert_eq!(outcome_counts.notification_failure(), 0);
     assert_eq!(outcome_counts.fatal_error(), 1);
     assert_eq!(
@@ -104,7 +116,7 @@ fn batch_run_report_validation_covers_success_fatal_and_mismatch_cases() {
             failed_transient: 0,
             failed_permanent: 0,
             skipped_disabled: 0,
-            persist_error: 0,
+            persist_failure: 0,
             notification_failure: 0,
             fatal_error: 0,
         },
@@ -121,30 +133,30 @@ fn batch_run_report_validation_covers_success_fatal_and_mismatch_cases() {
     };
     assert!(invalid.validate().is_err());
 
-    let mut persist_error = valid_batch_report();
-    persist_error.entries[0].run_report = Some(
+    let mut persist_failure = valid_batch_report();
+    persist_failure.entries[0].run_report = Some(
         RunReport {
-            run_outcome: RunOutcome::FailedTransient,
-            reason_code: ReasonCode::PersistError,
-            failure_class: Some(FailureClass::Transient),
-            error_detail: Some(valid_process_error()),
-            current_compare_digest_sha256: None,
+            result: RunResult::FailedTransient {
+                cause: RunFailureCause::PersistError,
+                error_detail: valid_process_error(),
+            },
+            current_compare_digest_sha256: Some(DIGEST.to_owned()),
             persist: persist_section(
                 1,
-                PersistWriteStatus::NotAttempted,
                 PersistWriteStatus::Failed {
                     error: valid_process_error(),
                 },
+                PersistWriteStatus::NotAttempted,
             ),
             ..valid_run_report()
         }
         .with_digest()
-        .expect("persist error digest"),
+        .expect("persist failure digest"),
     );
-    persist_error.outcome_counts.changed = 0;
-    persist_error.outcome_counts.failed_transient = 1;
-    persist_error.outcome_counts.persist_error = 1;
-    persist_error
+    persist_failure.outcome_counts.changed = 0;
+    persist_failure.outcome_counts.failed_transient = 1;
+    persist_failure.outcome_counts.persist_failure = 1;
+    persist_failure
         .validate()
         .expect("batch report with persist-error entry");
 
@@ -162,6 +174,18 @@ fn batch_run_report_validation_covers_success_fatal_and_mismatch_cases() {
     notification_failure
         .validate()
         .expect("batch report with notification-failure entry");
+}
+
+#[test]
+#[should_panic(expected = "validated batch entries carry exactly one payload")]
+fn batch_run_entry_view_panics_on_incoherent_internal_state() {
+    let invalid = BatchRunEntry {
+        target_id: "demo".to_owned(),
+        run_report: Some(valid_run_report()),
+        fatal_error: Some(valid_process_error()),
+    };
+
+    let _ = invalid.view();
 }
 
 #[test]

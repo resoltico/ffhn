@@ -11,6 +11,12 @@ use super::super::storage::{now_utc, write_exact_text};
 
 static SNAPSHOT_WORK_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+#[derive(Clone, Debug)]
+pub(super) struct StagedHistorySnapshot {
+    pub(super) reference: SnapshotReference,
+    pub(super) staged_dir: PathBuf,
+}
+
 fn relative_artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
     RelativeArtifactPath::new(path).expect("hard-coded FFHN artifact paths must be valid")
 }
@@ -53,14 +59,14 @@ pub(super) fn stage_current_snapshot(
     ))
 }
 
-pub(super) fn archive_current_snapshot(
+pub(super) fn stage_history_snapshot(
     paths: &TargetPaths,
     current: &SnapshotArtifacts,
-) -> Result<SnapshotReference, CoreError> {
+) -> Result<StagedHistorySnapshot, CoreError> {
     let snapshot_key = history_snapshot_key(&current.reference);
-    let history_dir = paths.history_snapshot_dir(&snapshot_key);
-    write_snapshot_artifacts(&history_dir, current)?;
-    Ok(SnapshotReference {
+    let staged_dir = unique_snapshot_work_dir(paths, "history-stage");
+    write_snapshot_artifacts(&staged_dir, current)?;
+    let reference = SnapshotReference {
         slot: SnapshotSlot::History,
         canonical_text_sha256: current.reference.canonical_text_sha256.clone(),
         outer_html_sha256: current.reference.outer_html_sha256.clone(),
@@ -74,6 +80,10 @@ pub(super) fn archive_current_snapshot(
             "snapshots/history/{snapshot_key}/outer.html"
         )),
         captured_at: current.reference.captured_at.clone(),
+    };
+    Ok(StagedHistorySnapshot {
+        reference,
+        staged_dir,
     })
 }
 

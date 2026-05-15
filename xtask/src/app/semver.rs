@@ -32,7 +32,6 @@ pub(crate) fn refresh_semver_baseline(repo_root: &Path, git_ref: &str) -> DynRes
                 format!("{git_ref}:crates/ffhn-core"),
             ],
             false,
-            false,
         ),
     )?;
 
@@ -46,7 +45,6 @@ pub(crate) fn refresh_semver_baseline(repo_root: &Path, git_ref: &str) -> DynRes
                 "-C",
                 baseline_parent.to_string_lossy().as_ref(),
             ],
-            false,
             false,
         ),
     )?;

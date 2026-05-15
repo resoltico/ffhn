@@ -1,13 +1,12 @@
 use super::super::storage::{write_exact_text, write_json, write_text};
 use super::*;
 use crate::{
-    CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HTMLCUT_INTEROP_PROFILE,
-    HttpMethod, NetworkFetchConfig, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
-    SelectionConfig, SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference,
-    SnapshotSlot, TargetId, TargetSource, WhitespaceMode,
+    BaselinePhase, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HttpMethod, LastRunRecord,
+    NetworkFetchConfig, OutputKind, RelativeArtifactPath, SelectionConfig, SelectionEvidence,
+    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
+    StatusSummary, StoredBaseline, TargetId, TargetSource, WhitespaceMode,
 };
-use serde_json::json;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
@@ -58,7 +57,8 @@ fn target_document(target_name: &str) -> TargetDocument {
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -99,17 +99,17 @@ fn write_valid_state(paths: &TargetPaths) {
         &ExtractionRecord {
             schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
             schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-            interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-            htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-            htmlcut_result_digest_sha256: DIGEST.to_owned(),
             comparison_input_sha256: DIGEST.to_owned(),
             outer_html_sha256: current.outer_html_sha256.clone(),
-            strategy_kind: SelectionKind::CssSelector,
-            selection_mode: SelectionMatch::Single,
+            selection_kind: SelectionKind::CssSelector,
+            selection_match: SelectionMatch::Single,
             output_kind: OutputKind::OuterHtml,
             candidate_count: 1,
             selected_candidate_index: 1,
-            match_metadata: json!({"selector": "main"}),
+            selection_evidence: SelectionEvidence::CssSelector {
+                path: "html > body > main".to_owned(),
+                tag_name: "main".to_owned(),
+            },
             warning_codes: Vec::new(),
             created_at: "2026-04-05T10:15:30Z".to_owned(),
             extensions: None,
@@ -122,12 +122,15 @@ fn write_valid_state(paths: &TargetPaths) {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
-            last_run_outcome: Some(RunOutcome::Initialized),
-            last_reason_code: Some(ReasonCode::Ok),
-            current_snapshot: Some(current),
-            snapshot_history: Vec::new(),
+            baseline: StoredBaseline::Ready {
+                current_snapshot: current,
+                snapshot_history: Vec::new(),
+            },
+            last_run: Some(LastRunRecord::new(
+                "2026-04-05T10:15:30Z".to_owned(),
+                crate::RunOutcome::Initialized,
+                None,
+            )),
             extensions: None,
         },
     )
@@ -147,7 +150,7 @@ fn validate_target_reads_toml_and_enforces_directory_identity() {
         paths.target_file(),
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -230,19 +233,25 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
 
     write_text(paths.target_file(), "not = [valid").expect("broken target");
     let report = status(&paths).expect("config invalid status");
-    assert_eq!(report.reason_code, ReasonCode::ConfigInvalid);
-    assert_eq!(report.target_status, TargetStatus::Invalid);
-    assert!(report.state_phase.is_none());
-    assert!(report.error_detail.is_some());
+    assert_eq!(report.enabled(), None);
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidConfig { .. }
+    ));
+    assert_eq!(report.baseline_phase(), None);
+    assert!(report.error_detail().is_some());
     assert!(!paths.run_lock_file().exists());
 
     write_target(&paths, &target_document("demo"));
     let report = status(&paths).expect("pending status");
-    assert_eq!(report.reason_code, ReasonCode::Ok);
-    assert_eq!(report.target_status, TargetStatus::Pending);
-    assert_eq!(report.state_phase, Some(StatePhase::NeverSucceeded));
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_pending());
+    assert!(matches!(report.status(), StatusSummary::Pending));
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::NeverSucceeded));
     let pending_json = serde_json::to_string(&report).expect("pending status json");
     assert!(!pending_json.contains("\"artifacts\""));
+    assert!(pending_json.contains("\"kind\":\"pending\""));
     assert!(paths.lock_dir().is_dir());
     assert!(paths.run_lock_file().is_file());
 
@@ -252,18 +261,15 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::NeverSucceeded,
-            last_run_at: None,
-            last_run_outcome: None,
-            last_reason_code: None,
-            current_snapshot: None,
-            snapshot_history: Vec::new(),
+            baseline: StoredBaseline::Pending,
+            last_run: None,
             extensions: None,
         },
     )
     .expect("write valid never-succeeded state");
     let report = status(&paths).expect("valid never-succeeded status");
-    assert_eq!(report.target_status, TargetStatus::Pending);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_pending());
 
     write_json(
         paths.state_file(),
@@ -271,21 +277,31 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: None,
-            last_run_outcome: None,
-            last_reason_code: None,
-            current_snapshot: None,
-            snapshot_history: Vec::new(),
+            baseline: StoredBaseline::Ready {
+                current_snapshot: snapshot(
+                    SnapshotSlot::Current,
+                    "current",
+                    "hello",
+                    "<main>Hello</main>",
+                ),
+                snapshot_history: Vec::new(),
+            },
+            last_run: None,
             extensions: None,
         },
     )
     .expect("write invalid schema state");
     let report = status(&paths).expect("invalid state status");
-    assert_eq!(report.reason_code, ReasonCode::StateInvalid);
-    assert_eq!(report.target_status, TargetStatus::Invalid);
-    assert_eq!(report.state_phase, Some(StatePhase::HasBaseline));
-    assert!(report.error_detail.is_some());
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::InvalidState {
+            baseline_phase: BaselinePhase::HasBaseline,
+            ..
+        }
+    ));
+    assert!(report.error_detail().is_some());
 
     #[cfg(unix)]
     {
@@ -297,10 +313,16 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
         let report = status(&paths).expect("unreadable state status");
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
-        assert_eq!(report.reason_code, ReasonCode::StateInvalid);
-        assert_eq!(report.target_status, TargetStatus::Invalid);
-        assert_eq!(report.state_phase, Some(StatePhase::NeverSucceeded));
-        assert!(report.error_detail.is_some());
+        assert_eq!(report.enabled(), Some(true));
+        assert!(report.status().is_invalid());
+        assert!(matches!(
+            report.status(),
+            StatusSummary::InvalidState {
+                baseline_phase: BaselinePhase::NeverSucceeded,
+                ..
+            }
+        ));
+        assert!(report.error_detail().is_some());
     }
 
     write_valid_state(&paths);
@@ -310,16 +332,21 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
     )
     .expect("tamper snapshot");
     let report = status(&paths).expect("integrity mismatch status");
-    assert_eq!(report.reason_code, ReasonCode::IntegrityMismatch);
-    assert_eq!(report.target_status, TargetStatus::Invalid);
-    assert!(report.error_detail.is_some());
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_invalid());
+    assert!(matches!(
+        report.status(),
+        StatusSummary::IntegrityMismatch { .. }
+    ));
+    assert!(report.error_detail().is_some());
 
     write_valid_state(&paths);
     let report = status(&paths).expect("ready status");
-    assert_eq!(report.reason_code, ReasonCode::Ok);
-    assert_eq!(report.target_status, TargetStatus::Ready);
-    assert_eq!(report.state_phase, Some(StatePhase::HasBaseline));
-    assert!(report.current_snapshot.is_some());
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_ready());
+    assert!(matches!(report.status(), StatusSummary::Ready { .. }));
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
+    assert!(report.current_snapshot().is_some());
 
     #[cfg(unix)]
     {
@@ -331,21 +358,30 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
         let report = status(&paths).expect("config invalid wins over unreadable state");
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
-        assert_eq!(report.reason_code, ReasonCode::ConfigInvalid);
-        assert_eq!(report.target_status, TargetStatus::Invalid);
-        assert_eq!(report.state_phase, None);
-        assert!(report.error_detail.is_some());
+        assert_eq!(report.enabled(), None);
+        assert!(report.status().is_invalid());
+        assert!(matches!(
+            report.status(),
+            StatusSummary::InvalidConfig { .. }
+        ));
+        assert_eq!(report.baseline_phase(), None);
+        assert!(report.error_detail().is_some());
     }
 }
 
 #[test]
-fn status_surfaces_target_load_io_failures_as_fatal_core_errors() {
+fn status_reports_unavailable_target_paths_as_structured_status() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
     std::fs::create_dir_all(paths.target_file()).expect("target file directory");
 
-    let error = status(&paths).expect_err("target load io error");
-    assert!(matches!(error, CoreError::Io { .. }));
+    let report = status(&paths).expect("target unavailable status");
+    assert_eq!(report.enabled(), None);
+    assert!(matches!(
+        report.status(),
+        StatusSummary::UnavailableTarget { .. }
+    ));
+    assert!(report.error_detail().is_some());
 }
 
 #[test]
@@ -370,8 +406,9 @@ fn status_waits_for_an_active_live_run_lock_before_reading_a_stable_view() {
 
     drop(exclusive_lock);
     let report = status_thread.join().expect("join status thread");
-    assert_eq!(report.target_status, TargetStatus::Pending);
-    assert_eq!(report.reason_code, ReasonCode::Ok);
+    assert_eq!(report.enabled(), Some(true));
+    assert!(report.status().is_pending());
+    assert!(matches!(report.status(), StatusSummary::Pending));
 }
 
 #[test]
@@ -382,7 +419,23 @@ fn status_retries_transient_shared_lock_would_block_before_succeeding() {
 
     super::super::lock::with_shared_lock_errors_injected(&[std::io::ErrorKind::WouldBlock], || {
         let report = status(&paths).expect("status after transient contention");
-        assert_eq!(report.target_status, TargetStatus::Pending);
-        assert_eq!(report.reason_code, ReasonCode::Ok);
+        assert_eq!(report.enabled(), Some(true));
+        assert!(report.status().is_pending());
+        assert!(matches!(report.status(), StatusSummary::Pending));
     });
+}
+
+#[test]
+fn status_keeps_disabled_targets_machine_distinct_from_enabled_pending_targets() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+
+    let mut target = target_document("demo");
+    target.enabled = false;
+    write_target(&paths, &target);
+
+    let report = status(&paths).expect("disabled pending status");
+    assert_eq!(report.enabled(), Some(false));
+    assert!(matches!(report.status(), StatusSummary::Pending));
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::NeverSucceeded));
 }

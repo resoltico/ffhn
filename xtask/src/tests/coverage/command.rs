@@ -3,16 +3,23 @@ use super::*;
 #[test]
 fn coverage_command_targets_repo_coverage_file() {
     let repo_root = tempdir().expect("tempdir");
+    let tooling = sample_tooling();
 
-    let command = with_cargo_target_dir(None, || coverage_command(repo_root.path()));
-    let clean = coverage_clean_command();
+    let command = with_test_artifact_roots(repo_root.path(), || {
+        coverage_command(repo_root.path(), &tooling)
+    });
+    let clean = with_test_artifact_roots(repo_root.path(), || coverage_clean_command(&tooling));
 
     assert_eq!(command.program, PathBuf::from("cargo"));
-    assert!(command.force_clang);
+    assert_eq!(command.env.get("CC"), Some(&"clang".to_owned()));
+    assert_eq!(
+        command.artifact_layout,
+        CommandArtifactLayout::ManagedCoverage
+    );
     assert_eq!(
         command.args,
         vec![
-            "+nightly".to_owned(),
+            "+nightly-2026-05-11".to_owned(),
             "llvm-cov".to_owned(),
             "--branch".to_owned(),
             "--workspace".to_owned(),
@@ -23,7 +30,8 @@ fn coverage_command_targets_repo_coverage_file() {
             "--output-path".to_owned(),
             repo_root
                 .path()
-                .join("target")
+                .join(".managed-artifacts")
+                .join("coverage-target")
                 .join("coverage.json")
                 .to_string_lossy()
                 .into_owned(),
@@ -32,47 +40,75 @@ fn coverage_command_targets_repo_coverage_file() {
         ]
     );
     assert_eq!(clean.program, PathBuf::from("cargo"));
-    assert!(!clean.force_clang);
     assert_eq!(
         clean.args,
         vec![
-            "+nightly".to_owned(),
+            "+nightly-2026-05-11".to_owned(),
             "llvm-cov".to_owned(),
             "clean".to_owned(),
             "--workspace".to_owned(),
         ]
     );
+    assert_eq!(
+        clean.artifact_layout,
+        CommandArtifactLayout::ManagedCoverage
+    );
 }
 
 #[test]
-fn coverage_command_honors_the_active_cargo_target_root() {
+fn coverage_command_targets_the_configured_coverage_root() {
     let repo_root = tempdir().expect("tempdir");
-    let absolute_target_root = tempdir().expect("absolute target root");
+    let tooling = sample_tooling();
 
-    let relative_command = with_cargo_target_dir(Some(Path::new("custom-target")), || {
-        coverage_command(repo_root.path())
-    });
+    let relative_command = with_cargo_artifact_root_overrides(
+        repo_root.path().join("custom-target"),
+        repo_root.path().join("custom-build"),
+        || coverage_command(repo_root.path(), &tooling),
+    );
     assert_eq!(
         relative_command.args[9],
         repo_root
             .path()
-            .join("custom-target")
+            .join("coverage-target")
             .join("coverage.json")
             .to_string_lossy()
             .into_owned()
     );
 
-    let absolute_command = with_cargo_target_dir(Some(absolute_target_root.path()), || {
-        coverage_command(repo_root.path())
-    });
+    let absolute_target_root = tempdir().expect("absolute target root");
+    let absolute_build_root = tempdir().expect("absolute build root");
+    let absolute_command = with_cargo_artifact_root_overrides(
+        absolute_target_root.path().to_path_buf(),
+        absolute_build_root.path().to_path_buf(),
+        || coverage_command(repo_root.path(), &tooling),
+    );
     assert_eq!(
         absolute_command.args[9],
         absolute_target_root
             .path()
+            .parent()
+            .expect("absolute target root parent")
+            .join("coverage-target")
             .join("coverage.json")
             .to_string_lossy()
             .into_owned()
     );
+}
+
+#[test]
+fn coverage_output_path_tracks_the_configured_roots() {
+    let repo_root = tempdir().expect("tempdir");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        assert_eq!(
+            coverage_output_path(repo_root.path()),
+            repo_root
+                .path()
+                .join(".managed-artifacts")
+                .join("coverage-target")
+                .join("coverage.json")
+        );
+    });
 }
 
 #[test]
