@@ -219,6 +219,20 @@ Do not continue until the required job in workflow `CI` is green:
 
 `Check` is the aggregate branch-protection gate. It must reflect the Linux maintainer gate, the cross-platform Rust gate, and the release-target smoke matrix.
 
+`gh pr checks` is the maintained first-line gate view, but it is not a reliable step-progress
+monitor for FFHN's longest jobs. If long-running checks remain generic `pending` with no useful
+elapsed detail, inspect the underlying Actions jobs directly before deciding whether the workflow is
+healthy or hung:
+
+```bash
+gh pr view "$PR_NUMBER" --json statusCheckRollup
+gh api "repos/$REPO/actions/jobs/<JOB_ID>"
+```
+
+Use the `detailsUrl` or check-run names from `statusCheckRollup` to identify the relevant job ids.
+Treat the job API as the authoritative live progress view when `gh pr checks` lags or omits step
+detail.
+
 If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
 
 Recover in this order:

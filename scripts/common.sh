@@ -37,11 +37,22 @@ ffhn_normalize_bash_path() {
     printf '%s\n' "${candidate}"
 }
 
+ffhn_python3_preserving_paths() {
+    if command -v cygpath >/dev/null 2>&1; then
+        MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 python3 "$@"
+        return
+    fi
+
+    python3 "$@"
+}
+
 ffhn_join_and_normalize_bash_path() {
     local base_path="$1"
     local relative_path="$2"
+    local joined_path
 
-    python3 - <<'PY' "${base_path}" "${relative_path}"
+    joined_path="$(
+        ffhn_python3_preserving_paths - <<'PY' "${base_path}" "${relative_path}"
 import posixpath
 import sys
 
@@ -50,6 +61,9 @@ relative_path = sys.argv[2]
 
 print(posixpath.normpath(posixpath.join(base_path, relative_path)))
 PY
+    )"
+
+    ffhn_normalize_bash_path "${joined_path}"
 }
 
 ffhn_path_for_host_python() {
@@ -124,7 +138,7 @@ ffhn_cargo_build_config_value() {
 
     python_repo_root="$(ffhn_path_for_host_python "${repo_root}")"
 
-    python3 - <<'PY' "${python_repo_root}" "${field_name}"
+    ffhn_python3_preserving_paths - <<'PY' "${python_repo_root}" "${field_name}"
 import ast
 import pathlib
 import sys
