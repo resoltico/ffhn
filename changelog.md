@@ -3,6 +3,12 @@
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Clarified the maintainer release protocol for stalled GitHub Actions runs: maintainers now inspect the job API when `gh pr checks` is opaque, cancel and rerun obviously stalled CI once instead of waiting indefinitely, and keep a wanted Dependabot PR open only with an explicit blocker comment when repeated reruns fail for external delivery reasons before the project gate itself begins.
+
 ## [7.0.0] - 2026-05-15
 
 ### Changed

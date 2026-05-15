@@ -233,6 +233,27 @@ Use the `detailsUrl` or check-run names from `statusCheckRollup` to identify the
 Treat the job API as the authoritative live progress view when `gh pr checks` lags or omits step
 detail.
 
+If the job API shows one or more jobs sitting on the same in-progress step for materially longer
+than the recent healthy duration of that step, or if multiple jobs stall on the same installer or
+bootstrap step with no later-step movement, treat that as a delivery failure rather than waiting
+indefinitely. Recover in this order:
+
+1. Cancel the stalled workflow run and wait for GitHub to report the run as `completed` /
+   `cancelled`.
+2. Rerun that exact workflow run once:
+
+```bash
+gh run cancel <RUN_ID>
+gh run view <RUN_ID> --json status,conclusion,url
+gh run rerun <RUN_ID>
+gh run view <RUN_ID> --json status,conclusion,url
+```
+
+3. Re-check the rerun through the job API. If the rerun makes normal forward progress, continue.
+4. If the rerun stalls the same way again before the project gate itself begins, stop changing code
+   in response to the stall and treat the blocker as external GitHub-side delivery instability
+   unless you have concrete repository evidence to the contrary.
+
 If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
 
 Recover in this order:
@@ -457,6 +478,7 @@ Rules:
 - If the PR is wanted, mergeable, and already green on the required `Check` status, merge it immediately with `gh pr merge <N> --merge --delete-branch`.
 - If the PR is stale, superseded by `main`, intentionally rejected, or replaced by a different change path, close it explicitly and delete its branch with `gh pr close <N> --comment "Superseded or intentionally rejected during release hygiene." --delete-branch`.
 - If the PR needs follow-up work before it is acceptable, do that work as a normal post-release change on `main` and then land or replace the Dependabot PR. Do not leave a green but unattended Dependabot PR parked indefinitely just because the release itself already shipped.
+- If the PR is wanted but blocked only by external CI delivery failure after one clean rerun, keep it open only with an explicit public comment on the PR naming the blocker, the latest checked workflow run id, and why the change remains wanted. That is the only acceptable "keep open" path for a PR that has otherwise passed review.
 - Never retag, amend, or move the just-published release tag to absorb a Dependabot change. The published release remains immutable. Dependabot resolution is post-release `main` hygiene.
 - There is no "ignore it and leave the branch there" option. Every open Dependabot PR must end this step in exactly one of these states:
   - merged and branch deleted
