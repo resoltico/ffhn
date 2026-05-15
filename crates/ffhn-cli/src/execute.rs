@@ -3,14 +3,13 @@ use std::io::Write;
 
 use clap::error::ErrorKind;
 use ffhn_core::{
-    TargetPaths, duplicate_target_ids_usage_error, run_batch, run_once, run_once_dry_run,
-    run_report_write_error, status, status_report_write_error,
+    TargetPaths, run_batch, run_once, run_once_dry_run, run_report_write_error, status,
+    status_report_write_error,
 };
 
 use crate::args::{Command, parse_cli};
 use crate::error::{CLI_OUTPUT_WRITE_ERROR, write_cli_error};
-use crate::help::try_handle_top_level_request;
-use crate::render::render_json_document;
+use crate::render::{render_run_report, render_status_report};
 use crate::{EXIT_CODE_FATAL, EXIT_CODE_RUN_FAILED, EXIT_CODE_USAGE};
 
 mod batch;
@@ -23,7 +22,7 @@ use batch::{
 pub(crate) use discovery::{
     DiscoveredTarget, collect_watch_root_directories, discover_watch_root_targets,
 };
-use discovery::{SelectedTargets, duplicate_target_id, selected_targets};
+use discovery::{SelectedTargets, selected_targets};
 
 /// Entry point for the FFHN CLI.
 pub fn run<I, T>(args: I, stdout: &mut impl Write, stderr: &mut impl Write) -> i32
@@ -32,12 +31,6 @@ where
     T: Into<OsString>,
 {
     let raw_args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    match try_handle_top_level_request(&raw_args, stdout) {
-        Ok(true) => return 0,
-        Err(_) => return report_cli_output_error(stderr),
-        Ok(false) => {}
-    }
-
     let cli = match parse_cli(raw_args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -58,11 +51,6 @@ where
 
     match cli.command {
         Command::Run(command) => {
-            if let Some(duplicate) = duplicate_target_id(&command) {
-                let _ = write_cli_error(stderr, &duplicate_target_ids_usage_error(duplicate));
-                return EXIT_CODE_USAGE;
-            }
-
             let selection = match selected_targets(&command) {
                 Ok(targets) => targets,
                 Err(error) => {
@@ -74,7 +62,8 @@ where
             if let SelectedTargets::Explicit(targets) = &selection
                 && targets.len() == 1
             {
-                let paths = TargetPaths::new(command.watch_root, targets[0].clone());
+                let paths = TargetPaths::try_new(&command.watch_root, targets[0].as_str())
+                    .expect("validated target path");
                 let run_result = if command.dry_run {
                     run_once_dry_run(&paths)
                 } else {
@@ -82,7 +71,7 @@ where
                 };
                 return match run_result {
                     Ok(report) => {
-                        if render_json_document(stdout, &report).is_err() {
+                        if render_run_report(stdout, &report, command.output_format).is_err() {
                             let _ = write_cli_error(stderr, &run_report_write_error());
                             EXIT_CODE_FATAL
                         } else if run_report_requires_failed_exit(&report) {
@@ -113,13 +102,14 @@ where
                 ),
             };
 
-            render_batch_result(batch_result, stdout, stderr)
+            render_batch_result(batch_result, command.output_format, stdout, stderr)
         }
         Command::Status(command) => {
-            let paths = TargetPaths::new(command.watch_root, command.target);
+            let paths = TargetPaths::try_new(&command.watch_root, command.target.as_str())
+                .expect("validated target path");
             match status(&paths) {
                 Ok(report) => {
-                    if render_json_document(stdout, &report).is_err() {
+                    if render_status_report(stdout, &report, command.output_format).is_err() {
                         let _ = write_cli_error(stderr, &status_report_write_error());
                         return EXIT_CODE_FATAL;
                     }

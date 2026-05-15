@@ -40,7 +40,11 @@ fn discover_watch_root_targets_requires_a_real_watch_root_and_ignores_non_target
 
     assert_eq!(
         discover_watch_root_targets(&watch_root).expect("discover targets"),
-        vec![discovered_target("demo"), discovered_target("invalid")]
+        vec![
+            discovered_target("demo"),
+            discovered_target("disabled"),
+            discovered_target("invalid"),
+        ]
     );
 }
 

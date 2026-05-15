@@ -38,12 +38,12 @@ fn maintained_release_shell_entrypoints_are_self_describing() {
             "Verify the published GitHub release object",
         ),
         (
-            "workspace-package-field.sh",
-            "Print one string field from [workspace.package]",
+            "bootstrap-rust-tools.sh",
+            "Install the pinned Rust toolchains and Cargo QA tools",
         ),
         (
-            "workspace-version.sh",
-            "Print the [workspace.package] version",
+            "workspace-package-field.sh",
+            "Print one string field from [workspace.package]",
         ),
         ("qa-gate.sh", "Run FFHN's maintained local quality gate"),
     ] {
@@ -166,5 +166,13 @@ fn release_targets_script_is_shipped_as_an_executable_entrypoint() {
         metadata.permissions().mode() & 0o111,
         0,
         "release-targets.sh should be directly runnable for local inspection",
+    );
+
+    let metadata = fs::metadata(repo_root.join("scripts").join("bootstrap-rust-tools.sh"))
+        .expect("bootstrap-rust-tools metadata");
+    assert_ne!(
+        metadata.permissions().mode() & 0o111,
+        0,
+        "bootstrap-rust-tools.sh should be directly runnable for local installation",
     );
 }

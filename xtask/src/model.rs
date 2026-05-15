@@ -9,7 +9,17 @@ pub type DynResult<T> = Result<T, Box<dyn Error>>;
 pub(crate) type BranchSpan = (u64, u64, u64, u64);
 pub(crate) type BranchCounts = (u64, u64);
 pub(crate) type BranchCoverageByFile = BTreeMap<PathBuf, BTreeMap<BranchSpan, BranchCounts>>;
-pub(crate) const COVERAGE_TOOLCHAIN: &str = "+nightly";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Cargo artifact-root policy for one external maintainer command.
+pub(crate) enum CommandArtifactLayout {
+    /// Use the ambient Cargo artifact layout.
+    Inherit,
+    /// Route Cargo output into the managed workspace artifact roots.
+    ManagedWorkspace,
+    /// Route Cargo output into the isolated managed coverage artifact roots.
+    ManagedCoverage,
+}
 
 /// One external command in the maintenance plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,18 +32,13 @@ pub(crate) struct CommandSpec {
     pub env: BTreeMap<String, String>,
     /// Whether stdout should be suppressed.
     pub quiet_stdout: bool,
-    /// Whether clang should be forced.
-    pub force_clang: bool,
+    /// Artifact-root policy for the command.
+    pub artifact_layout: CommandArtifactLayout,
 }
 
 impl CommandSpec {
     /// Builds one command specification.
-    pub(crate) fn new<I, S>(
-        program: impl Into<PathBuf>,
-        args: I,
-        quiet_stdout: bool,
-        force_clang: bool,
-    ) -> Self
+    pub(crate) fn new<I, S>(program: impl Into<PathBuf>, args: I, quiet_stdout: bool) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -43,7 +48,7 @@ impl CommandSpec {
             args: args.into_iter().map(Into::into).collect(),
             env: BTreeMap::new(),
             quiet_stdout,
-            force_clang,
+            artifact_layout: CommandArtifactLayout::Inherit,
         }
     }
 
@@ -58,6 +63,12 @@ impl CommandSpec {
             .into_iter()
             .map(|(key, value)| (key.into(), value.into()))
             .collect();
+        self
+    }
+
+    /// Overrides the artifact-root policy for the command specification.
+    pub(crate) fn with_artifact_layout(mut self, artifact_layout: CommandArtifactLayout) -> Self {
+        self.artifact_layout = artifact_layout;
         self
     }
 }

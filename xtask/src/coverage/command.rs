@@ -1,16 +1,17 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::model::{COVERAGE_TOOLCHAIN, CommandSpec, DynResult};
-use crate::plan::{cargo_target_root, normalize_path};
+use crate::model::{CommandArtifactLayout, CommandSpec, DynResult};
+use crate::plan::{coverage_target_root, normalize_path};
 use crate::repo_files::maintained_rust_source_entries;
+use crate::tooling::RustTooling;
 
 /// Builds the llvm-cov command used by the coverage gate.
-pub(crate) fn coverage_command(repo_root: &Path) -> CommandSpec {
+pub(crate) fn coverage_command(repo_root: &Path, tooling: &RustTooling) -> CommandSpec {
     CommandSpec::new(
         "cargo",
         [
-            COVERAGE_TOOLCHAIN,
+            &tooling.coverage_toolchain_arg(),
             "llvm-cov",
             "--branch",
             "--workspace",
@@ -24,23 +25,29 @@ pub(crate) fn coverage_command(repo_root: &Path) -> CommandSpec {
             "--test-threads=1",
         ],
         false,
-        true,
     )
+    .with_envs([("CC", "clang")])
+    .with_artifact_layout(CommandArtifactLayout::ManagedCoverage)
 }
 
 /// Builds the cleanup command that resets llvm-cov state.
-pub(crate) fn coverage_clean_command() -> CommandSpec {
+pub(crate) fn coverage_clean_command(tooling: &RustTooling) -> CommandSpec {
     CommandSpec::new(
         "cargo",
-        [COVERAGE_TOOLCHAIN, "llvm-cov", "clean", "--workspace"],
-        false,
+        [
+            &tooling.coverage_toolchain_arg(),
+            "llvm-cov",
+            "clean",
+            "--workspace",
+        ],
         false,
     )
+    .with_artifact_layout(CommandArtifactLayout::ManagedCoverage)
 }
 
 /// Returns the coverage JSON output path.
 pub(crate) fn coverage_output_path(repo_root: &Path) -> PathBuf {
-    cargo_target_root(repo_root).join("coverage.json")
+    coverage_target_root(repo_root).join("coverage.json")
 }
 
 /// Loads the maintained non-test Rust source files for the coverage gate.

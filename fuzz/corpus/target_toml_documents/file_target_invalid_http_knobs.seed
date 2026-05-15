@@ -1,5 +1,5 @@
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo-file-bad"
 display_name = "File Demo Bad"
 enabled = true

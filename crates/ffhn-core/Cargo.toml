@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
+publish = false
 description = "Deterministic monitoring engine for FFHN."
 
 [dependencies]
@@ -14,6 +15,7 @@ encoding_rs.workspace = true
 fs2.workspace = true
 htmlcut-core.workspace = true
 regex.workspace = true
+scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -23,9 +25,6 @@ time.workspace = true
 toml.workspace = true
 ureq.workspace = true
 url.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -1,9 +1,9 @@
-# SQLite3 Multiple Ciphers 2.3.3 / SQLite 3.53.0 Agent Protocol
+# SQLite3 Multiple Ciphers 2.3.4 / SQLite 3.53.1 Agent Protocol
 
-**Version:** 2.0.0
-**Updated:** 2026-04-27
+**Version:** 2.0.1
+**Updated:** 2026-05-08
 **Inherits:** [.codex/UNIVERSAL_ENGINEERING_CONTRACT.md](./UNIVERSAL_ENGINEERING_CONTRACT.md) v2.0.0+
-**Scope:** projects that build, vendor, link, wrap, configure, distribute, test, or operate **SQLite3 Multiple Ciphers 2.3.3**, based on **SQLite 3.53.0**. Includes C and C++ integrations, amalgamation builds, static or shared library packaging, embedded applications, CLIs, services, language bindings, JNI/JNA, Python/Rust/Node/.NET/Java/Kotlin wrappers, SQL migrations, encrypted database files, PRAGMA/URI configuration, key and rekey flows, backups, WAL/journal behavior, build flags, and cross-platform distribution.
+**Scope:** projects that build, vendor, link, wrap, configure, distribute, test, or operate **SQLite3 Multiple Ciphers 2.3.4**, based on **SQLite 3.53.1**. Includes C and C++ integrations, amalgamation builds, static or shared library packaging, embedded applications, CLIs, services, language bindings, JNI/JNA, Python/Rust/Node/.NET/Java/Kotlin wrappers, SQL migrations, encrypted database files, PRAGMA/URI configuration, key and rekey flows, backups, WAL/journal behavior, build flags, and cross-platform distribution.
 
 ## 0. Scope and inheritance
 
@@ -32,7 +32,7 @@ Per the Naurian frame, some theory the agent typically does not bring in cold an
 - Whether `TEMP` tables, in-memory databases, or bytes 16–23 of the database file are inside or outside the threat model. The encryption boundary is non-obvious and easy to assume away.
 - Whether old SQLCipher, sqleet, or SQLite Encryption Extension conventions still inform the codebase. SQLite3MC is API-compatible in many places but is not identical, and copy-pasted SQLCipher recipes can silently drift.
 - Whether SQLite 3.52.0 (withdrawn upstream) is still pinned anywhere as a fallback baseline.
-- Whether the secure cipher-state nullification path that distinguishes SQLite3MC 2.3.3 from older releases is still intact. It looks redundant; removing it is a security regression.
+- Whether the secure cipher-state nullification path that distinguishes SQLite3MC 2.3.4 from older releases is still intact. It looks redundant; removing it is a security regression.
 
 Where the answer is not derivable from code, history, or conversation, surface the gap explicitly; do not assume the convenient answer.
 
@@ -135,43 +135,43 @@ Do not:
 
 ---
 
-## 3. Baseline posture: SQLite3MC 2.3.3 and SQLite 3.53.0
+## 3. Baseline posture: SQLite3MC 2.3.4 and SQLite 3.53.1
 
 ### 3.1 Version baseline
 
 For repositories governed by this protocol, assume:
 
 ```text
-SQLite3 Multiple Ciphers: 2.3.3
-Underlying SQLite:        3.53.0
+SQLite3 Multiple Ciphers: 2.3.4
+Underlying SQLite:        3.53.1
 ```
 
 Use the repository's pinned version when it is more specific. Do not upgrade or downgrade SQLite3MC without a compatibility judgment, migration-risk assessment, and verification plan.
 
-SQLite3MC 2.3.3 includes the upstream SQLite 3.53.0 baseline and fixes secure nullification of cipher data structures on freeing. Treat any edit around cipher state cleanup as security-sensitive. Do not remove zeroization, nullification, or cleanup paths because they look redundant — this is exactly the kind of code where Naur's "amorphous additions" warning bites in reverse.
+SQLite3MC 2.3.4 includes the upstream SQLite 3.53.1 baseline and fixes secure nullification of cipher data structures on freeing. Treat any edit around cipher state cleanup as security-sensitive. Do not remove zeroization, nullification, or cleanup paths because they look redundant — this is exactly the kind of code where Naur's "amorphous additions" warning bites in reverse.
 
-SQLite 3.53.0 includes a fix for the WAL-reset database corruption bug. Do not downgrade to a pre-fix SQLite baseline without explicitly accepting the risk and recording the justification (per universal contract §1.5).
+SQLite 3.53.1 includes a fix for the WAL-reset database corruption bug. Do not downgrade to a pre-fix SQLite baseline without explicitly accepting the risk and recording the justification (per universal contract §1.5).
 
-### 3.2 SQLite 3.53.0 feature posture
+### 3.2 SQLite 3.53.1 feature posture
 
-Use SQLite 3.53.0 capabilities only when the deployed runtime is guaranteed to be SQLite3MC 2.3.3 / SQLite 3.53.0 or newer.
+Use SQLite 3.53.1 capabilities only when the deployed runtime is guaranteed to be SQLite3MC 2.3.4 / SQLite 3.53.1 or newer.
 
-Notable 3.53.0 behavior for agents:
+Notable 3.53.1 behavior for agents:
 
 - `ALTER TABLE` can add and remove `NOT NULL` and `CHECK` constraints. Use this only when migration compatibility is acceptable.
 - `REINDEX EXPRESSIONS` can rebuild expression indexes. Prefer it when repairing stale expression-index state rather than inventing application-level workarounds.
-- `json_array_insert()` and `jsonb_array_insert()` are available in the 3.53.0 baseline.
+- `json_array_insert()` and `jsonb_array_insert()` are available in the 3.53.1 baseline.
 - The CLI output defaults changed for interactive sessions through QRF. Tests and scripts must set explicit output modes instead of relying on human-oriented defaults.
 - Bare semicolons at the end of dot-commands are silently ignored. Treat CLI script compatibility deliberately.
-- New C interfaces such as `sqlite3_str_truncate()`, `sqlite3_str_free()`, `sqlite3_carray_bind_v2()`, `SQLITE_PREPARE_FROM_DDL`, `SQLITE_UTF8_ZT`, `SQLITE_LIMIT_PARSER_DEPTH`, and `SQLITE_DBCONFIG_FP_DIGITS` are available only when the runtime really is 3.53.0+.
+- New C interfaces such as `sqlite3_str_truncate()`, `sqlite3_str_free()`, `sqlite3_carray_bind_v2()`, `SQLITE_PREPARE_FROM_DDL`, `SQLITE_UTF8_ZT`, `SQLITE_LIMIT_PARSER_DEPTH`, and `SQLITE_DBCONFIG_FP_DIGITS` are available only when the runtime really is 3.53.1+.
 - Floating-point text conversion behavior changed to round by default to 17 significant digits instead of the previous 15. Review golden outputs, text dumps, hash inputs, and deterministic serialization tests.
 - The self-healing index feature may address stale expression index issues, but it does not replace tests for migration and query correctness.
 
-Do not write code or migrations that silently require 3.53.0 if production, tests, system packages, or bundled artifacts may still load an older SQLite.
+Do not write code or migrations that silently require 3.53.1 if production, tests, system packages, or bundled artifacts may still load an older SQLite.
 
 ### 3.3 SQLite 3.52 warning
 
-SQLite 3.52.0 was withdrawn upstream. Do not select SQLite3MC 2.3.0 / SQLite 3.52.0 as a fallback baseline. If a repository already contains that version (see §0.1), surface the issue and prefer moving to SQLite3MC 2.3.3 or a project-approved fixed baseline.
+SQLite 3.52.0 was withdrawn upstream. Do not select SQLite3MC 2.3.0 / SQLite 3.52.0 as a fallback baseline. If a repository already contains that version (see §0.1), surface the issue and prefer moving to SQLite3MC 2.3.4 or a project-approved fixed baseline.
 
 ---
 
@@ -395,7 +395,7 @@ When a database uses WAL or rollback journaling:
 - avoid deleting sidecar files as a substitute for proper checkpoint/recovery logic;
 - test multiple connections if the application uses them.
 
-SQLite 3.53.0 includes an upstream fix for a WAL-reset corruption bug, but this does not remove the need for connection, checkpoint, and backup discipline.
+SQLite 3.53.1 includes an upstream fix for a WAL-reset corruption bug, but this does not remove the need for connection, checkpoint, and backup discipline.
 
 ### 7.3 Backup, restore, VACUUM, and export
 
@@ -443,7 +443,7 @@ Do not convert all SQLite failures into generic booleans or generic exceptions.
 
 SQLite SQL compatibility is a runtime contract.
 
-Before using a 3.53.0 SQL feature in migrations or generated SQL, verify that all deployment targets load SQLite3MC 2.3.3 / SQLite 3.53.0 or newer.
+Before using a 3.53.1 SQL feature in migrations or generated SQL, verify that all deployment targets load SQLite3MC 2.3.4 / SQLite 3.53.1 or newer.
 
 Be especially cautious with:
 
@@ -458,7 +458,7 @@ If a repository supports multiple SQLite baselines, write migrations and SQL to 
 
 ### 8.3 CLI scripts and golden outputs
 
-SQLite 3.53.0 changed human-oriented CLI formatting through QRF.
+SQLite 3.53.1 changed human-oriented CLI formatting through QRF.
 
 For tests and automation:
 
@@ -603,7 +603,7 @@ Performance-sensitive changes should consider:
 - synchronous mode;
 - hardware acceleration and target CPU features;
 - binding overhead;
-- query planner changes in SQLite 3.53.0.
+- query planner changes in SQLite 3.53.1.
 
 Do not weaken encryption, durability, or compatibility for unmeasured performance claims.
 

@@ -102,7 +102,7 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
 
     assert_eq!(json["name"], "FFHN Contributor");
     assert_eq!(json["build"]["dockerfile"], "Dockerfile");
-    assert_eq!(json["build"]["context"], ".");
+    assert_eq!(json["build"]["context"], "..");
     assert_eq!(json["workspaceFolder"], "/workspaces/ffhn");
     assert_eq!(
         json["workspaceMount"],
@@ -115,6 +115,14 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
     assert_eq!(json["remoteUser"], "vscode");
     assert_eq!(json["updateRemoteUserUID"], true);
     assert_eq!(json["containerEnv"]["CARGO_HOME"], "/home/vscode/.cargo");
+    assert_eq!(
+        json["containerEnv"]["CARGO_TARGET_DIR"],
+        "/home/vscode/.cache/ffhn-artifacts/target"
+    );
+    assert_eq!(
+        json["containerEnv"]["CARGO_BUILD_BUILD_DIR"],
+        "/home/vscode/.cache/ffhn-artifacts/build"
+    );
     assert_eq!(json["containerEnv"]["FFHN_DEVCONTAINER"], "1");
 
     let mounts = json["mounts"].as_array().expect("mount array");
@@ -130,32 +138,50 @@ fn committed_devcontainer_contract_uses_canonical_paths_and_prepare_hook() {
             .iter()
             .any(|mount| mount == "source=ffhn-user-cache,target=/home/vscode/.cache,type=volume")
     );
-    assert!(
-        mounts
-            .iter()
-            .any(|mount| mount == "source=ffhn-target,target=/workspaces/ffhn/target,type=volume")
-    );
-    assert!(
-        mounts.iter().any(|mount| mount
-            == "source=ffhn-fuzz-target,target=/workspaces/ffhn/fuzz/target,type=volume")
-    );
+    assert_eq!(mounts.len(), 3);
 }
 
 #[test]
-fn committed_devcontainer_dockerfile_pins_ubuntu_26_04_and_bakes_repo_tools() {
+fn committed_devcontainer_dockerfile_pins_the_24_04_devcontainer_base_and_bakes_repo_tools() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
     let dockerfile = fs::read_to_string(repo_root.join(".devcontainer/Dockerfile"))
         .expect("read devcontainer Dockerfile");
 
-    assert!(dockerfile.contains("FROM ubuntu:26.04@sha256:"));
+    assert!(dockerfile.contains("FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:"));
+    assert!(
+        dockerfile.contains("COPY tooling/rust-tooling.env /usr/local/share/ffhn/rust-tooling.env")
+    );
+    assert!(dockerfile.contains(
+        "COPY scripts/bootstrap-rust-tools.sh /usr/local/share/ffhn/bootstrap-rust-tools.sh"
+    ));
     assert!(dockerfile.contains("if getent passwd 1000 >/dev/null; then"));
     assert!(dockerfile.contains("usermod --login vscode"));
     assert!(dockerfile.contains("ENV RUSTUP_HOME=/usr/local/rustup"));
-    assert!(dockerfile.contains("rustup target add x86_64-unknown-linux-musl --toolchain 1.95.0"));
-    assert!(dockerfile.contains("cargo install cargo-nextest cargo-audit cargo-deny cargo-semver-checks cargo-outdated cargo-llvm-cov cargo-fuzz --locked"));
+    assert!(
+        dockerfile.contains("ENV FFHN_RUST_TOOLING_ENV=/usr/local/share/ffhn/rust-tooling.env")
+    );
+    assert!(dockerfile.contains("bash /usr/local/share/ffhn/bootstrap-rust-tools.sh install-all"));
+    assert!(dockerfile.contains(
+        "rustup target add x86_64-unknown-linux-musl --toolchain \"${RUST_STABLE_TOOLCHAIN}\""
+    ));
     assert!(dockerfile.contains("USER vscode"));
+}
+
+#[test]
+fn bootstrap_rust_tools_stays_self_contained_for_the_contributor_image() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let script = fs::read_to_string(repo_root.join("scripts/bootstrap-rust-tools.sh"))
+        .expect("read bootstrap-rust-tools.sh");
+
+    assert!(script.contains("ffhn_scrub_ambient_native_toolchain_env()"));
+    assert!(script.contains("verify_stable_toolchain_entrypoints()"));
+    assert!(script.contains("cargo build --help >/dev/null"));
+    assert!(script.contains("rustc --version >/dev/null"));
+    assert!(!script.contains("common.sh"));
 }
 
 #[test]
@@ -167,11 +193,44 @@ fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
         fs::read_to_string(repo_root.join("scripts/devcontainer-cli-helper.Dockerfile"))
             .expect("read devcontainer cli helper dockerfile");
 
-    assert!(dockerfile.contains("ARG BASE_IMAGE=ffhn-devcontainer:local"));
-    assert!(dockerfile.contains("FROM ${BASE_IMAGE}"));
+    let node_arg = dockerfile
+        .find("ARG NODE_RUNTIME_IMAGE=docker.io/library/node:20-bookworm-slim@sha256:")
+        .expect("node runtime arg");
+    let node_from = dockerfile
+        .find("FROM ${NODE_RUNTIME_IMAGE} AS node_runtime")
+        .expect("node runtime FROM");
+    let buildx_arg = dockerfile
+        .find("ARG BUILDX_PLUGIN_IMAGE=docker.io/docker/buildx-bin:latest@sha256:")
+        .expect("buildx plugin arg");
+    let buildx_from = dockerfile
+        .find("FROM ${BUILDX_PLUGIN_IMAGE} AS buildx_plugin")
+        .expect("buildx plugin FROM");
+    let base_arg = dockerfile
+        .find("ARG BASE_IMAGE=ffhn-devcontainer:local")
+        .expect("base image arg");
+    let base_from = dockerfile.find("FROM ${BASE_IMAGE}").expect("base FROM");
+
+    assert!(node_arg < node_from);
+    assert!(buildx_arg < buildx_from);
+    assert!(base_arg < base_from);
     assert!(
-        dockerfile.contains("apt-get install --yes --no-install-recommends docker.io nodejs npm")
+        dockerfile.contains("COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node")
     );
+    assert!(dockerfile.contains(
+        "COPY --from=node_runtime /usr/local/lib/node_modules /usr/local/lib/node_modules"
+    ));
+    assert!(dockerfile.contains(
+        "COPY --from=buildx_plugin /buildx /usr/libexec/docker/cli-plugins/docker-buildx"
+    ));
+    assert!(
+        dockerfile.contains("ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm")
+    );
+    assert!(
+        dockerfile.contains("ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx")
+    );
+    assert!(dockerfile.contains("apt-get install --yes --no-install-recommends docker.io"));
+    assert!(dockerfile.contains("docker buildx version >/dev/null"));
+    assert!(!dockerfile.contains("docker.io nodejs npm"));
     assert!(dockerfile.contains("@devcontainers/cli@0.86.0"));
     assert!(dockerfile.contains("USER root"));
 }
@@ -188,10 +247,11 @@ fn run_devcontainer_check_uses_the_committed_image_and_canonical_cache_volumes()
     assert!(script.contains("ffhn-cargo-registry:/home/vscode/.cargo/registry"));
     assert!(script.contains("ffhn-cargo-git:/home/vscode/.cargo/git"));
     assert!(script.contains("ffhn-user-cache:/home/vscode/.cache"));
-    assert!(script.contains("ffhn-target:/workspaces/ffhn/target"));
-    assert!(script.contains("ffhn-fuzz-target:/workspaces/ffhn/fuzz/target"));
+    assert!(script.contains("CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target"));
+    assert!(script.contains("CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build"));
     assert!(script.contains("FFHN_DEVCONTAINER_SKIP_BUILD"));
     assert!(script.contains("docker image inspect"));
+    assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("./scripts/devcontainer-prepare-user-home.sh"));
     assert!(script.contains("git config --global --add safe.directory /workspaces/ffhn"));
     assert!(script.contains("./check.sh"));
@@ -206,16 +266,34 @@ fn validate_devcontainer_repairs_workspace_volumes_and_exercises_client_path() {
         .expect("read validate-devcontainer.sh");
 
     assert!(script.contains("FFHN_DEVCONTAINER_VOLUME_MODE"));
-    assert!(script.contains("ffhn-devcontainer-fuzz-target-$$"));
-    assert!(script.contains("/workspaces/ffhn/target/root-owned"));
-    assert!(script.contains("/workspaces/ffhn/fuzz/target"));
+    assert!(script.contains("CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target"));
+    assert!(script.contains("CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build"));
+    assert!(script.contains("${HOME}/.cache"));
     assert!(script.contains("scripts/devcontainer-cli-helper.Dockerfile"));
+    assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("--build-arg \"BASE_IMAGE=${image_tag}\""));
+    assert!(
+        script.contains("docker run --rm \"${helper_image_tag}\" docker buildx version >/dev/null")
+    );
+    assert!(script.contains("mkdir -p \"${HOME}\""));
+    assert!(script.contains("git config --global --add safe.directory \"${FFHN_REPO_ROOT}\""));
     assert!(script.contains("readonly FFHN_VALIDATE_REPO_ROOT"));
     assert!(script.contains("--volume \"${repo_root}:/workspaces/ffhn\""));
     assert!(!script.contains("--volume \"${repo_root}:/workspaces/ffhn:ro\""));
     assert!(script.contains("devcontainer up --remove-existing-container"));
     assert!(script.contains("devcontainer exec --workspace-folder"));
+}
+
+#[test]
+fn common_shell_helper_defines_linear_docker_build_progress_by_default() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let script = fs::read_to_string(repo_root.join("scripts/common.sh")).expect("read common.sh");
+
+    assert!(script.contains("ffhn_docker_build()"));
+    assert!(script.contains("FFHN_DOCKER_BUILD_PROGRESS:-plain"));
+    assert!(script.contains("docker build --progress \"${progress}\" \"$@\""));
 }
 
 #[test]
@@ -239,6 +317,27 @@ fn ci_workflow_runs_the_full_headless_devcontainer_gate() {
 }
 
 #[test]
+fn ci_workflow_tracks_the_full_devcontainer_dependency_surface() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
+
+    let detection_job = workflow
+        .split("devcontainer-changes:")
+        .nth(1)
+        .and_then(|section| section.split("contributor-devcontainer-gate:").next())
+        .expect("devcontainer-changes section");
+
+    assert!(detection_job.contains(".github/workflows/ci.yml"));
+    assert!(detection_job.contains("tooling/rust-tooling.env"));
+    assert!(detection_job.contains("scripts/bootstrap-rust-tools.sh"));
+    assert!(detection_job.contains("scripts/common.sh"));
+    assert!(detection_job.contains("check.sh"));
+}
+
+#[test]
 fn ci_workflow_gives_the_cross_platform_gate_enough_time_for_windows() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -258,4 +357,38 @@ fn ci_workflow_gives_the_cross_platform_gate_enough_time_for_windows() {
     assert!(cross_platform_job.contains("- id: windows-x64"));
     assert!(cross_platform_job.contains("cargo nextest run --no-fail-fast"));
     assert!(cross_platform_job.contains("cargo xtask semver-check"));
+}
+
+#[test]
+fn ci_workflow_keeps_tool_entrypoints_out_of_rust_cache() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
+
+    let rust_gate_job = workflow
+        .split("rust-gate:")
+        .nth(1)
+        .and_then(|section| section.split("devcontainer-changes:").next())
+        .expect("rust-gate section");
+    assert!(rust_gate_job.contains("cache-bin: false"));
+    assert!(!rust_gate_job.contains("Reassert pinned Rust"));
+
+    let cross_platform_job = workflow
+        .split("cross-platform-rust-gate:")
+        .nth(1)
+        .and_then(|section| section.split("release-target-smoke:").next())
+        .expect("cross-platform-rust-gate section");
+    assert!(cross_platform_job.contains("cache-bin: false"));
+    assert!(!cross_platform_job.contains("Reassert pinned Rust"));
+
+    let release_target_smoke_job = workflow
+        .split("release-target-smoke:")
+        .nth(1)
+        .and_then(|section| section.split("check:").next())
+        .expect("release-target-smoke section");
+    assert!(release_target_smoke_job.contains("cache-bin: false"));
+    assert!(!release_target_smoke_job.contains("Reassert pinned Rust"));
+    assert!(release_target_smoke_job.contains("rustup target add"));
 }

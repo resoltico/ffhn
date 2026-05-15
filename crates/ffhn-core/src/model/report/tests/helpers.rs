@@ -39,7 +39,7 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     validate_notification_delivery(&failed_notification(Some(7), "hook exited with status 7"))
         .expect("non-delivered hook can carry a nonzero exit code");
     assert!(
-        validate_notification_delivery(&failed_notification(Some(0), "hook exited with status 0"))
+        validate_notification_delivery(&failed_notification(Some(0), "route exited with status 0"))
             .is_err()
     );
 
@@ -47,10 +47,10 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
         .expect("delivered hook with exit code 0 is valid");
 
     let transient_reason_mismatch = RunReport {
-        run_outcome: RunOutcome::FailedTransient,
-        reason_code: ReasonCode::ConfigInvalid,
-        failure_class: Some(FailureClass::Transient),
-        error_detail: Some(valid_process_error()),
+        result: RunResult::FailedTransient {
+            cause: RunFailureCause::ConfigInvalid,
+            error_detail: valid_process_error(),
+        },
         current_compare_digest_sha256: None,
         change: None,
         ..valid_run_report()
@@ -60,10 +60,10 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     assert!(transient_reason_mismatch.validate().is_err());
 
     let permanent_reason_mismatch = RunReport {
-        run_outcome: RunOutcome::FailedPermanent,
-        reason_code: ReasonCode::FetchTimeout,
-        failure_class: Some(FailureClass::Permanent),
-        error_detail: Some(valid_process_error()),
+        result: RunResult::FailedPermanent {
+            cause: RunFailureCause::FetchTimeout,
+            error_detail: valid_process_error(),
+        },
         current_compare_digest_sha256: None,
         change: None,
         ..valid_run_report()
@@ -129,10 +129,10 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     assert!(invalid_persist_error.validate().is_err());
 
     let invalid_persist_reason = RunReport {
-        run_outcome: RunOutcome::FailedTransient,
-        reason_code: ReasonCode::FetchTimeout,
-        failure_class: Some(FailureClass::Transient),
-        error_detail: Some(valid_process_error()),
+        result: RunResult::FailedTransient {
+            cause: RunFailureCause::FetchTimeout,
+            error_detail: valid_process_error(),
+        },
         current_compare_digest_sha256: None,
         change: None,
         persist: persist_section(
@@ -149,10 +149,10 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
     assert!(invalid_persist_reason.validate().is_err());
 
     let invalid_persist_failure_class = RunReport {
-        run_outcome: RunOutcome::FailedTransient,
-        reason_code: ReasonCode::PersistError,
-        failure_class: Some(FailureClass::Permanent),
-        error_detail: Some(valid_process_error()),
+        result: RunResult::FailedPermanent {
+            cause: RunFailureCause::PersistError,
+            error_detail: valid_process_error(),
+        },
         current_compare_digest_sha256: None,
         change: None,
         persist: persist_section(
@@ -215,6 +215,28 @@ fn process_error_detail_conversions_cover_each_error_kind_and_validation_edges()
     assert_eq!(internal_detail.kind(), ProcessErrorKind::Internal);
     assert_eq!(internal_detail.message(), "bad state");
     assert!(internal_detail.path().is_none());
+
+    let persist_transaction_detail = ProcessErrorDetail::from(&CoreError::persist_transaction(
+        CoreError::io("/tmp/state.json", std::io::Error::other("write failed")),
+        Some(CoreError::io(
+            "/tmp/snapshots/current",
+            std::io::Error::other("rollback failed"),
+        )),
+        vec![CoreError::io(
+            "/tmp/snapshots/history",
+            std::io::Error::other("cleanup failed"),
+        )],
+    ));
+    assert_eq!(
+        persist_transaction_detail.kind(),
+        ProcessErrorKind::PersistTransaction
+    );
+    assert!(
+        persist_transaction_detail
+            .message()
+            .contains("primary persist failure:")
+    );
+    assert!(persist_transaction_detail.path().is_none());
 
     assert!(
         ProcessErrorDetail {

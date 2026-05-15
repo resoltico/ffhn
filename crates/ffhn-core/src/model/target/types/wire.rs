@@ -5,9 +5,10 @@ use url::Url;
 
 use super::{
     CanonicalizerSpec, CompareBasis, CompareConfig, Extensions, FetchConfig, FetchEngine,
-    FileFetchConfig, NetworkFetchConfig, NotificationHook, OutputKind, RegexFlag, RunOutcome,
-    SelectionConfig, SelectionKind, SelectionMatch, SelectionModeConfig, StorageConfig,
-    TargetDocument, TargetKind, TargetSource, WhitespaceMode,
+    FileFetchConfig, NetworkFetchConfig, NotificationAdapter, NotificationEndpoint,
+    NotificationRoute, OutputKind, RegexFlag, RunOutcome, SelectionConfig, SelectionKind,
+    SelectionMatch, SelectionModeConfig, StorageConfig, TargetDocument, TargetKind, TargetSource,
+    WhitespaceMode,
 };
 use crate::{CoreError, DelimiterMode, HttpMethod};
 
@@ -502,9 +503,31 @@ impl From<&StorageConfig> for RawStorageConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct RawNotificationHook {
+struct RawNotificationRoute {
     name: String,
     on: Vec<RunOutcome>,
+    endpoint: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RawNotificationAdapterKind {
+    ProcessStdin,
+}
+
+impl From<&NotificationAdapter> for RawNotificationAdapterKind {
+    fn from(adapter: &NotificationAdapter) -> Self {
+        match adapter {
+            NotificationAdapter::ProcessStdin { .. } => Self::ProcessStdin,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct RawNotificationEndpoint {
+    name: String,
+    kind: RawNotificationAdapterKind,
     program: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     args: Vec<String>,
@@ -512,26 +535,55 @@ struct RawNotificationHook {
     timeout_ms: u64,
 }
 
-impl From<RawNotificationHook> for NotificationHook {
-    fn from(raw: RawNotificationHook) -> Self {
+impl From<RawNotificationRoute> for NotificationRoute {
+    fn from(raw: RawNotificationRoute) -> Self {
         Self {
             name: raw.name,
             on: raw.on,
-            program: raw.program,
-            args: raw.args,
-            timeout_ms: raw.timeout_ms,
+            endpoint: raw.endpoint,
         }
     }
 }
 
-impl From<&NotificationHook> for RawNotificationHook {
-    fn from(hook: &NotificationHook) -> Self {
+impl From<&NotificationRoute> for RawNotificationRoute {
+    fn from(route: &NotificationRoute) -> Self {
         Self {
-            name: hook.name.clone(),
-            on: hook.on.clone(),
-            program: hook.program.clone(),
-            args: hook.args.clone(),
-            timeout_ms: hook.timeout_ms,
+            name: route.name.clone(),
+            on: route.on.clone(),
+            endpoint: route.endpoint.clone(),
+        }
+    }
+}
+
+impl From<RawNotificationEndpoint> for NotificationEndpoint {
+    fn from(raw: RawNotificationEndpoint) -> Self {
+        Self {
+            name: raw.name,
+            adapter: match raw.kind {
+                RawNotificationAdapterKind::ProcessStdin => NotificationAdapter::ProcessStdin {
+                    program: raw.program,
+                    args: raw.args,
+                    timeout_ms: raw.timeout_ms,
+                },
+            },
+        }
+    }
+}
+
+impl From<&NotificationEndpoint> for RawNotificationEndpoint {
+    fn from(endpoint: &NotificationEndpoint) -> Self {
+        match &endpoint.adapter {
+            NotificationAdapter::ProcessStdin {
+                program,
+                args,
+                timeout_ms,
+            } => Self {
+                name: endpoint.name.clone(),
+                kind: RawNotificationAdapterKind::from(&endpoint.adapter),
+                program: program.clone(),
+                args: args.clone(),
+                timeout_ms: *timeout_ms,
+            },
         }
     }
 }
@@ -551,7 +603,9 @@ struct RawTargetDocument {
     #[serde(default)]
     storage: RawStorageConfig,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    notifications: Vec<RawNotificationHook>,
+    notification_endpoints: Vec<RawNotificationEndpoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notification_routes: Vec<RawNotificationRoute>,
     #[serde(skip_serializing_if = "Option::is_none")]
     extensions: Extensions,
 }
@@ -571,10 +625,15 @@ impl TryFrom<RawTargetDocument> for TargetDocument {
             selection: raw.selection,
             compare: raw.compare.into(),
             storage: raw.storage.into(),
-            notifications: raw
-                .notifications
+            notification_endpoints: raw
+                .notification_endpoints
                 .into_iter()
-                .map(NotificationHook::from)
+                .map(NotificationEndpoint::from)
+                .collect(),
+            notification_routes: raw
+                .notification_routes
+                .into_iter()
+                .map(NotificationRoute::from)
                 .collect(),
             extensions: raw.extensions,
         };
@@ -596,10 +655,15 @@ impl From<&TargetDocument> for RawTargetDocument {
             selection: document.selection.clone(),
             compare: RawCompareConfig::from(&document.compare),
             storage: RawStorageConfig::from(&document.storage),
-            notifications: document
-                .notifications
+            notification_endpoints: document
+                .notification_endpoints
                 .iter()
-                .map(RawNotificationHook::from)
+                .map(RawNotificationEndpoint::from)
+                .collect(),
+            notification_routes: document
+                .notification_routes
+                .iter()
+                .map(RawNotificationRoute::from)
                 .collect(),
             extensions: document.extensions.clone(),
         }

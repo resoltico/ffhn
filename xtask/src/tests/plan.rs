@@ -1,5 +1,9 @@
 use super::*;
 
+fn normalized_path_text(value: &str) -> String {
+    value.replace('\\', "/")
+}
+
 #[test]
 fn shell_script_paths_returns_sorted_shell_scripts_only() {
     let repo_root = tempdir().expect("tempdir");
@@ -42,6 +46,7 @@ fn collect_shell_script_paths_keeps_errors_visible() {
 #[test]
 fn check_plan_includes_all_strict_gates() {
     let repo_root = tempdir().expect("tempdir");
+    let tooling = sample_tooling();
     write_repo_scaffold(repo_root.path());
     let scripts_dir = repo_root.path().join("scripts");
     let root_check = repo_root.path().join("check.sh");
@@ -50,7 +55,9 @@ fn check_plan_includes_all_strict_gates() {
     fs::write(scripts_dir.join("z.sh"), "#!/usr/bin/env bash\n").expect("write z.sh");
     fs::write(scripts_dir.join("a.sh"), "#!/usr/bin/env bash\n").expect("write a.sh");
 
-    let plan = check_plan(repo_root.path()).expect("check plan");
+    let plan = with_test_artifact_roots(repo_root.path(), || {
+        check_plan(repo_root.path(), &tooling).expect("check plan")
+    });
 
     assert_eq!(
         plan[0],
@@ -62,7 +69,6 @@ fn check_plan_includes_all_strict_gates() {
                 scripts_dir.join("a.sh").to_string_lossy().into_owned(),
                 scripts_dir.join("z.sh").to_string_lossy().into_owned(),
             ],
-            false,
             false,
         )
     );
@@ -76,40 +82,17 @@ fn check_plan_includes_all_strict_gates() {
                 scripts_dir.join("z.sh").to_string_lossy().into_owned(),
             ],
             false,
-            false,
         )
     );
-    assert!(plan.iter().any(|spec| spec.args
-        == [
-            "outdated",
-            "--workspace",
-            "--root-deps-only",
-            "--exit-code",
-            "1"
-        ]));
+    assert!(plan.iter().any(|spec| spec.args == ["xtask", "audit"]));
     assert!(plan.iter().any(|spec| {
-        spec.args
-            == [
-                "outdated".to_owned(),
-                "--manifest-path".to_owned(),
-                repo_root
-                    .path()
-                    .join("fuzz")
-                    .join("Cargo.toml")
-                    .to_string_lossy()
-                    .into_owned(),
-                "--root-deps-only".to_owned(),
-                "--exit-code".to_owned(),
-                "1".to_owned(),
-            ]
+        spec.args == ["fmt", "--check"]
+            && spec.artifact_layout == CommandArtifactLayout::ManagedWorkspace
     }));
-    assert!(
-        plan.iter()
-            .any(|spec| spec.args == ["audit", "-D", "warnings"])
-    );
     assert!(plan.iter().any(|spec| {
         spec.args
             == [
+                "xtask".to_owned(),
                 "audit".to_owned(),
                 "--file".to_owned(),
                 repo_root
@@ -118,8 +101,34 @@ fn check_plan_includes_all_strict_gates() {
                     .join("Cargo.lock")
                     .to_string_lossy()
                     .into_owned(),
+            ]
+    }));
+    assert!(plan.iter().any(|spec| {
+        spec.args
+            == [
+                "clippy".to_owned(),
+                "--manifest-path".to_owned(),
+                repo_root
+                    .path()
+                    .join("fuzz")
+                    .join("Cargo.toml")
+                    .to_string_lossy()
+                    .into_owned(),
+                "--bins".to_owned(),
+                "--locked".to_owned(),
+                "--".to_owned(),
                 "-D".to_owned(),
                 "warnings".to_owned(),
+            ]
+    }));
+    assert!(plan.iter().any(|spec| {
+        spec.args
+            == [
+                "+nightly-2026-05-11".to_owned(),
+                "fuzz".to_owned(),
+                "check".to_owned(),
+                "--fuzz-dir".to_owned(),
+                "fuzz".to_owned(),
             ]
     }));
     assert!(plan.iter().any(|spec| {
@@ -139,25 +148,57 @@ fn check_plan_includes_all_strict_gates() {
                 "--locked",
             ]
     }));
+    assert!(plan.iter().any(|spec| {
+        spec.args
+            == [
+                "doc".to_owned(),
+                "--workspace".to_owned(),
+                "--all-features".to_owned(),
+                "--no-deps".to_owned(),
+                "--locked".to_owned(),
+            ]
+            && spec.env.get("RUSTDOCFLAGS") == Some(&"-D warnings".to_owned())
+    }));
     let semver_spec = plan
         .iter()
         .find(|spec| is_semver_check_spec(spec))
         .expect("semver gate");
     assert_eq!(
-        semver_spec.env.get("CARGO_TARGET_DIR"),
-        Some(
-            &semver_scratch_dir(repo_root.path())
-                .to_string_lossy()
-                .into_owned()
-        )
+        semver_spec
+            .env
+            .get("CARGO_TARGET_DIR")
+            .map(|value| normalized_path_text(value)),
+        Some(normalized_path_text(
+            &semver_scratch_dir_for_tests(
+                repo_root.path(),
+                Some(Path::new(".managed-artifacts/target"))
+            )
+            .to_string_lossy(),
+        ))
+    );
+    assert_eq!(
+        semver_spec
+            .env
+            .get("CARGO_BUILD_BUILD_DIR")
+            .map(|value| normalized_path_text(value)),
+        Some(normalized_path_text(
+            &repo_root
+                .path()
+                .join(".managed-artifacts")
+                .join("build")
+                .join("semver-checks")
+                .to_string_lossy(),
+        ))
     );
     assert_eq!(
         plan.last().expect("release smoke"),
         &CommandSpec::new(
-            release_binary_path(repo_root.path()),
+            release_binary_path_for_tests(
+                repo_root.path(),
+                Some(Path::new(".managed-artifacts/target"))
+            ),
             ["--version"],
             true,
-            false
         )
     );
 }
@@ -165,51 +206,119 @@ fn check_plan_includes_all_strict_gates() {
 #[test]
 fn check_plan_skips_shell_gates_when_no_scripts_exist() {
     let repo_root = tempdir().expect("tempdir");
+    let tooling = sample_tooling();
     write_repo_scaffold(repo_root.path());
 
-    let plan = check_plan(repo_root.path()).expect("check plan");
+    let plan = with_test_artifact_roots(repo_root.path(), || {
+        check_plan(repo_root.path(), &tooling).expect("check plan")
+    });
 
     assert_eq!(
         plan[0],
-        CommandSpec::new("cargo", ["fmt", "--check"], false, false)
+        CommandSpec::new("cargo", ["fmt", "--check"], false)
+            .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace)
     );
 }
 
 #[test]
-fn semver_scratch_dir_uses_a_namespaced_os_temp_target_tree() {
+fn semver_scratch_dir_lives_under_the_managed_target_root() {
     let repo_root = tempdir().expect("tempdir");
-    let other_repo_root = tempdir().expect("other tempdir");
-    let scratch_dir = semver_scratch_dir(repo_root.path());
-
-    assert!(scratch_dir.starts_with(std::env::temp_dir()));
-    assert!(scratch_dir.ends_with("target"));
-    assert_eq!(scratch_dir, semver_scratch_dir(repo_root.path()));
-    assert_ne!(scratch_dir, semver_scratch_dir(other_repo_root.path()));
+    with_test_artifact_roots(repo_root.path(), || {
+        assert_eq!(
+            semver_scratch_dir(repo_root.path()),
+            repo_root
+                .path()
+                .join(".managed-artifacts")
+                .join("target")
+                .join("semver-checks")
+        );
+    });
 }
 
 #[test]
-fn cargo_target_root_defaults_to_repo_target_and_honors_overrides() {
+fn cargo_path_helpers_follow_the_configured_roots() {
     let repo_root = tempdir().expect("tempdir");
-    let absolute_target_root = tempdir().expect("absolute target root");
+    with_test_artifact_roots(repo_root.path(), || {
+        assert_eq!(
+            cargo_target_root(repo_root.path()),
+            repo_root.path().join(".managed-artifacts").join("target")
+        );
+        assert_eq!(
+            cargo_build_root(repo_root.path()),
+            repo_root.path().join(".managed-artifacts").join("build")
+        );
+    });
 
-    with_cargo_target_dir(None, || {
-        assert_eq!(
-            cargo_target_root(repo_root.path()),
-            repo_root.path().join("target")
-        );
-    });
-    with_cargo_target_dir(Some(Path::new("custom-target")), || {
-        assert_eq!(
-            cargo_target_root(repo_root.path()),
-            repo_root.path().join("custom-target")
-        );
-    });
-    with_cargo_target_dir(Some(absolute_target_root.path()), || {
-        assert_eq!(
-            cargo_target_root(repo_root.path()),
-            absolute_target_root.path()
-        );
-    });
+    assert_eq!(
+        cargo_target_root_for_tests(repo_root.path(), Some(Path::new("custom-target"))),
+        repo_root.path().join("custom-target")
+    );
+    let absolute_target_root = tempdir().expect("absolute target root");
+    assert_eq!(
+        cargo_target_root_for_tests(repo_root.path(), Some(absolute_target_root.path())),
+        absolute_target_root.path()
+    );
+    let absolute_build_root = tempdir().expect("absolute build root");
+    assert_eq!(
+        cargo_build_root_for_tests(repo_root.path(), Some(absolute_build_root.path())),
+        absolute_build_root.path()
+    );
+    assert_eq!(
+        coverage_target_root_for_tests(repo_root.path(), Some(Path::new("managed-target"))),
+        repo_root.path().join("coverage-target")
+    );
+    assert_eq!(
+        coverage_build_root_for_tests(repo_root.path(), Some(Path::new("managed-build"))),
+        repo_root.path().join("coverage-build")
+    );
+    assert_eq!(
+        coverage_cargo_target_dir_for_tests(repo_root.path(), Some(Path::new("managed-target"))),
+        repo_root
+            .path()
+            .join("coverage-target")
+            .join("llvm-cov-target")
+    );
+    assert_eq!(
+        coverage_cargo_build_dir_for_tests(repo_root.path(), Some(Path::new("managed-build"))),
+        repo_root
+            .path()
+            .join("coverage-build")
+            .join("llvm-cov-target")
+    );
+    assert_eq!(
+        semver_scratch_dir_for_tests(repo_root.path(), Some(Path::new("custom-target"))),
+        repo_root.path().join("custom-target").join("semver-checks")
+    );
+    assert_eq!(
+        release_binary_path_for_tests(repo_root.path(), Some(Path::new("custom-target"))),
+        repo_root
+            .path()
+            .join("custom-target")
+            .join("dist")
+            .join(binary_name())
+    );
+    assert_eq!(
+        sibling_artifact_dir_for_tests(Path::new("target"), "coverage-target"),
+        PathBuf::from("coverage-target")
+    );
+}
+
+#[test]
+fn cargo_path_helpers_fall_back_when_cargo_config_is_invalid() {
+    let repo_root = tempdir().expect("tempdir");
+    let cargo_dir = repo_root.path().join(".cargo");
+    fs::create_dir_all(&cargo_dir).expect("create cargo dir");
+    fs::write(cargo_dir.join("config.toml"), "[build\nbroken = true\n")
+        .expect("write invalid cargo config");
+
+    assert_eq!(
+        cargo_target_root(repo_root.path()),
+        repo_root.path().join("target")
+    );
+    assert_eq!(
+        cargo_build_root(repo_root.path()),
+        repo_root.path().join("target")
+    );
 }
 
 #[test]
@@ -232,19 +341,16 @@ fn is_semver_check_spec_matches_only_the_semver_gate() {
         "cargo",
         ["semver-checks", "--all-features"],
         false,
-        true
     )));
     assert!(!is_semver_check_spec(&CommandSpec::new(
         "cargo",
         ["nextest", "run"],
         false,
-        true
     )));
     assert!(!is_semver_check_spec(&CommandSpec::new(
         "bash",
         ["scripts/qa-gate.sh"],
         false,
-        false
     )));
 }
 

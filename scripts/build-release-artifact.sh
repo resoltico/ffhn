@@ -5,6 +5,8 @@ set -euo pipefail
 # shellcheck source=scripts/common.sh
 . "$(cd -- "$(dirname -- "$(printf '%s\n' "${BASH_SOURCE[0]}" | sed 's#\\#/#g')")" && pwd)/common.sh"
 
+ffhn_scrub_ambient_native_toolchain_env
+
 is_windows_environment() {
     [[ "${OS:-}" == "Windows_NT" ]] || command -v cygpath >/dev/null 2>&1
 }
@@ -153,14 +155,14 @@ main() {
         return 0
     fi
 
-    ffhn_require_clean_tracked_checkout "${repo_root}"
-
     local target_triple="${1:-}"
     [[ -n "${target_triple}" ]] || ffhn_usage_error "${command_name}" "target triple is required"
     is_supported_release_target "${target_triple}" || ffhn_usage_error \
         "${command_name}" \
         "unsupported release target triple: ${target_triple}"
     readonly target_triple
+
+    ffhn_require_clean_tracked_checkout "${repo_root}"
 
     local version
     version="$(ffhn_workspace_version "${script_dir}" "${repo_root}")"

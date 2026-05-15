@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: FUZZING
-updated: "2026-04-30"
+updated: "2026-05-14"
 route:
   keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
   questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]
@@ -9,24 +9,25 @@ route:
 
 # Fuzz Package
 
-`fuzz/` is a standalone `cargo-fuzz` package. `./check.sh` freshness-checks its direct dependencies, security-audits its lockfile, and compile-smokes its binaries, but live sanitizer-backed fuzz execution is a separate manual workflow.
+`fuzz/` is a standalone `cargo-fuzz` package. `./check.sh` security-audits its lockfile, lint-checks its maintained harnesses, and compile-smokes its binaries, but live sanitizer-backed fuzz execution is a separate manual workflow.
 
 ## Automatic Versus Manual
 
 Automatic through `./check.sh`:
 
 ```bash
-cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1
 cargo audit --file fuzz/Cargo.lock -D warnings
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
+cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings
+cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz
 ```
 
 Manual live fuzzing:
 
 1. requires `cargo-fuzz`
-2. requires nightly
+2. requires the pinned coverage/nightly toolchain from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
 3. should normally be run from `fuzz/`
-4. will write generated artifacts under `fuzz/target/` and may extend corpora if you do not clean up afterward
+4. will write rebuildable Cargo output under FFHN's managed sibling artifact roots plus campaign outputs under `fuzz/artifacts/`, and may extend corpora if you do not clean up afterward
 
 ## Fuzzer Inventory
 
@@ -65,17 +66,19 @@ The table below names the main maintained source files each harness exercises; i
 From the repository root:
 
 ```bash
-cargo +nightly fuzz run --fuzz-dir fuzz target_toml_documents fuzz/corpus/target_toml_documents -- -runs=200
-cargo +nightly fuzz run --fuzz-dir fuzz state_and_report_json_documents fuzz/corpus/state_and_report_json_documents -- -runs=200
-cargo +nightly fuzz run --fuzz-dir fuzz dry_run_file_targets fuzz/corpus/dry_run_file_targets -- -runs=200
+COVERAGE_TOOLCHAIN="$(sed -n 's/^RUST_COVERAGE_TOOLCHAIN=//p' tooling/rust-tooling.env)"
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz target_toml_documents fuzz/corpus/target_toml_documents -- -runs=200
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz state_and_report_json_documents fuzz/corpus/state_and_report_json_documents -- -runs=200
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz dry_run_file_targets fuzz/corpus/dry_run_file_targets -- -runs=200
 ```
 
 From inside `fuzz/`:
 
 ```bash
-cargo +nightly fuzz run target_toml_documents corpus/target_toml_documents -- -runs=200
-cargo +nightly fuzz run state_and_report_json_documents corpus/state_and_report_json_documents -- -runs=200
-cargo +nightly fuzz run dry_run_file_targets corpus/dry_run_file_targets -- -runs=200
+COVERAGE_TOOLCHAIN="$(sed -n 's/^RUST_COVERAGE_TOOLCHAIN=//p' ../tooling/rust-tooling.env)"
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run target_toml_documents corpus/target_toml_documents -- -runs=200
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run state_and_report_json_documents corpus/state_and_report_json_documents -- -runs=200
+cargo +"${COVERAGE_TOOLCHAIN}" fuzz run dry_run_file_targets corpus/dry_run_file_targets -- -runs=200
 ```
 
 Those commands are the maintained seed-smoke path because they:
@@ -121,7 +124,8 @@ Purpose:
 After manual fuzzing, remove generated build and artifact output:
 
 ```bash
-rm -rf fuzz/target fuzz/artifacts
+cargo xtask hygiene clean --mode rebuildable
+rm -rf fuzz/artifacts
 ```
 
 Only keep newly generated corpus entries if you deliberately want to promote them into the checked-in fuzz inputs.

@@ -2,11 +2,20 @@ mod defaults;
 mod types;
 mod validation;
 
-pub use types::{CanonicalizerSpec, NotificationHookView, TargetDocument};
+#[cfg(test)]
+pub(crate) use types::NotificationAdapter;
+#[cfg(test)]
+pub(crate) use types::NotificationEndpoint;
+pub use types::{
+    CanonicalizerSpec, CompareConfigView, CssSelectorSelectionView, DelimiterPairSelectionView,
+    FetchConfigView, FileFetchConfigView, FileTargetSourceView, HttpFetchConfigView,
+    HttpTargetSourceView, NotificationRouteView, SelectionConfigView, SelectionModeView,
+    TargetDocument, TargetSourceView,
+};
 #[cfg(any(test, doctest))]
 pub(crate) use types::{CompareConfig, FetchConfig, StorageConfig, TargetSource};
 pub(crate) use types::{
-    FileFetchConfig, NetworkFetchConfig, NotificationHook, SelectionConfig, SelectionModeConfig,
+    FileFetchConfig, NetworkFetchConfig, NotificationRoute, SelectionConfig, SelectionModeConfig,
 };
 
 #[cfg(test)]

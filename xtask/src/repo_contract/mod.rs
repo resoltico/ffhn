@@ -104,21 +104,16 @@ fn parse_afad_frontmatter(text: &str) -> Result<Option<AfadFrontmatter>, String>
 fn parse_protocol_afad_version(text: &str) -> Result<String, String> {
     for line in text.lines() {
         let trimmed = line.trim();
-        let version_line = trimmed
-            .strip_prefix("Version:")
-            .or_else(|| trimmed.strip_prefix("VERSION:"))
-            .or_else(|| trimmed.strip_prefix("**Version:**"))
-            .or_else(|| trimmed.strip_prefix("**VERSION:**"));
-        if let Some(version) = version_line {
+        if let Some(version) = trimmed.strip_prefix("**Version:**") {
             let version = version.trim().trim_matches('`').trim_matches('"');
             if version.is_empty() {
-                return Err("VERSION line is empty".to_owned());
+                return Err("**Version:** line is empty".to_owned());
             }
             return Ok(version.to_owned());
         }
     }
 
-    Err("missing VERSION line".to_owned())
+    Err("missing **Version:** line".to_owned())
 }
 
 fn frontmatter_value(line: &str, key: &str) -> Option<String> {

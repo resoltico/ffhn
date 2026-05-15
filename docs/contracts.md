@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: CONTRACTS
-updated: "2026-04-30"
+updated: "2026-05-14"
 route:
   keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, notification payload, process errors, snapshot layout]
   questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch root layout?", "where is ffhn's structured process-error shape documented?"]
@@ -30,7 +30,7 @@ HTMLCut owns:
 4. `htmlcut.error`
 5. extraction execution and diagnostics
 
-FFHN passes decoded HTML text into `htmlcut_core::interop::v1::HtmlInput`. HTMLCut does not fetch URLs for FFHN.
+FFHN passes decoded HTML text into `htmlcut_core::interop::v1::HtmlInput`, receives one interop result, and then translates that result into FFHN-owned extraction evidence and persisted artifacts. HTMLCut does not fetch URLs for FFHN.
 
 ## Frozen Schema Inventory
 
@@ -38,20 +38,20 @@ All current FFHN schema documents require exact `schema_name` and `schema_versio
 
 | Schema | Version | Notes |
 | --- | ---: | --- |
-| `ffhn.target` | 1 | loaded from `target.toml` |
-| `ffhn.extraction_record` | 1 | persisted inside snapshot artifacts |
-| `ffhn.state` | 1 | stored as `state.json` |
-| `ffhn.run_report` | 1 | emitted for single-target `run` |
-| `ffhn.notification_payload` | 1 | written to notification-hook stdin |
-| `ffhn.batch_run_report` | 1 | emitted for multi-target `run` |
-| `ffhn.status_report` | 1 | emitted for `status` |
-
-The current HTMLCut interop profile is `htmlcut-v1`.
+| `ffhn.target` | 3 | loaded from `target.toml` |
+| `ffhn.extraction_record` | 3 | persisted inside snapshot artifacts |
+| `ffhn.state` | 3 | stored as `state.json` |
+| `ffhn.run_report` | 3 | emitted for single-target `run` |
+| `ffhn.last_run_snapshot` | 1 | stored as `last_run.json` |
+| `ffhn.notification_payload` | 3 | written to notification route stdin |
+| `ffhn.batch_run_report` | 3 | emitted for multi-target `run` |
+| `ffhn.status_report` | 4 | emitted for `status` |
 
 Embedded field vocabularies and stable subobjects inside those schemas are part of the same public
-contract surface. That includes report `reason_code` values, shared `run_outcome` values used
-across reports and notifications, and the structured process-error detail used by failed
-`persist.state_write` / `persist.last_run_write` entries and batch `fatal_error`.
+contract surface. That includes `RunResult.kind`, `RunFailureCause`, `StatusSummary.kind`,
+notification-delivery outcome values, and the structured process-error detail used by failed
+`persist.state_commit` / `persist.last_run_write` entries, status invalidation details, and batch
+`fatal_error`.
 
 ## Durable Watch Root Layout
 
@@ -83,10 +83,10 @@ The durable artifact meanings are:
 
 - `target.toml`: `ffhn.target`
 - `state.json`: `ffhn.state`
-- `last_run.json`: the most recent live `ffhn.run_report` that FFHN successfully wrote after notification delivery results were appended; this write is best-effort, so the file may lag the most recent live outcome if the final write fails, even though stdout already carried the newer report and its failed `last_run_write` detail
+- `last_run.json`: `ffhn.last_run_snapshot`, which wraps the live post-notification `ffhn.run_report` snapshot FFHN successfully published; the nested report keeps `persist.last_run_write.status = not_attempted`, and the file may lag the newest live stdout report if a later final publication attempt fails
 - `lock/run.lock`: the shared/exclusive lock anchor, created lazily for valid live `run`, valid dry-run `run`, and valid `status` execution
 - `snapshots/current/canonical.txt`: compare-time canonical text
-- `snapshots/current/outer.html`: `selected_matches[0].outer_html`
+- `snapshots/current/outer.html`: the FFHN-owned persisted outer-HTML artifact derived from the selected interop match
 - `snapshots/current/extraction.json`: persisted `ffhn.extraction_record`
 
 History snapshots reuse the same three artifact names under `snapshots/history/<snapshot_key>/`.
@@ -106,10 +106,12 @@ The exact formatting is intentionally an implementation detail, but the derived 
 
 FFHN enforces these persistence rules:
 
-1. `state_phase = never_succeeded` forbids `current_snapshot` and `snapshot_history`
-2. `state_phase = has_baseline` requires `current_snapshot`
-3. `current_snapshot.slot` must be `current`
-4. `snapshot_history[].slot` must be `history`
-5. every referenced snapshot artifact must exist and match its recorded digests
+1. `baseline.kind = "pending"` forbids current or historical snapshot references
+2. `baseline.kind = "ready"` requires one `current_snapshot`
+3. successful `last_run` summaries require `baseline.kind = "ready"`
+4. `baseline.kind = "ready"` requires `last_run`
+5. `current_snapshot.slot` must be `current`
+6. `snapshot_history[].slot` must be `history`
+7. every referenced snapshot artifact must exist and match its recorded digests
 
 If those invariants fail during a live run or `status`, FFHN reports invalid state or integrity mismatch instead of silently repairing it.

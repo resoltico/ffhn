@@ -2,19 +2,19 @@
   "name": "FFHN Contributor",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".."
   },
   "workspaceFolder": "/workspaces/ffhn",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/ffhn,type=bind,consistency=cached",
   "mounts": [
     "source=ffhn-cargo-registry,target=/home/vscode/.cargo/registry,type=volume",
     "source=ffhn-cargo-git,target=/home/vscode/.cargo/git,type=volume",
-    "source=ffhn-user-cache,target=/home/vscode/.cache,type=volume",
-    "source=ffhn-target,target=/workspaces/ffhn/target,type=volume",
-    "source=ffhn-fuzz-target,target=/workspaces/ffhn/fuzz/target,type=volume"
+    "source=ffhn-user-cache,target=/home/vscode/.cache,type=volume"
   ],
   "containerEnv": {
     "CARGO_HOME": "/home/vscode/.cargo",
+    "CARGO_TARGET_DIR": "/home/vscode/.cache/ffhn-artifacts/target",
+    "CARGO_BUILD_BUILD_DIR": "/home/vscode/.cache/ffhn-artifacts/build",
     "FFHN_DEVCONTAINER": "1"
   },
   "postStartCommand": "./scripts/devcontainer-prepare-user-home.sh",

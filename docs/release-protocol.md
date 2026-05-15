@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-01"
+updated: "2026-05-15"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -32,7 +32,7 @@ Run:
 
 ```bash
 PRIMARY_CHECKOUT="$(git rev-parse --show-toplevel)"
-VERSION="$(./scripts/workspace-version.sh)"
+VERSION="$(./scripts/workspace-package-field.sh version)"
 TAG="v${VERSION}"
 RELEASE_BRANCH="release/${VERSION}"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -88,7 +88,7 @@ That keeps the release worktree clean without discarding the real unpublished st
 
 If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${VERSION}` from the updated `origin/main`.
 
-Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). Rust `1.95.0` remains the default FFHN toolchain. Nightly is installed alongside it only for the coverage gate and optional manual sanitizer-backed fuzz runs.
+Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). The stable workspace toolchain is owned by [../rust-toolchain.toml](../rust-toolchain.toml), and the exact maintainer toolchain plus QA-tool versions are owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env). The pinned coverage/nightly toolchain exists only for the coverage gate and optional manual sanitizer-backed fuzz runs.
 
 Run the single local quality gate first:
 
@@ -104,10 +104,37 @@ cargo xtask check
 
 That gate must succeed before any final release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
 
-If the host checkout lives on a fragile or slow filesystem, the maintained host-native gate and
-the release-artifact builder both honor a caller-provided `CARGO_TARGET_DIR`. Pointing that at an
-OS-temp directory is supported and keeps heavy Cargo output off the repository mount while leaving
-the maintained commands unchanged.
+If the current substantive pre-release work or release-prep diff touches the contributor-devcontainer
+surface, run the dedicated contributor-environment proof before you push the branch for review. The
+trigger set is the same one that drives CI's `contributor-devcontainer-gate`:
+
+- `.github/workflows/ci.yml`
+- `.devcontainer/`
+- `tooling/rust-tooling.env`
+- `scripts/bootstrap-rust-tools.sh`
+- `scripts/validate-devcontainer.sh`
+- `scripts/run-devcontainer-check.sh`
+- `scripts/devcontainer-prepare-user-home.sh`
+- `scripts/devcontainer-cli-helper.Dockerfile`
+- `scripts/common.sh`
+- `check.sh`
+
+When any of those paths are in scope, run:
+
+```bash
+./scripts/validate-devcontainer.sh
+FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh
+```
+
+`./check.sh` proves the shipped Rust/product contract. The two devcontainer entrypoints prove the
+committed contributor environment, the raw Docker image contract, the Dev Container client path, and
+the full headless maintainer gate through that environment.
+
+FFHN keeps normal Cargo output out of the repository tree by default through
+[../.cargo/config.toml](../.cargo/config.toml), which points the maintained host-native path at the
+managed sibling artifact roots documented in [hygiene.md](hygiene.md). If the release session needs
+a different location, override both `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` for the session
+instead of reintroducing repo-local build output.
 
 Then verify:
 
@@ -191,6 +218,20 @@ Do not continue until the required job in workflow `CI` is green:
 - `Check`
 
 `Check` is the aggregate branch-protection gate. It must reflect the Linux maintainer gate, the cross-platform Rust gate, and the release-target smoke matrix.
+
+`gh pr checks` is the maintained first-line gate view, but it is not a reliable step-progress
+monitor for FFHN's longest jobs. If long-running checks remain generic `pending` with no useful
+elapsed detail, inspect the underlying Actions jobs directly before deciding whether the workflow is
+healthy or hung:
+
+```bash
+gh pr view "$PR_NUMBER" --json statusCheckRollup
+gh api "repos/$REPO/actions/jobs/<JOB_ID>"
+```
+
+Use the `detailsUrl` or check-run names from `statusCheckRollup` to identify the relevant job ids.
+Treat the job API as the authoritative live progress view when `gh pr checks` lags or omits step
+detail.
 
 If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
 
@@ -357,7 +398,6 @@ esac
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-DESCRIPTION="$(./scripts/workspace-package-field.sh description)"
 
 gh release download "$TAG" \
   -p "$HOST_ARCHIVE" \
@@ -374,8 +414,7 @@ gh release download "$TAG" \
 
   tar -xzf "$HOST_ARCHIVE"
   VERSION_OUTPUT="$("./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --version | tr -d '\r')"
-  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '1p')" = "ffhn ${VERSION}" ]
-  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '2p')" = "$DESCRIPTION" ]
+  [ "$VERSION_OUTPUT" = "ffhn ${VERSION}" ]
   "./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --help | grep "status"
 )
 

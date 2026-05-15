@@ -40,7 +40,8 @@ fn valid_target() -> TargetDocument {
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -57,6 +58,34 @@ fn valid_file_target() -> TargetDocument {
         extensions: None,
     });
     target
+}
+
+fn notification_route(
+    name: &str,
+    on: Vec<RunOutcome>,
+    endpoint: impl Into<String>,
+) -> NotificationRoute {
+    NotificationRoute {
+        name: name.to_owned(),
+        on,
+        endpoint: endpoint.into(),
+    }
+}
+
+fn notification_endpoint(
+    name: &str,
+    program: impl Into<String>,
+    args: Vec<&str>,
+    timeout_ms: u64,
+) -> NotificationEndpoint {
+    NotificationEndpoint {
+        name: name.to_owned(),
+        adapter: NotificationAdapter::ProcessStdin {
+            program: program.into(),
+            args: args.into_iter().map(str::to_owned).collect(),
+            timeout_ms,
+        },
+    }
 }
 
 #[test]
@@ -82,13 +111,17 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let notification_program = "/bin/sh".to_owned();
     #[cfg(windows)]
     let notification_program = "C:/Windows/System32/cmd.exe".to_owned();
-    http_target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: notification_program.clone(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 5_000,
-    }];
+    http_target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        notification_program.clone(),
+        vec!["-c", "echo changed"],
+        5_000,
+    )];
+    http_target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     http_target.extensions = Some(BTreeMap::from([(
         "demo".to_owned(),
         json!({"kind": "ext"}),
@@ -100,11 +133,41 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(http_target.display_name(), "Demo");
     assert!(http_target.enabled());
     assert_eq!(http_target.target_kind(), TargetKind::Http);
+    let source = http_target.source();
+    assert_eq!(source.kind(), TargetKind::Http);
+    match source {
+        TargetSourceView::Http(source) => {
+            assert_eq!(source.source_url().as_str(), "https://example.com/page");
+        }
+        TargetSourceView::File(_) => panic!("expected http source"),
+    }
     assert_eq!(
         http_target.source_url().map(Url::as_str),
         Some("https://example.com/page")
     );
     assert_eq!(http_target.file_path(), None);
+    let fetch = http_target.fetch_config();
+    assert_eq!(fetch.engine(), FetchEngine::Http);
+    assert_eq!(fetch.max_bytes(), 2_000_000);
+    match fetch {
+        FetchConfigView::Http(fetch) => {
+            assert_eq!(fetch.method(), HttpMethod::GET);
+            assert_eq!(fetch.timeout_ms(), 15_000);
+            assert_eq!(fetch.max_bytes(), 2_000_000);
+            assert_eq!(fetch.user_agent(), "ffhn/example");
+            assert!(fetch.follow_redirects());
+            assert_eq!(fetch.accept(), "text/html");
+            assert_eq!(
+                fetch.headers().get("x-demo").map(String::as_str),
+                Some("demo")
+            );
+            assert_eq!(
+                fetch.extensions().expect("fetch extensions").get("demo"),
+                Some(&json!({"kind": "fetch"}))
+            );
+        }
+        FetchConfigView::File(_) => panic!("expected http fetch"),
+    }
     assert_eq!(http_target.fetch_engine(), FetchEngine::Http);
     assert_eq!(http_target.fetch_max_bytes(), 2_000_000);
     assert_eq!(http_target.fetch_http_method(), Some(HttpMethod::GET));
@@ -140,6 +203,18 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         [RegexFlag::CaseInsensitive, RegexFlag::MultiLine]
     );
     assert_eq!(http_target.storage_history_limit(), 12);
+    let selection = http_target.selection();
+    assert_eq!(selection.kind(), SelectionKind::CssSelector);
+    match selection {
+        SelectionConfigView::CssSelector(selection) => {
+            assert_eq!(selection.selection_mode(), SelectionModeView::Single);
+            assert_eq!(selection.output_kind(), OutputKind::OuterHtml);
+            assert_eq!(selection.whitespace_mode(), WhitespaceMode::Normalize);
+            assert!(!selection.rewrite_urls());
+            assert_eq!(selection.selector(), "main");
+        }
+        SelectionConfigView::DelimiterPair(_) => panic!("expected css selector"),
+    }
     assert_eq!(http_target.selection_kind(), SelectionKind::CssSelector);
     assert_eq!(http_target.selection_match(), SelectionMatch::Single);
     assert_eq!(http_target.selection_index(), None);
@@ -161,6 +236,8 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let notification = notifications[0];
     assert_eq!(notification.name(), "notify");
     assert_eq!(notification.on(), [RunOutcome::Changed]);
+    assert_eq!(notification.endpoint(), "notify-endpoint");
+    assert_eq!(notification.transport_kind(), "process_stdin");
     assert_eq!(notification.program(), notification_program);
     assert_eq!(
         notification.args(),
@@ -175,15 +252,32 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         toml::from_str(&toml::to_string(&http_target).expect("http target toml"))
             .expect("http target round-trip");
     assert_eq!(http_round_trip.fetch().engine(), FetchEngine::Http);
+    let compare = http_target.compare_config();
+    assert_eq!(compare.basis(), CompareBasis::CanonicalTextSha256);
+    assert_eq!(compare.canonicalization().len(), 1);
 
     let file_target = valid_file_target();
     let expected_file_path = std::env::temp_dir()
         .join("demo.html")
         .to_string_lossy()
         .into_owned();
+    assert_eq!(file_target.source().kind(), TargetKind::File);
+    match file_target.source() {
+        TargetSourceView::File(source) => {
+            assert_eq!(source.file_path(), expected_file_path.as_str());
+        }
+        TargetSourceView::Http(_) => panic!("expected file source"),
+    }
     assert_eq!(file_target.target_kind(), TargetKind::File);
     assert!(file_target.source_url().is_none());
     assert_eq!(file_target.file_path(), Some(expected_file_path.as_str()));
+    match file_target.fetch_config() {
+        FetchConfigView::File(fetch) => {
+            assert_eq!(fetch.max_bytes(), 2_000_000);
+            assert!(fetch.extensions().is_none());
+        }
+        FetchConfigView::Http(_) => panic!("expected file fetch"),
+    }
     assert_eq!(file_target.fetch_engine(), FetchEngine::File);
     assert_eq!(file_target.fetch_max_bytes(), 2_000_000);
     assert_eq!(file_target.fetch_http_method(), None);
@@ -193,6 +287,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(file_target.fetch_accept(), None);
     assert_eq!(file_target.fetch_headers(), None);
     assert!(file_target.fetch_extensions().is_none());
+    let file_fetch = file_target.fetch_config();
+    assert_eq!(file_fetch.engine(), FetchEngine::File);
+    assert_eq!(file_fetch.max_bytes(), 2_000_000);
     let file_round_trip: TargetDocument =
         toml::from_str(&toml::to_string(&file_target).expect("file target toml"))
             .expect("file target round-trip");
@@ -217,6 +314,33 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         delimiter_target.selection_kind(),
         SelectionKind::DelimiterPair
     );
+    assert_eq!(
+        delimiter_target.selection().kind(),
+        SelectionKind::DelimiterPair
+    );
+    match delimiter_target.selection() {
+        SelectionConfigView::DelimiterPair(selection) => {
+            assert_eq!(
+                selection.selection_mode(),
+                SelectionModeView::Nth { index: 2 }
+            );
+            assert_eq!(
+                selection.selection_mode().selection_match(),
+                SelectionMatch::Nth
+            );
+            assert_eq!(selection.selection_mode().index(), Some(2));
+            assert_eq!(selection.output_kind(), OutputKind::InnerHtml);
+            assert_eq!(selection.whitespace_mode(), WhitespaceMode::Preserve);
+            assert!(selection.rewrite_urls());
+            assert_eq!(selection.start(), "<main>");
+            assert_eq!(selection.end(), "</main>");
+            assert_eq!(selection.delimiter_mode(), DelimiterMode::Regex);
+            assert!(selection.include_start());
+            assert!(!selection.include_end());
+            assert_eq!(selection.regex_flags(), [RegexFlag::DotMatchesNewLine]);
+        }
+        SelectionConfigView::CssSelector(_) => panic!("expected delimiter selection"),
+    }
     assert_eq!(delimiter_target.selection_match(), SelectionMatch::Nth);
     assert_eq!(delimiter_target.selection_index(), Some(2));
     assert_eq!(delimiter_target.selection_output(), OutputKind::InnerHtml);
@@ -239,11 +363,36 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         [RegexFlag::DotMatchesNewLine]
     );
 
+    let mut first_match_target = valid_target();
+    first_match_target.selection = SelectionConfig::CssSelector {
+        selection_mode: SelectionModeConfig::First,
+        output: OutputKind::Text,
+        whitespace: WhitespaceMode::Preserve,
+        rewrite_urls: false,
+        selector: "article".to_owned(),
+    };
+    match first_match_target.selection() {
+        SelectionConfigView::CssSelector(selection) => {
+            assert_eq!(selection.selection_mode(), SelectionModeView::First);
+            assert_eq!(
+                selection.selection_mode().selection_match(),
+                SelectionMatch::First
+            );
+            assert_eq!(selection.selection_mode().index(), None);
+        }
+        SelectionConfigView::DelimiterPair(_) => panic!("expected css selector"),
+    }
+    assert_eq!(
+        SelectionModeView::Single.selection_match(),
+        SelectionMatch::Single
+    );
+    assert_eq!(SelectionModeView::Single.index(), None);
+
     assert!(
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -278,7 +427,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -312,7 +461,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -371,7 +520,7 @@ x-demo = "demo"
         let document = format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -402,7 +551,7 @@ fn parse_target_with_selection(selection: &str) -> Result<TargetDocument, toml::
     toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -904,7 +1053,7 @@ fn file_targets_storage_and_notifications_validate_their_specific_contracts() {
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -944,97 +1093,126 @@ canonicalization = []
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![
-        NotificationHook {
-            name: "notify".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "echo changed".to_owned()],
-            timeout_ms: 500,
-        },
-        NotificationHook {
-            name: "notify".to_owned(),
-            on: vec![RunOutcome::FailedPermanent],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "echo failed".to_owned()],
-            timeout_ms: 500,
-        },
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![
+        notification_route("notify", vec![RunOutcome::Changed], "notify-endpoint"),
+        notification_route(
+            "notify",
+            vec![RunOutcome::FailedPermanent],
+            "notify-endpoint",
+        ),
     ];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: Vec::new(),
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_routes = vec![notification_route("notify", Vec::new(), "notify-endpoint")];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed, RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_endpoints = vec![
+        notification_endpoint("notify-endpoint", "sh", vec!["-c", "echo changed"], 500),
+        notification_endpoint("notify-endpoint", "sh", vec!["-c", "echo changed"], 500),
+    ];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "missing-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 99,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed, RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 60_001,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec![""],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
+    assert!(target.validate().is_err());
+
+    let mut target = valid_target();
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        99,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
+    assert!(target.validate().is_err());
+
+    let mut target = valid_target();
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        60_001,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     #[cfg(unix)]
     let valid_program = "/bin/sh";
     #[cfg(windows)]
     let valid_program = "C:/Windows/System32/cmd.exe";
-    NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: valid_program.to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }
+    notification_endpoint(
+        "notify-endpoint",
+        valid_program,
+        vec!["-c", "echo changed"],
+        500,
+    )
     .validate()
-    .expect("valid notification hook");
+    .expect("valid notification endpoint");
+    notification_route("notify", vec![RunOutcome::Changed], "notify-endpoint")
+        .validate()
+        .expect("valid notification route");
 }
 
 #[test]
@@ -1047,7 +1225,7 @@ fn serde_defaults_fill_http_fetch_storage_and_notification_fields() {
     let parsed: TargetDocument = toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1073,10 +1251,15 @@ rewrite_urls = false
 basis = "canonical_text_sha256"
 canonicalization = []
 
-[[notifications]]
+[[notification_endpoints]]
+name = "notify-endpoint"
+kind = "process_stdin"
+program = {notification_program:?}
+
+[[notification_routes]]
 name = "notify"
 on = ["changed"]
-program = {notification_program:?}
+endpoint = "notify-endpoint"
 "#
     ))
     .expect("parse target");
@@ -1091,9 +1274,17 @@ program = {notification_program:?}
         other => panic!("expected http fetch config, got {other:?}"),
     }
     assert_eq!(parsed.storage.history_limit, 10);
-    assert_eq!(parsed.notifications[0].program, notification_program);
-    assert!(parsed.notifications[0].args.is_empty());
-    assert_eq!(parsed.notifications[0].timeout_ms, 5_000);
+    match &parsed.notification_endpoints[0].adapter {
+        NotificationAdapter::ProcessStdin {
+            program,
+            args,
+            timeout_ms,
+        } => {
+            assert_eq!(program, notification_program);
+            assert!(args.is_empty());
+            assert_eq!(*timeout_ms, 5_000);
+        }
+    }
 }
 
 #[test]
@@ -1136,7 +1327,7 @@ fn file_targets_use_the_typed_file_fetch_shape_when_deserialized() {
     let parsed = toml::from_str::<TargetDocument>(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1174,7 +1365,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "demo"
 display_name = "Demo"
 enabled = true

@@ -1,5 +1,52 @@
 use super::*;
 
+fn write_smoke_release_archive(
+    repo_root: &Path,
+    target_triple: &str,
+    version_output: &str,
+) -> PathBuf {
+    let package_dir_name = format!("ffhn-9.9.9-{target_triple}");
+    let stage = tempdir().expect("tempdir");
+    let package_dir = stage.path().join(&package_dir_name);
+    fs::create_dir_all(&package_dir).expect("create package dir");
+    fs::write(package_dir.join("README.md"), "# packaged\n").expect("write README.md");
+    fs::write(package_dir.join("LICENSE"), "MIT\n").expect("write LICENSE");
+    fs::write(package_dir.join("NOTICE"), "notice\n").expect("write NOTICE");
+    fs::write(package_dir.join("PATENTS.md"), "# patents\n").expect("write PATENTS.md");
+    fs::write(package_dir.join("changelog.md"), "# changelog\n").expect("write changelog.md");
+    fs::write(
+        package_dir.join("ffhn"),
+        format!(
+            "#!/usr/bin/env bash\nset -euo pipefail\ncase \"${{1:-}}\" in\n  --version)\n    printf '%s\\n' \"{version_output}\"\n    ;;\n  --help)\n    printf 'status\\n'\n    ;;\n  *)\n    exit 64\n    ;;\nesac\n",
+        ),
+    )
+    .expect("write packaged ffhn");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(package_dir.join("ffhn"), fs::Permissions::from_mode(0o755))
+            .expect("chmod packaged ffhn");
+    }
+
+    fs::create_dir_all(repo_root.join("dist")).expect("create dist");
+    let archive_path = repo_root
+        .join("dist")
+        .join(format!("ffhn-9.9.9-{target_triple}.tar.gz"));
+    let tar_status = Command::new("tar")
+        .arg("-czf")
+        .arg(&archive_path)
+        .arg("-C")
+        .arg(stage.path())
+        .arg(&package_dir_name)
+        .status()
+        .expect("run tar");
+    assert!(tar_status.success(), "tar should create the smoke archive");
+
+    archive_path
+}
+
 #[test]
 fn release_package_scripts_keep_the_packaged_legal_files_in_sync_with_the_storefront_readme() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -14,6 +61,64 @@ fn release_package_scripts_keep_the_packaged_legal_files_in_sync_with_the_storef
     assert!(build_script.contains("cp \"${repo_root}/PATENTS.md\" \"${package_dir}/PATENTS.md\""));
     assert!(smoke_script.contains("missing packaged NOTICE"));
     assert!(smoke_script.contains("missing packaged PATENTS.md"));
+}
+
+#[test]
+fn release_smoke_enforces_the_packaged_one_line_version_contract() {
+    let repo = seed_release_script_repo();
+    let repo_root = repo.path();
+
+    write_smoke_release_archive(repo_root, "aarch64-apple-darwin", "ffhn 9.9.9");
+    let success = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "smoke-release-artifact.sh",
+        ))
+        .arg("aarch64-apple-darwin")
+        .current_dir(repo_root)
+        .output()
+        .expect("run smoke-release-artifact success case");
+    assert!(
+        success.status.success(),
+        "smoke-release-artifact should accept the one-line version contract:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&success.stdout),
+        String::from_utf8_lossy(&success.stderr)
+    );
+
+    write_smoke_release_archive(
+        repo_root,
+        "aarch64-apple-darwin",
+        "ffhn 9.9.9\nDeterministic monitoring",
+    );
+    let failure = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "smoke-release-artifact.sh",
+        ))
+        .arg("aarch64-apple-darwin")
+        .current_dir(repo_root)
+        .output()
+        .expect("run smoke-release-artifact failure case");
+    assert!(
+        !failure.status.success(),
+        "smoke-release-artifact should reject extra version-banner prose"
+    );
+    let stderr = String::from_utf8(failure.stderr).expect("stderr utf8");
+    assert!(stderr.contains("packaged version output mismatch"));
+    assert!(stderr.contains("Deterministic monitoring"));
+
+    let protocol = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .join("docs/release-protocol.md"),
+    )
+    .expect("read docs/release-protocol.md");
+    assert!(protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${VERSION}\" ]"));
+    assert!(!protocol.contains("sed -n '2p'"));
+    assert!(
+        !protocol.contains("DESCRIPTION=\"$(./scripts/workspace-package-field.sh description)\"")
+    );
 }
 
 #[test]
@@ -301,19 +406,45 @@ fn build_release_source_archives_script_creates_the_maintained_source_bundle_pai
 fn maintained_release_entrypoints_refuse_dirty_tracked_checkouts() {
     let repo = seed_release_script_repo();
     let repo_root = repo.path();
+    seed_release_dist_inventory(repo_root);
     fs::write(repo_root.join("README.md"), "# dirty\n").expect("dirty tracked README");
 
-    for (script_name, extra_args) in [
-        ("build-release-source-archives.sh", Vec::<&str>::new()),
-        ("build-release-checksums.sh", Vec::<&str>::new()),
-        ("build-release-artifact.sh", vec!["aarch64-apple-darwin"]),
-        ("publish-github-release.sh", Vec::<&str>::new()),
-        ("verify-github-release.sh", Vec::<&str>::new()),
+    for (script_name, extra_args, extra_env) in [
+        (
+            "build-release-source-archives.sh",
+            Vec::<&str>::new(),
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "build-release-checksums.sh",
+            Vec::<&str>::new(),
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "build-release-artifact.sh",
+            vec!["aarch64-apple-darwin"],
+            Vec::<(&str, &str)>::new(),
+        ),
+        (
+            "publish-github-release.sh",
+            Vec::<&str>::new(),
+            vec![("GH_TOKEN", "test-token"), ("RELEASE_TAG", "v9.9.9")],
+        ),
+        (
+            "verify-github-release.sh",
+            Vec::<&str>::new(),
+            vec![("GH_TOKEN", "test-token"), ("RELEASE_TAG", "v9.9.9")],
+        ),
     ] {
-        let output = bash_command()
+        let mut command = bash_command();
+        command
             .arg(release_script_argument(repo_root, script_name))
             .args(extra_args)
-            .current_dir(repo_root)
+            .current_dir(repo_root);
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+        let output = command
             .output()
             .unwrap_or_else(|error| panic!("run {script_name}: {error}"));
 
@@ -326,7 +457,57 @@ fn maintained_release_entrypoints_refuse_dirty_tracked_checkouts() {
         assert!(stderr.contains("commit or stash tracked changes"));
     }
 
-    assert!(!repo_root.join("dist/ffhn-source-9.9.9.zip").exists());
+    assert!(!repo_root.join("dist/ffhn-9.9.9-checksums.txt").exists());
+}
+
+#[test]
+fn release_entrypoints_report_operator_preconditions_before_dirty_checkout_guard() {
+    let repo = seed_release_script_repo();
+    let repo_root = repo.path();
+    fs::write(repo_root.join("README.md"), "# dirty\n").expect("dirty tracked README");
+
+    let invalid_target = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "build-release-artifact.sh",
+        ))
+        .arg("not-a-target")
+        .current_dir(repo_root)
+        .output()
+        .expect("run invalid target triple");
+    assert!(!invalid_target.status.success());
+    let invalid_target_stderr = String::from_utf8(invalid_target.stderr).expect("stderr utf8");
+    assert!(invalid_target_stderr.contains("unsupported release target triple: not-a-target"));
+    assert!(!invalid_target_stderr.contains("clean tracked checkout"));
+
+    for script_name in ["publish-github-release.sh", "verify-github-release.sh"] {
+        let output = bash_command()
+            .arg(release_script_argument(repo_root, script_name))
+            .arg("v9.9.9")
+            .current_dir(repo_root)
+            .output()
+            .unwrap_or_else(|error| panic!("run {script_name}: {error}"));
+        assert!(
+            !output.status.success(),
+            "{script_name} should fail without GH_TOKEN"
+        );
+        let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+        assert!(stderr.contains("GH_TOKEN is required"));
+        assert!(!stderr.contains("clean tracked checkout"));
+    }
+
+    let checksum_output = bash_command()
+        .arg(release_script_argument(
+            repo_root,
+            "build-release-checksums.sh",
+        ))
+        .current_dir(repo_root)
+        .output()
+        .expect("run checksum builder on dirty checkout");
+    assert!(!checksum_output.status.success());
+    let checksum_stderr = String::from_utf8(checksum_output.stderr).expect("stderr utf8");
+    assert!(checksum_stderr.contains("missing maintained release assets"));
+    assert!(!checksum_stderr.contains("clean tracked checkout"));
 }
 
 #[test]

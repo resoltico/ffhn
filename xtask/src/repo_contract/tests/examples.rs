@@ -32,6 +32,43 @@ fn public_target_examples_validate_against_the_current_target_contract() {
     }
 }
 
+#[test]
+fn markdown_embedded_target_examples_validate_against_the_current_target_contract() {
+    let repo_root = repo_root();
+    let workspace_version = workspace_version(&repo_root).expect("workspace version");
+    let mut seen_embedded_target = false;
+
+    for path in public_markdown_paths(&repo_root).expect("markdown paths") {
+        let document = fs::read_to_string(&path).expect("read markdown");
+        for (index, fence) in fenced_code_blocks(&document).into_iter().enumerate() {
+            if fence.language.as_deref() != Some("toml") {
+                continue;
+            }
+            let Ok(parsed) = toml::from_str::<toml::Value>(&fence.body) else {
+                continue;
+            };
+            if parsed.get("schema_name").and_then(toml::Value::as_str) != Some("ffhn.target") {
+                continue;
+            }
+
+            let target: TargetDocument = toml::from_str(&fence.body).unwrap_or_else(|error| {
+                panic!(
+                    "{} fenced TOML block #{} failed to parse as TargetDocument: {error}",
+                    path.display(),
+                    index + 1
+                )
+            });
+            assert_public_target_example_contract(&path, &target, &workspace_version);
+            seen_embedded_target = true;
+        }
+    }
+
+    assert!(
+        seen_embedded_target,
+        "expected at least one public Markdown target example"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn public_target_example_helper_covers_non_watchlist_file_targets() {
@@ -39,7 +76,7 @@ fn public_target_example_helper_covers_non_watchlist_file_targets() {
     let path = Path::new("/tmp/examples/release_notes.toml");
     let document = r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id = "release_notes"
 display_name = "Release Notes"
 enabled = true

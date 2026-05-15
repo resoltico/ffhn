@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: ARCHITECTURE
-updated: "2026-04-30"
+updated: "2026-05-06"
 route:
   keywords: [architecture, ffhn-core, ffhn-cli, xtask, fuzz package, htmlcut boundary, watch root]
   questions: ["what are the ffhn repository boundaries?", "what does ffhn-core own versus ffhn-cli?", "how does ffhn interact with htmlcut?"]
@@ -9,7 +9,8 @@ route:
 
 # Architecture
 
-`ffhn` is a Rust workspace with one monitoring engine, one CLI renderer, one maintainer-tooling crate, and one standalone fuzz package.
+`ffhn` is a Rust workspace with one monitoring engine, one CLI renderer, one maintainer-tooling
+crate, and one standalone fuzz package.
 
 ## Workspace Layout
 
@@ -34,11 +35,11 @@ watchlist/
 
 1. `ffhn.target` validation and durable `target_id` rules
 2. HTTP and local-file fetching
-3. mapping FFHN selection config into `htmlcut-v1`
+3. mapping FFHN selection config into `htmlcut_core::interop::v1`
 4. compare-time canonicalization and digest decisions
 5. live state persistence, current snapshots, and retained history snapshots
-6. `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.notification_payload`, `ffhn.batch_run_report`, and `ffhn.status_report`
-7. notification hook delivery, hook-stdin payload generation, and delivery-result capture
+6. `ffhn.extraction_record`, `ffhn.state`, `ffhn.run_report`, `ffhn.last_run_snapshot`, `ffhn.notification_payload`, `ffhn.batch_run_report`, and `ffhn.status_report`
+7. notification route delivery, process-stdin payload generation, and delivery-result capture
 
 `ffhn-cli` is a thin process adapter. It owns:
 
@@ -52,11 +53,16 @@ watchlist/
 
 1. `cargo xtask check`
 2. `cargo xtask coverage`
-3. `cargo xtask refresh-semver-baseline --git-ref <published-tag>`
+3. `cargo xtask semver-check`
+4. `cargo xtask hygiene report|verify|clean`
+5. `cargo xtask refresh-semver-baseline --git-ref <published-tag>`
 
-`fuzz/` is a separate `cargo-fuzz` package. It is not part of the normal workspace members and is compile-smoked by the maintainer gate through its own manifest.
+`fuzz/` is a separate `cargo-fuzz` package. It is not part of the normal workspace members and is
+compile-smoked by the maintainer gate through its own manifest.
 
-`semver-baseline/ffhn-core` is checked-in release reference data, not a live workspace member. `cargo semver-checks` compares the current public `ffhn-core` API against that last-published baseline so the release contract stays explicit.
+`semver-baseline/ffhn-core` is checked-in release reference data, not a live workspace member.
+`cargo semver-checks` compares the current public `ffhn-core` API against that last-published
+baseline so the release contract stays explicit.
 
 `.devcontainer/` is a contributor-environment surface. It owns the preferred pinned Linux
 maintainer environment for editing, linting, testing, and running `./check.sh`, but it does not
@@ -71,11 +77,12 @@ FFHN owns source acquisition and persistence. HTMLCut owns extraction execution.
 The current boundary is:
 
 1. FFHN fetches or reads the source and decodes it into HTML text
-2. FFHN builds an `htmlcut.plan` through `htmlcut_core::interop::v1`
+2. FFHN builds an upstream `htmlcut.plan` through `htmlcut_core::interop::v1`
 3. HTMLCut returns `htmlcut.result` or `htmlcut.error`
-4. FFHN validates the interop result, compares content, persists artifacts, and emits reports
+4. FFHN validates the interop answer, translates the selected match into FFHN-owned extraction evidence, compares content, persists artifacts, and emits reports
 
-FFHN does not delegate fetching to HTMLCut.
+FFHN does not delegate fetching to HTMLCut, and it does not persist upstream interop-profile fields
+inside FFHN-owned state or report documents.
 
 ## Runtime Shape
 
@@ -89,10 +96,11 @@ Live `run` uses this pipeline:
 6. canonicalize comparison text
 7. classify the run outcome
 8. persist `state.json` and snapshot artifacts when applicable
-9. attempt configured notification hooks
+9. attempt configured notification routes
 10. attempt the final `last_run.json` write
 
-Dry-run keeps the same validation, fetch, extraction, and comparison flow, but it acquires the shared run lock first, waits behind an active live run when needed, and then intentionally skips:
+Dry-run keeps the same validation, fetch, extraction, and comparison flow, but it acquires the
+shared run lock first, waits behind an active live run when needed, and then intentionally skips:
 
 1. the exclusive run lock
 2. all snapshot writes
@@ -100,7 +108,10 @@ Dry-run keeps the same validation, fetch, extraction, and comparison flow, but i
 4. all `last_run.json` writes
 5. all notification delivery
 
-Live runs treat invalid stored state or snapshot-integrity drift as structured permanent failures. Dry-run continues through those cases because it is explicitly a non-persistent inspection path, but the shared lock still ensures it reads a stable target directory while live persistence is in flight.
+Live runs treat invalid stored state or snapshot-integrity drift as structured permanent failures.
+Dry-run continues through those cases because it is explicitly a non-persistent inspection path,
+but the shared lock ensures it reads one stable target directory while live persistence is in
+flight.
 
 ## Batch Execution
 
@@ -113,6 +124,9 @@ Batch execution is part of the core, not the CLI. `run_batch`:
 5. records per-target fatal errors separately when a structured `ffhn.run_report` could not be emitted
 6. stores those fatal errors as structured FFHN-owned error objects instead of free-form strings
 
-The CLI layers additional process semantics on top of that batch report: notification-delivery failures still produce exit code `1`, even though they do not change `run_outcome` or `outcome_counts`.
+The CLI layers additional process semantics on top of that batch report: notification-delivery
+failures produce exit code `1`, single-target run reports keep their original `result.kind`, and
+batch `outcome_counts.notification_failure` tracks those route-delivery problems separately.
 
-The CLI does not implement its own monitoring semantics for multi-target runs. It renders the core batch report.
+The CLI does not implement its own monitoring semantics for multi-target runs. It renders the core
+batch report.

@@ -1,36 +1,33 @@
-[![ffhn Art](https://raw.githubusercontent.com/resoltico/ffhn/main/images/ffhn.png)](https://github.com/resoltico/ffhn)
+# FFHN — repeatable HTML monitoring for websites and local files
 
-[![Release](https://img.shields.io/github/v/release/resoltico/ffhn?label=release)](https://github.com/resoltico/ffhn/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://github.com/resoltico/ffhn/blob/main/docs/platform-support.md)
+FFHN (Focused Fragment History Notifier) monitors one exact HTML fragment from a web page or
+local HTML file. You define the target once in TOML, FFHN fetches and extracts that fragment,
+compares it with the saved baseline, and emits a structured report you can use in a terminal,
+cron job, process hook, or pipeline.
 
-# ffhn — repeatable HTML monitoring for websites and local files
+## What It Does
 
-ffhn (Focused Fragment History Notifier) watches a specific fragment of a web page or local HTML
-file and tells you when it changes.
-Define the check once as a TOML target file; run it any time to get a structured JSON result
-against the last saved snapshot.
-
-Every page worth monitoring is one you've been checking before your coffee cools — by hand, or by
-bolting together a fresh script each time. ffhn saves the check as a file. Pour it again later and
-it compares the new content against the snapshot it kept.
+Use FFHN when you care about one known fragment and need repeatable checks instead of manual
+checking or one-off scripts.
 
 - Watch a CSS-selected fragment from a live URL or a local HTML file
-- Save each check as a TOML target file; run it unchanged any time
-- Get structured JSON on the first run and on every comparison after
-- Dry-run to preview what the check returns before wiring it into automation
-- Pipe results into a notification script or process hook
+- Save each check as a TOML target file and rerun it unchanged later
+- Emit one stable result document for live runs, dry-runs, status checks, and batches
+- Preview checks with `--dry-run` before wiring them into automation
+- Route matching live outcomes into process-based notification hooks
 
-[Getting started](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start) · [Command guide](https://github.com/resoltico/ffhn/blob/main/docs/cli.md) · [Docs index](https://github.com/resoltico/ffhn/blob/main/docs/README.md)
+## Quick Start
 
-## Brew Once, Watch Any Time
+This example monitors one HTML fragment on a live page. If you want a self-contained local-file
+path that does not depend on a live website, use the
+[Portable quick start](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start).
 
-Write the recipe once — what page to watch, which selector to use, how to compare:
+1. Create `checks/quarterly-report/target.toml`:
 
 ```toml
 # checks/quarterly-report/target.toml
 schema_name    = "ffhn.target"
-schema_version = 1
+schema_version = 3
 target_id      = "quarterly-report"
 display_name   = "Quarterly Report"
 enabled        = true
@@ -40,37 +37,51 @@ kind       = "http"
 source_url = "https://company.com/quarterly"
 
 [fetch]
-engine = "http"
+engine           = "http"
+user_agent       = "ffhn/example"
+accept           = "text/html"
+follow_redirects = true
 
 [selection]
-kind     = "css_selector"
-selector = "section.financials"
+kind         = "css_selector"
+match        = "single"
+output       = "outer_html"
+whitespace   = "preserve"
+rewrite_urls = false
+selector     = "section.financials"
 
 [compare]
-basis = "canonical_text_sha256"
+basis            = "canonical_text_sha256"
+canonicalization = []
 ```
+
+2. Run one live check:
 
 ```bash
-ffhn run --watch-root ./checks --target quarterly-report
+ffhn run --watch-root ./checks --target quarterly-report --format summary
 ```
 
-First run saves a snapshot while the page is still warm. Every run after is the same pour —
-compare against the last snapshot, see what changed.
+On the first live run, FFHN creates the baseline for `quarterly-report` and prints a short summary
+that tells you whether the fragment was initialized, changed, unchanged, skipped, or failed.
 
-## Where It Fits
+3. Inspect the saved machine-readable state:
 
-Recurring checks on one known page or file: a release page you follow, a price you track, a status
-indicator, a doc section your automation depends on. Works in cron jobs, process hooks, and
-pipelines that want stable JSON instead of fragile screen-scraping.
+```bash
+ffhn status --watch-root ./checks --target quarterly-report --format json-pretty
+```
 
-## Get It
+This prints the structured `ffhn.status_report` document for that target, including whether the
+target is enabled and whether a saved baseline exists.
 
-[Download for macOS, Linux, or Windows →](https://github.com/resoltico/ffhn/releases)
+## Documentation Index
 
-New here? [Getting started](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start) covers install paths and your first live
-check. The [target guide](https://github.com/resoltico/ffhn/blob/main/docs/targets.md) shows how to define what to watch.
+- [Portable quick start](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start): the shortest verified path from install to a real FFHN run
+- [Full docs index](https://github.com/resoltico/ffhn/blob/main/docs/README.md): the maintained map of every document under `docs/`
+- [CLI reference](https://github.com/resoltico/ffhn/blob/main/docs/cli.md): commands, output formats, exit codes, and discovery rules
+- [Target reference](https://github.com/resoltico/ffhn/blob/main/docs/targets.md): the `ffhn.target` contract and validation rules
+- [Report reference](https://github.com/resoltico/ffhn/blob/main/docs/run-reports.md): `ffhn.run_report`, `ffhn.batch_run_report`, and reason-code semantics
 
 ## Legal
 
-ffhn is released under the [MIT License](LICENSE). See [NOTICE](NOTICE) and
-[PATENTS](PATENTS.md) for the remaining legal files.
+FFHN is released under the [MIT License](LICENSE). See [NOTICE](NOTICE) and [PATENTS](PATENTS.md)
+for the remaining legal files.

@@ -53,24 +53,29 @@ validate_inner_runtime() {
     [[ -f Cargo.toml ]] || ffhn_die "inner runtime probe requires the FFHN workspace checkout"
 
     ./scripts/devcontainer-prepare-user-home.sh
-    grep -F 'VERSION_ID="26.04"' /etc/os-release >/dev/null
+    # shellcheck disable=SC1091
+    source /usr/local/share/ffhn/rust-tooling.env
+    grep -F 'VERSION_ID="24.04"' /etc/os-release >/dev/null
     [[ "$(id -un)" == "vscode" ]]
     [[ -w "${HOME}/.cargo/registry" ]]
     [[ -w "${HOME}/.cargo/git" ]]
     [[ -w "${HOME}/.cache" ]]
-    [[ -w "/workspaces/ffhn/target" ]]
-    [[ -w "/workspaces/ffhn/fuzz/target" ]]
-    rustc --version | grep -E '^rustc 1\.95\.0 ' >/dev/null
-    cargo --version >/dev/null
-    cargo +nightly --version >/dev/null
+    [[ "${CARGO_TARGET_DIR}" == "/home/vscode/.cache/ffhn-artifacts/target" ]]
+    [[ "${CARGO_BUILD_BUILD_DIR}" == "/home/vscode/.cache/ffhn-artifacts/build" ]]
+    mkdir -p "${CARGO_TARGET_DIR}" "${CARGO_BUILD_BUILD_DIR}"
+    [[ -w "${CARGO_TARGET_DIR}" ]]
+    [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
+    rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
+    cargo build --help >/dev/null
+    cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
     rustup target list --installed | grep -Fx 'x86_64-unknown-linux-musl' >/dev/null
-    cargo nextest --version >/dev/null
-    cargo audit --version >/dev/null
-    cargo deny --version >/dev/null
-    cargo semver-checks --version >/dev/null
-    cargo outdated --version >/dev/null
-    cargo llvm-cov --version >/dev/null
-    cargo fuzz --version >/dev/null
+    cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
+    cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
+    cargo deny --version | grep -F " ${CARGO_DENY_VERSION}" >/dev/null
+    cargo semver-checks --version | grep -F " ${CARGO_SEMVER_CHECKS_VERSION}" >/dev/null
+    cargo outdated --version | grep -F " ${CARGO_OUTDATED_VERSION}" >/dev/null
+    cargo llvm-cov --version | grep -F " ${CARGO_LLVM_COV_VERSION}" >/dev/null
+    cargo fuzz --version | grep -F " ${CARGO_FUZZ_VERSION}" >/dev/null
     shellcheck --version >/dev/null
     gh --version >/dev/null
     clang --version >/dev/null
@@ -130,14 +135,6 @@ main() {
     user_cache_volume="$(
         select_volume_name "ffhn-user-cache" "ffhn-devcontainer-user-cache-$$"
     )"
-    local target_volume
-    target_volume="$(
-        select_volume_name "ffhn-target" "ffhn-devcontainer-target-$$"
-    )"
-    local fuzz_target_volume
-    fuzz_target_volume="$(
-        select_volume_name "ffhn-fuzz-target" "ffhn-devcontainer-fuzz-target-$$"
-    )"
 
     [[ -f "${dockerfile_path}" ]] || ffhn_die "missing ${dockerfile_path}"
     [[ -f "${helper_dockerfile_path}" ]] || ffhn_die "missing ${helper_dockerfile_path}"
@@ -148,8 +145,6 @@ main() {
     readonly FFHN_VALIDATE_CARGO_REGISTRY_VOLUME="${cargo_registry_volume}"
     readonly FFHN_VALIDATE_CARGO_GIT_VOLUME="${cargo_git_volume}"
     readonly FFHN_VALIDATE_USER_CACHE_VOLUME="${user_cache_volume}"
-    readonly FFHN_VALIDATE_TARGET_VOLUME="${target_volume}"
-    readonly FFHN_VALIDATE_FUZZ_TARGET_VOLUME="${fuzz_target_volume}"
 
     cleanup() {
         local devcontainer_ids=()
@@ -160,9 +155,7 @@ main() {
             docker volume rm -f \
                 "${FFHN_VALIDATE_CARGO_REGISTRY_VOLUME}" \
                 "${FFHN_VALIDATE_CARGO_GIT_VOLUME}" \
-                "${FFHN_VALIDATE_USER_CACHE_VOLUME}" \
-                "${FFHN_VALIDATE_TARGET_VOLUME}" \
-                "${FFHN_VALIDATE_FUZZ_TARGET_VOLUME}" >/dev/null 2>&1 || true
+                "${FFHN_VALIDATE_USER_CACHE_VOLUME}" >/dev/null 2>&1 || true
             docker image rm -f "${FFHN_VALIDATE_IMAGE_TAG}" >/dev/null 2>&1 || true
         fi
 
@@ -178,26 +171,28 @@ main() {
     trap cleanup EXIT
 
     printf 'devcontainer validation: build raw contributor image\n'
-    docker build \
+    ffhn_docker_build \
         --tag "${image_tag}" \
         --file "${dockerfile_path}" \
-        "${repo_root}/.devcontainer" >/dev/null
+        "${repo_root}" >/dev/null
 
     printf 'devcontainer validation: probe raw image package contract\n'
     docker run --rm "${image_tag}" bash -lc '
         set -euo pipefail
+        # shellcheck disable=SC1091
+        source /usr/local/share/ffhn/rust-tooling.env
         . /etc/os-release
         [[ "${ID}" == "ubuntu" ]]
-        [[ "${VERSION_ID}" == "26.04" ]]
-        rustc --version | grep -E "^rustc 1\\.95\\.0 " >/dev/null
-        cargo +nightly --version >/dev/null
-        cargo nextest --version >/dev/null
-        cargo audit --version >/dev/null
-        cargo deny --version >/dev/null
-        cargo semver-checks --version >/dev/null
-        cargo outdated --version >/dev/null
-        cargo llvm-cov --version >/dev/null
-        cargo fuzz --version >/dev/null
+        [[ "${VERSION_ID}" == "24.04" ]]
+        rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
+        cargo +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null
+        cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
+        cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
+        cargo deny --version | grep -F " ${CARGO_DENY_VERSION}" >/dev/null
+        cargo semver-checks --version | grep -F " ${CARGO_SEMVER_CHECKS_VERSION}" >/dev/null
+        cargo outdated --version | grep -F " ${CARGO_OUTDATED_VERSION}" >/dev/null
+        cargo llvm-cov --version | grep -F " ${CARGO_LLVM_COV_VERSION}" >/dev/null
+        cargo fuzz --version | grep -F " ${CARGO_FUZZ_VERSION}" >/dev/null
         shellcheck --version >/dev/null
         gh --version >/dev/null
         clang --version >/dev/null
@@ -211,17 +206,13 @@ main() {
         docker volume rm -f \
             "${cargo_registry_volume}" \
             "${cargo_git_volume}" \
-            "${user_cache_volume}" \
-            "${target_volume}" \
-            "${fuzz_target_volume}" >/dev/null 2>&1 || true
+            "${user_cache_volume}" >/dev/null 2>&1 || true
     fi
 
     printf 'devcontainer validation: create contributor volumes\n'
     docker volume create "${cargo_registry_volume}" >/dev/null
     docker volume create "${cargo_git_volume}" >/dev/null
     docker volume create "${user_cache_volume}" >/dev/null
-    docker volume create "${target_volume}" >/dev/null
-    docker volume create "${fuzz_target_volume}" >/dev/null
 
     printf 'devcontainer validation: seed root-owned cache and build-output mounts\n'
     docker run --rm \
@@ -229,29 +220,21 @@ main() {
         --volume "${cargo_registry_volume}:/home/vscode/.cargo/registry" \
         --volume "${cargo_git_volume}:/home/vscode/.cargo/git" \
         --volume "${user_cache_volume}:/home/vscode/.cache" \
-        --volume "${target_volume}:/workspaces/ffhn/target" \
-        --volume "${fuzz_target_volume}:/workspaces/ffhn/fuzz/target" \
         "${image_tag}" \
         bash -lc '
             set -euo pipefail
             mkdir -p \
                 /home/vscode/.cargo/registry \
                 /home/vscode/.cargo/git \
-                /home/vscode/.cache \
-                /workspaces/ffhn/target \
-                /workspaces/ffhn/fuzz/target
+                /home/vscode/.cache
             touch \
                 /home/vscode/.cargo/registry/root-owned \
                 /home/vscode/.cargo/git/root-owned \
-                /home/vscode/.cache/root-owned \
-                /workspaces/ffhn/target/root-owned \
-                /workspaces/ffhn/fuzz/target/root-owned
+                /home/vscode/.cache/root-owned
             chown -R 0:0 \
                 /home/vscode/.cargo/registry \
                 /home/vscode/.cargo/git \
-                /home/vscode/.cache \
-                /workspaces/ffhn/target \
-                /workspaces/ffhn/fuzz/target
+                /home/vscode/.cache
         '
 
     printf 'devcontainer validation: repair mounts and probe the raw contributor image\n'
@@ -260,36 +243,40 @@ main() {
         --volume "${cargo_registry_volume}:/home/vscode/.cargo/registry" \
         --volume "${cargo_git_volume}:/home/vscode/.cargo/git" \
         --volume "${user_cache_volume}:/home/vscode/.cache" \
-        --volume "${target_volume}:/workspaces/ffhn/target" \
-        --volume "${fuzz_target_volume}:/workspaces/ffhn/fuzz/target" \
         --workdir /workspaces/ffhn \
+        --env CARGO_HOME=/home/vscode/.cargo \
+        --env CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target \
+        --env CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build \
         "${image_tag}" \
         bash -lc '
             set -euo pipefail
             ./scripts/devcontainer-prepare-user-home.sh
-            grep -F '\''VERSION_ID="26.04"'\'' /etc/os-release >/dev/null
+            # shellcheck disable=SC1091
+            source /usr/local/share/ffhn/rust-tooling.env
+            grep -F '\''VERSION_ID="24.04"'\'' /etc/os-release >/dev/null
             [[ "$(id -un)" == "vscode" ]]
             [[ -w "${HOME}/.cargo/registry" ]]
             [[ -w "${HOME}/.cargo/git" ]]
             [[ -w "${HOME}/.cache" ]]
-            [[ -w "/workspaces/ffhn/target" ]]
-            [[ -w "/workspaces/ffhn/fuzz/target" ]]
             test -f "${HOME}/.cargo/registry/root-owned"
             test -f "${HOME}/.cargo/git/root-owned"
             test -f "${HOME}/.cache/root-owned"
-            test -f "/workspaces/ffhn/target/root-owned"
-            test -f "/workspaces/ffhn/fuzz/target/root-owned"
-            rustc --version | grep -F '\''1.95.0'\'' >/dev/null
-            cargo --version >/dev/null
-            cargo +nightly --version >/dev/null
+            [[ "${CARGO_TARGET_DIR}" == "/home/vscode/.cache/ffhn-artifacts/target" ]]
+            [[ "${CARGO_BUILD_BUILD_DIR}" == "/home/vscode/.cache/ffhn-artifacts/build" ]]
+            mkdir -p "${CARGO_TARGET_DIR}" "${CARGO_BUILD_BUILD_DIR}"
+            [[ -w "${CARGO_TARGET_DIR}" ]]
+            [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
+            rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
+            cargo build --help >/dev/null
+            cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
             rustup target list --installed | grep -Fx '\''x86_64-unknown-linux-musl'\'' >/dev/null
-            cargo nextest --version >/dev/null
-            cargo audit --version >/dev/null
-            cargo deny --version >/dev/null
-            cargo semver-checks --version >/dev/null
-            cargo outdated --version >/dev/null
-            cargo llvm-cov --version >/dev/null
-            cargo fuzz --version >/dev/null
+            cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
+            cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
+            cargo deny --version | grep -F " ${CARGO_DENY_VERSION}" >/dev/null
+            cargo semver-checks --version | grep -F " ${CARGO_SEMVER_CHECKS_VERSION}" >/dev/null
+            cargo outdated --version | grep -F " ${CARGO_OUTDATED_VERSION}" >/dev/null
+            cargo llvm-cov --version | grep -F " ${CARGO_LLVM_COV_VERSION}" >/dev/null
+            cargo fuzz --version | grep -F " ${CARGO_FUZZ_VERSION}" >/dev/null
             shellcheck --version >/dev/null
             gh --version >/dev/null
             clang --version >/dev/null
@@ -297,11 +284,12 @@ main() {
         '
 
     printf 'devcontainer validation: build helper image for devcontainer client coverage\n'
-    docker build \
+    ffhn_docker_build \
         --build-arg "BASE_IMAGE=${image_tag}" \
         --tag "${helper_image_tag}" \
         --file "${helper_dockerfile_path}" \
         "${repo_root}/scripts" >/dev/null
+    docker run --rm "${helper_image_tag}" docker buildx version >/dev/null
 
     printf 'devcontainer validation: bring up the committed devcontainer through the client path\n'
     docker run --rm \
@@ -322,6 +310,8 @@ main() {
                 set -e
             }
             trap cleanup EXIT
+            mkdir -p "${HOME}"
+            git config --global --add safe.directory "${FFHN_REPO_ROOT}"
             devcontainer up --remove-existing-container --workspace-folder "${FFHN_REPO_ROOT}" >/dev/null
             printf "devcontainer validation: run inner runtime probe through devcontainer exec\n"
             devcontainer exec --workspace-folder "${FFHN_REPO_ROOT}" ./scripts/validate-devcontainer.sh

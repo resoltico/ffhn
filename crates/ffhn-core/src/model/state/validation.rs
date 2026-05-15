@@ -7,128 +7,96 @@ impl StateDocument {
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError`] when the schema identity, last-run triplet, state phase, snapshot
-    /// slots, snapshot ordering, or outcome/reason coupling violates FFHN's frozen state
-    /// contract.
+    /// Returns [`CoreError`] when the schema identity, stored baseline, snapshot ordering, or
+    /// last-run summary violates FFHN's frozen state contract.
     pub fn validate(&self) -> Result<(), CoreError> {
-        let schema_name = &self.schema_name;
-        let schema_version = self.schema_version;
         validate_identity(
-            schema_name,
+            &self.schema_name,
             STATE_SCHEMA_NAME,
-            schema_version,
+            self.schema_version,
             STATE_SCHEMA_VERSION,
         )?;
-        if let Some(last_run_at) = &self.last_run_at {
-            validate_timestamp(last_run_at)?;
-        }
-        validate_last_run_triplet(
-            self.last_run_at.is_some(),
-            self.last_run_outcome,
-            self.last_reason_code,
-        )?;
-        match self.state_phase {
-            StatePhase::NeverSucceeded => {
-                if self.current_snapshot.is_some() {
-                    return Err(CoreError::contract(
-                        "state_phase never_succeeded requires null snapshots",
-                    ));
-                }
-                if !self.snapshot_history.is_empty() {
-                    return Err(CoreError::contract(
-                        "state_phase never_succeeded requires null snapshots",
-                    ));
-                }
-            }
-            StatePhase::HasBaseline => {
-                if self.current_snapshot.is_none() {
-                    return Err(CoreError::contract(
-                        "state_phase has_baseline requires current_snapshot",
-                    ));
-                }
-            }
-        }
-        if let Some(snapshot) = &self.current_snapshot {
-            snapshot.validate()?;
-            if snapshot.slot != SnapshotSlot::Current {
-                return Err(CoreError::contract("current_snapshot.slot must be current"));
-            }
-        }
-        for snapshot in &self.snapshot_history {
-            snapshot.validate()?;
-            if snapshot.slot != SnapshotSlot::History {
-                return Err(CoreError::contract(
-                    "snapshot_history entries must use slot = history",
-                ));
-            }
-        }
-        validate_snapshot_history_order(&self.snapshot_history)?;
-        if let (Some(current_snapshot), Some(previous_snapshot)) =
-            (&self.current_snapshot, self.snapshot_history.first())
-        {
-            let current_captured_at = parse_timestamp(&current_snapshot.captured_at)?;
-            let previous_captured_at = parse_timestamp(&previous_snapshot.captured_at)?;
-            if current_captured_at < previous_captured_at {
-                return Err(CoreError::contract(
-                    "current_snapshot must be at least as recent as snapshot_history[0]",
-                ));
-            }
-        }
+        self.baseline.validate()?;
+        self.last_run
+            .as_ref()
+            .map(LastRunRecord::validate)
+            .transpose()?;
+        validate_state_shape(self)?;
         Ok(())
     }
 }
 
-fn validate_last_run_triplet(
-    has_last_run_at: bool,
-    last_run_outcome: Option<RunOutcome>,
-    last_reason_code: Option<ReasonCode>,
-) -> Result<(), CoreError> {
-    match (has_last_run_at, last_run_outcome, last_reason_code) {
-        (false, None, None) => Ok(()),
-        (true, Some(run_outcome), Some(reason_code)) => {
-            validate_run_outcome_reason_pair(run_outcome, reason_code)
+impl StoredBaseline {
+    fn validate(&self) -> Result<(), CoreError> {
+        match self {
+            Self::Pending => Ok(()),
+            Self::Ready {
+                current_snapshot,
+                snapshot_history,
+            } => {
+                current_snapshot.validate()?;
+                if current_snapshot.slot != SnapshotSlot::Current {
+                    return Err(CoreError::contract(
+                        "baseline.ready current_snapshot.slot must be current",
+                    ));
+                }
+                for snapshot in snapshot_history {
+                    snapshot.validate()?;
+                    if snapshot.slot != SnapshotSlot::History {
+                        return Err(CoreError::contract(
+                            "baseline.ready snapshot_history entries must use slot = history",
+                        ));
+                    }
+                }
+                validate_snapshot_history_order(snapshot_history)?;
+                if let Some(previous_snapshot) = snapshot_history.first() {
+                    let current_captured_at = parse_timestamp(&current_snapshot.captured_at)?;
+                    let previous_captured_at = parse_timestamp(&previous_snapshot.captured_at)?;
+                    if current_captured_at < previous_captured_at {
+                        return Err(CoreError::contract(
+                            "baseline.ready current_snapshot must be at least as recent as snapshot_history[0]",
+                        ));
+                    }
+                }
+                Ok(())
+            }
         }
-        _ => Err(CoreError::contract(
-            "state last-run fields must be all present or all absent",
-        )),
     }
 }
 
-fn validate_run_outcome_reason_pair(
-    run_outcome: RunOutcome,
-    reason_code: ReasonCode,
-) -> Result<(), CoreError> {
-    match run_outcome {
-        RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged => {
-            if reason_code != ReasonCode::Ok {
+impl LastRunRecord {
+    fn validate(&self) -> Result<(), CoreError> {
+        validate_timestamp(self.run_at())?;
+        match (self.outcome(), self.failure_cause()) {
+            (crate::RunOutcome::FailedTransient, Some(cause))
+                if cause.failure_class() == crate::FailureClass::Transient => {}
+            (crate::RunOutcome::FailedPermanent, Some(cause))
+                if cause.failure_class() == crate::FailureClass::Permanent => {}
+            (crate::RunOutcome::FailedTransient, _) => {
                 return Err(CoreError::contract(
-                    "successful state outcomes require last_reason_code = ok",
+                    "failed_transient last_run entries require a transient cause",
                 ));
             }
-        }
-        RunOutcome::SkippedDisabled => {
-            if reason_code != ReasonCode::Disabled {
+            (crate::RunOutcome::FailedPermanent, _) => {
                 return Err(CoreError::contract(
-                    "skipped_disabled state outcomes require last_reason_code = disabled",
+                    "failed_permanent last_run entries require a permanent cause",
                 ));
             }
-        }
-        RunOutcome::FailedTransient => {
-            if reason_code.failure_class() != Some(crate::FailureClass::Transient) {
+            (
+                crate::RunOutcome::Initialized
+                | crate::RunOutcome::Changed
+                | crate::RunOutcome::Unchanged
+                | crate::RunOutcome::SkippedDisabled,
+                Some(_),
+            ) => {
                 return Err(CoreError::contract(
-                    "failed_transient state outcomes require a transient last_reason_code",
+                    "successful or skipped last_run entries must not carry a failure cause",
                 ));
             }
+            _ => {}
         }
-        RunOutcome::FailedPermanent => {
-            if reason_code.failure_class() != Some(crate::FailureClass::Permanent) {
-                return Err(CoreError::contract(
-                    "failed_permanent state outcomes require a permanent last_reason_code",
-                ));
-            }
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn validate_snapshot_history_order(
@@ -141,10 +109,31 @@ fn validate_snapshot_history_order(
             && captured_at > previous
         {
             return Err(CoreError::contract(
-                "snapshot_history must be ordered newest first",
+                "baseline.ready snapshot_history must be ordered newest first",
             ));
         }
         previous_captured_at = Some(captured_at);
     }
     Ok(())
+}
+
+fn validate_state_shape(state: &StateDocument) -> Result<(), CoreError> {
+    match (&state.baseline, state.last_run.as_ref()) {
+        (StoredBaseline::Pending, Some(last_run))
+            if matches!(
+                last_run.outcome(),
+                crate::RunOutcome::Initialized
+                    | crate::RunOutcome::Changed
+                    | crate::RunOutcome::Unchanged
+            ) =>
+        {
+            Err(CoreError::contract(
+                "baseline.pending cannot carry a successful last_run",
+            ))
+        }
+        (StoredBaseline::Ready { .. }, None) => {
+            Err(CoreError::contract("baseline.ready requires last_run"))
+        }
+        _ => Ok(()),
+    }
 }

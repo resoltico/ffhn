@@ -14,9 +14,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  RUST_STABLE_VERSION: 1.95.0
-
 jobs:
   release-target-matrix:
     name: Compute release target matrix
@@ -47,27 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Install pinned Rust toolchains
         shell: bash
-        run: |
-          set -euo pipefail
-          retry() {
-            local attempts="$1"
-            shift
-            local attempt
-            for attempt in $(seq 1 "${attempts}"); do
-              if "$@"; then
-                return 0
-              fi
-              if [ "${attempt}" -lt "${attempts}" ]; then
-                sleep 5
-              fi
-            done
-            return 1
-          }
-          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal --component clippy --component rustfmt --component llvm-tools-preview
-          retry 3 rustup toolchain install nightly --profile minimal --component llvm-tools-preview
-          retry 3 rustup default "${RUST_STABLE_VERSION}"
+        run: bash ./scripts/bootstrap-rust-tools.sh install-toolchains
 
       - name: Install shellcheck
         shell: bash
@@ -76,13 +55,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes shellcheck
 
-      - name: Install Rust QA tools
-        uses: taiki-e/install-action@7769b73c2ec98c38dfcf2e18c83cfd4880c038c1 # v2.75.27
-        with:
-          tool: cargo-llvm-cov,cargo-nextest,cargo-audit,cargo-deny,cargo-semver-checks,cargo-outdated
+      - name: Install pinned Rust QA tools
+        shell: bash
+        run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          cache-bin: false
 
       - name: Run Rust workspace gate
         shell: bash
@@ -111,7 +91,10 @@ jobs:
             exit 0
           fi
           changed=$(git diff --name-only "$base" "${{ github.sha }}" -- \
+            '.github/workflows/ci.yml' \
             '.devcontainer' \
+            'tooling/rust-tooling.env' \
+            'scripts/bootstrap-rust-tools.sh' \
             'scripts/validate-devcontainer.sh' \
             'scripts/run-devcontainer-check.sh' \
             'scripts/devcontainer-prepare-user-home.sh' \
@@ -163,41 +146,27 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Rust toolchain
+      - name: Install pinned Rust stable toolchain
         shell: bash
-        run: |
-          set -euo pipefail
-          retry() {
-            local attempts="$1"
-            shift
-            local attempt
-            for attempt in $(seq 1 "${attempts}"); do
-              if "$@"; then
-                return 0
-              fi
-              if [ "${attempt}" -lt "${attempts}" ]; then
-                sleep 5
-              fi
-            done
-            return 1
-          }
-          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal --component clippy --component rustfmt
-          retry 3 rustup default "${RUST_STABLE_VERSION}"
+        run: bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
 
-      - name: Install Rust QA tools
-        uses: taiki-e/install-action@7769b73c2ec98c38dfcf2e18c83cfd4880c038c1 # v2.75.27
-        with:
-          tool: cargo-nextest,cargo-audit,cargo-deny,cargo-semver-checks,cargo-outdated
+      - name: Install pinned cross-platform Rust QA tools
+        shell: bash
+        run: bash ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: cross-platform-${{ matrix.id }}
+          cache-bin: false
 
       - name: Exclude build directory from Windows Defender
         if: runner.os == 'Windows'
         shell: powershell
-        run: Add-MpPreference -ExclusionPath "${{ github.workspace }}\target"
+        run: |
+          $artifactRoot = Join-Path "${{ github.workspace }}" "..\.ffhn-artifacts"
+          Add-MpPreference -ExclusionPath (Join-Path $artifactRoot "target")
+          Add-MpPreference -ExclusionPath (Join-Path $artifactRoot "build")
 
       - name: Check formatting
         shell: bash
@@ -211,21 +180,13 @@ jobs:
         shell: bash
         run: cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked
 
-      - name: Check root dependency freshness
-        shell: bash
-        run: cargo outdated --workspace --root-deps-only --exit-code 1
-
-      - name: Check fuzz dependency freshness
-        shell: bash
-        run: cargo outdated --manifest-path fuzz/Cargo.toml --root-deps-only --exit-code 1
-
       - name: Audit dependencies
         shell: bash
-        run: cargo audit -D warnings
+        run: cargo xtask audit
 
       - name: Audit fuzz dependencies
         shell: bash
-        run: cargo audit --file fuzz/Cargo.lock -D warnings
+        run: cargo xtask audit --file fuzz/Cargo.lock
 
       - name: Enforce dependency policy
         shell: bash
@@ -256,32 +217,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes musl-tools
 
-      - name: Install Rust toolchain
+      - name: Install pinned Rust stable toolchain
         shell: bash
         run: |
           set -euo pipefail
-          retry() {
-            local attempts="$1"
-            shift
-            local attempt
-            for attempt in $(seq 1 "${attempts}"); do
-              if "$@"; then
-                return 0
-              fi
-              if [ "${attempt}" -lt "${attempts}" ]; then
-                sleep 5
-              fi
-            done
-            return 1
-          }
-          retry 3 rustup toolchain install "${RUST_STABLE_VERSION}" --profile minimal
-          retry 3 rustup default "${RUST_STABLE_VERSION}"
-          retry 3 rustup target add "${{ matrix.target_triple }}"
+          bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
+          rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target_triple }}
+          cache-bin: false
 
       - name: Build standalone package
         shell: bash

@@ -20,10 +20,10 @@ fn seed_release_script_repo() -> tempfile::TempDir {
         "common.sh",
         "release-targets.sh",
         "workspace-package-field.sh",
-        "workspace-version.sh",
         "build-release-source-archives.sh",
         "build-release-artifact.sh",
         "build-release-checksums.sh",
+        "smoke-release-artifact.sh",
         "publish-github-release.sh",
         "verify-github-release.sh",
     ] {
@@ -86,6 +86,32 @@ version = "9.9.9"
 
 fn release_script_argument(repo_root: &Path, script_name: &str) -> String {
     crate::release::bash_source_argument_for_tests(&repo_root.join("scripts").join(script_name))
+}
+
+fn host_python_path_for_test(path: &Path) -> String {
+    let mut rendered = path.to_string_lossy().replace('\\', "/");
+    if let Some(stripped) = rendered.strip_prefix("//?/") {
+        rendered = stripped.to_owned();
+    }
+
+    rendered
+}
+
+fn seed_release_dist_inventory(repo_root: &Path) {
+    let dist = repo_root.join("dist");
+    fs::create_dir_all(&dist).expect("create dist");
+
+    for asset in [
+        "ffhn-source-9.9.9.zip",
+        "ffhn-source-9.9.9.tar.gz",
+        "ffhn-9.9.9-aarch64-apple-darwin.tar.gz",
+        "ffhn-9.9.9-x86_64-apple-darwin.tar.gz",
+        "ffhn-9.9.9-x86_64-unknown-linux-musl.tar.gz",
+        "ffhn-9.9.9-x86_64-pc-windows-msvc.zip",
+    ] {
+        fs::write(dist.join(asset), format!("dummy asset for {asset}\n"))
+            .unwrap_or_else(|error| panic!("write {asset}: {error}"));
+    }
 }
 
 #[test]
@@ -300,14 +326,30 @@ repo_root="{repo_root}"
 absolute_target_root="{absolute_target_root}"
 source "$script_dir/common.sh"
 
+expected_default_root="$(cd "$repo_root/.." && pwd)/.ffhn-artifacts/target"
+expected_default_root="$(ffhn_normalize_bash_path "$expected_default_root")"
+expected_custom_root="$(ffhn_normalize_bash_path "$repo_root/custom-target")"
+expected_absolute_root="$(ffhn_normalize_bash_path "$absolute_target_root")"
+
 unset CARGO_TARGET_DIR
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/target" ]]
+default_root="$(ffhn_cargo_target_dir "$repo_root")"
 
 export CARGO_TARGET_DIR="custom-target"
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/custom-target" ]]
+custom_root="$(ffhn_cargo_target_dir "$repo_root")"
 
 export CARGO_TARGET_DIR="$absolute_target_root"
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$absolute_target_root" ]]
+absolute_root="$(ffhn_cargo_target_dir "$repo_root")"
+
+printf 'default_root=%s\n' "$default_root"
+printf 'expected_default_root=%s\n' "$expected_default_root"
+printf 'custom_root=%s\n' "$custom_root"
+printf 'expected_custom_root=%s\n' "$expected_custom_root"
+printf 'absolute_root=%s\n' "$absolute_root"
+printf 'expected_absolute_root=%s\n' "$expected_absolute_root"
+
+[[ "$default_root" == "$expected_default_root" ]]
+[[ "$custom_root" == "$expected_custom_root" ]]
+[[ "$absolute_root" == "$expected_absolute_root" ]]
 "#,
         scripts_dir = scripts_dir,
         repo_root = repo_root_for_bash,
@@ -327,6 +369,73 @@ export CARGO_TARGET_DIR="$absolute_target_root"
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn release_shell_helpers_read_cargo_config_through_windows_host_python_paths() {
+    let repo = tempdir().expect("tempdir");
+    let repo_root = repo.path();
+    fs::create_dir_all(repo_root.join(".cargo")).expect("create cargo config dir");
+    fs::write(
+        repo_root.join(".cargo/config.toml"),
+        "[build]\ntarget-dir = \"../.ffhn-artifacts/target\"\n",
+    )
+    .expect("write cargo config");
+
+    let fake_bin = repo_root.join("fake-bin");
+    fs::create_dir_all(&fake_bin).expect("create fake bin");
+    let repo_root_native_for_python = host_python_path_for_test(repo_root);
+    fs::write(
+        fake_bin.join("cygpath"),
+        format!(
+            "#!/usr/bin/env bash\nset -euo pipefail\n[[ \"$1\" == \"-w\" ]]\n[[ \"$2\" == \"/d/demo/repo\" ]]\nprintf '%s\\n' \"{repo_root}\"\n",
+            repo_root = repo_root_native_for_python,
+        ),
+    )
+    .expect("write fake cygpath");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(fake_bin.join("cygpath"), fs::Permissions::from_mode(0o755))
+            .expect("chmod fake cygpath");
+    }
+
+    let fake_bin_for_bash = crate::release::bash_source_argument_for_tests(&fake_bin);
+    let workspace_repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workspace_repo_root_for_bash =
+        crate::release::bash_source_argument_for_tests(workspace_repo_root);
+    let output = bash_command()
+        .arg("-c")
+        .arg(format!(
+            r#"set -euo pipefail
+PATH="{fake_bin}:$PATH"
+source "{workspace_repo_root}/scripts/common.sh"
+repo_root="/d/demo/repo"
+unset CARGO_TARGET_DIR
+printf 'config_value=%s\n' "$(ffhn_cargo_build_config_value "$repo_root" target-dir)"
+printf 'target_root=%s\n' "$(ffhn_cargo_target_dir "$repo_root")"
+"#,
+            fake_bin = fake_bin_for_bash,
+            workspace_repo_root = workspace_repo_root_for_bash,
+        ))
+        .current_dir(workspace_repo_root)
+        .output()
+        .expect("run host-python path translation smoke");
+
+    assert!(
+        output.status.success(),
+        "host-python path translation smoke failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("config_value=../.ffhn-artifacts/target"));
+    assert!(stdout.contains("target_root=/d/demo/.ffhn-artifacts/target"));
 }
 
 #[test]

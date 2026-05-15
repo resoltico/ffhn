@@ -47,7 +47,8 @@ impl<'a> Arbitrary<'a> for DryRunInput {
 fuzz_target!(|input: DryRunInput| {
     let temp = tempdir().expect("tempdir");
     let target_id = safe_target_id(&input.target_id);
-    let target_paths = TargetPaths::new(temp.path(), target_id.clone());
+    let target_paths = TargetPaths::try_new(temp.path(), target_id.clone())
+        .expect("fuzz target ids are normalized before path construction");
     let source_path = temp.path().join("source.html");
     std::fs::write(&source_path, normalize_html(&input.html)).expect("write source");
     std::fs::create_dir_all(target_paths.target_dir()).expect("target dir");
@@ -131,7 +132,7 @@ fn target_toml(
     };
 
     format!(
-        "schema_name = \"ffhn.target\"\nschema_version = 1\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n"
+        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n"
     )
 }
 

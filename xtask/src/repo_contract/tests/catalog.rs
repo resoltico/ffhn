@@ -5,12 +5,10 @@ use std::path::Path;
 
 use ffhn_core::TargetDocument;
 #[cfg(unix)]
-use ffhn_core::{CLI_OPERATION_RUN_ID, cli_contract, cli_operation};
+use ffhn_core::cli_contract;
 
 #[cfg(unix)]
 pub(super) fn render_cli_catalog_section() -> String {
-    let run = cli_operation(CLI_OPERATION_RUN_ID).expect("run operation");
-
     let mut rendered =
         String::from("| Command | Structured stdout document | Notes |\n| --- | --- | --- |\n");
     for (usage, output_document_id, summary) in command_catalog_rows() {
@@ -19,35 +17,47 @@ pub(super) fn render_cli_catalog_section() -> String {
             "| `{usage}` | `{output_document_id}` | {summary} |"
         );
     }
-    rendered.push_str("\nThe maintained help text is:\n\n");
-    for (index, operation) in cli_contract().operations.iter().enumerate() {
-        let _ = writeln!(
-            rendered,
-            "{}. `{}`: {}",
-            index + 1,
-            operation.id,
-            operation.help_summary
-        );
-    }
+    rendered.push_str("\nPer-operation help contract:\n\n");
+    for operation in cli_contract().operations {
+        let _ = writeln!(rendered, "### `{}`\n", operation.id);
+        let _ = writeln!(rendered, "Summary: {}\n", operation.help_summary);
+        let _ = writeln!(rendered, "Usage: `{}`\n", operation.usage);
 
-    rendered.push_str("\n`run` supports:\n\n");
-    for (index, argument) in run.arguments.iter().enumerate() {
-        let label = if let Some(value_name) = argument.value_name {
-            format!("--{} <{}>", argument.long_name, value_name)
-        } else {
-            format!("--{}", argument.long_name)
-        };
-        let default = argument
-            .default_value
-            .map(|value| format!(" Default: `{value}`."))
-            .unwrap_or_default();
-        let _ = writeln!(
-            rendered,
-            "{}. `{label}`: {}{}",
-            index + 1,
-            argument.help_summary,
-            default
-        );
+        rendered.push_str("Options:\n\n");
+        for (index, argument) in operation.arguments.iter().enumerate() {
+            let label = if let Some(value_name) = argument.value_name {
+                format!("--{} <{}>", argument.long_name, value_name)
+            } else {
+                format!("--{}", argument.long_name)
+            };
+            let default = argument
+                .default_value
+                .map(|value| format!(" Default: `{value}`."))
+                .unwrap_or_default();
+            let _ = writeln!(
+                rendered,
+                "{}. `{label}`: {}{}",
+                index + 1,
+                argument.help_summary,
+                default
+            );
+        }
+
+        rendered.push_str("\nExamples:\n\n");
+        for (index, example) in operation.examples.iter().enumerate() {
+            let _ = writeln!(rendered, "{}. `{example}`", index + 1);
+        }
+
+        rendered.push_str("\nOutput:\n\n");
+        for (index, note) in operation.output_notes.iter().enumerate() {
+            let _ = writeln!(rendered, "{}. {}", index + 1, note);
+        }
+
+        rendered.push_str("\nOperational notes:\n\n");
+        for (index, note) in operation.operational_notes.iter().enumerate() {
+            let _ = writeln!(rendered, "{}. {}", index + 1, note);
+        }
+        rendered.push('\n');
     }
 
     rendered.push_str("\nExecution modes:\n\n");

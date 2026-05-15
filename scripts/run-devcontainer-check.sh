@@ -55,18 +55,16 @@ main() {
         printf 'devcontainer gate: reusing contributor image %s\n' "${image_tag}"
     else
         printf 'devcontainer gate: building contributor image\n'
-        docker build \
+        ffhn_docker_build \
             --tag "${image_tag}" \
             --file "${repo_root}/.devcontainer/Dockerfile" \
-            "${repo_root}/.devcontainer" >/dev/null
+            "${repo_root}" >/dev/null
     fi
 
     printf 'devcontainer gate: preparing canonical contributor volumes\n'
     docker volume create ffhn-cargo-registry >/dev/null
     docker volume create ffhn-cargo-git >/dev/null
     docker volume create ffhn-user-cache >/dev/null
-    docker volume create ffhn-target >/dev/null
-    docker volume create ffhn-fuzz-target >/dev/null
 
     printf 'devcontainer gate: running ./check.sh inside contributor container\n'
     docker run --rm \
@@ -74,10 +72,11 @@ main() {
         --volume "ffhn-cargo-registry:/home/vscode/.cargo/registry" \
         --volume "ffhn-cargo-git:/home/vscode/.cargo/git" \
         --volume "ffhn-user-cache:/home/vscode/.cache" \
-        --volume "ffhn-target:/workspaces/ffhn/target" \
-        --volume "ffhn-fuzz-target:/workspaces/ffhn/fuzz/target" \
         --workdir /workspaces/ffhn \
         --env FFHN_DEVCONTAINER=1 \
+        --env CARGO_HOME=/home/vscode/.cargo \
+        --env CARGO_TARGET_DIR=/home/vscode/.cache/ffhn-artifacts/target \
+        --env CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/ffhn-artifacts/build \
         "${image_tag}" \
         bash -lc '
             set -euo pipefail

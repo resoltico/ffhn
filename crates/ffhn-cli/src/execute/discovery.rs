@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use ffhn_core::{CoreError, TargetId, TargetPaths, validate_target};
+use ffhn_core::{CoreError, TargetId};
 
 use crate::args::RunCommand;
 
@@ -28,18 +27,6 @@ pub(super) fn selected_targets(command: &RunCommand) -> Result<SelectedTargets, 
     Ok(SelectedTargets::Discovered(discover_watch_root_targets(
         &command.watch_root,
     )?))
-}
-
-pub(super) fn duplicate_target_id(command: &RunCommand) -> Option<&str> {
-    if command.all {
-        return None;
-    }
-
-    let mut seen = BTreeSet::new();
-    command
-        .targets
-        .iter()
-        .find_map(|target_id| (!seen.insert(target_id.as_str())).then_some(target_id.as_str()))
 }
 
 pub(crate) fn discover_watch_root_targets(
@@ -75,18 +62,11 @@ pub(crate) fn discover_watch_root_targets(
     }) {
         match TargetId::new(target_id.clone()) {
             Ok(validated_id) => {
-                let target_paths = TargetPaths::new(watch_root, validated_id.clone());
-                let include_target = match validate_target(&target_paths) {
-                    Ok(target) => target.enabled(),
-                    Err(_) => true,
-                };
-                if include_target {
-                    targets.push(DiscoveredTarget {
-                        requested_id: target_id,
-                        validated_id: Some(validated_id),
-                        validation_message: None,
-                    });
-                }
+                targets.push(DiscoveredTarget {
+                    requested_id: target_id,
+                    validated_id: Some(validated_id),
+                    validation_message: None,
+                });
             }
             Err(error) => {
                 targets.push(DiscoveredTarget {
@@ -124,6 +104,7 @@ pub(super) fn contract_message(error: CoreError) -> String {
         CoreError::Contract(message)
         | CoreError::HtmlcutInterop(message)
         | CoreError::Internal(message) => message,
+        CoreError::PersistTransaction { summary, .. } => summary,
         other => other.to_string(),
     }
 }

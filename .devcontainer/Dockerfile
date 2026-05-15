@@ -1,8 +1,11 @@
-FROM ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97bef9450d0b4
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 USER root
+
+COPY tooling/rust-tooling.env /usr/local/share/ffhn/rust-tooling.env
+COPY scripts/bootstrap-rust-tools.sh /usr/local/share/ffhn/bootstrap-rust-tools.sh
 
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
@@ -46,15 +49,17 @@ RUN apt-get update \
 
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV PATH=/usr/local/cargo/bin:${PATH}
+ENV FFHN_RUST_TOOLING_ENV=/usr/local/share/ffhn/rust-tooling.env
 
 RUN export CARGO_HOME=/usr/local/cargo \
+    && chmod 0755 /usr/local/share/ffhn/bootstrap-rust-tools.sh \
     && curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf \
-        | sh -s -- -y --profile minimal --default-toolchain 1.95.0 \
-    && rustup toolchain install nightly --profile minimal --component llvm-tools-preview \
-    && rustup component add clippy rustfmt llvm-tools-preview --toolchain 1.95.0 \
-    && rustup target add x86_64-unknown-linux-musl --toolchain 1.95.0 \
-    && cargo install cargo-nextest cargo-audit cargo-deny cargo-semver-checks cargo-outdated cargo-llvm-cov cargo-fuzz --locked \
-    && rustc --version >/dev/null \
+        | sh -s -- -y --profile minimal \
+    && bash /usr/local/share/ffhn/bootstrap-rust-tools.sh install-all \
+    && . /usr/local/share/ffhn/rust-tooling.env \
+    && rustup target add x86_64-unknown-linux-musl --toolchain "${RUST_STABLE_TOOLCHAIN}" \
+    && rustc +"${RUST_STABLE_TOOLCHAIN}" --version >/dev/null \
+    && rustc +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null \
     && cargo --version >/dev/null \
     && cargo nextest --version >/dev/null \
     && cargo audit --version >/dev/null \

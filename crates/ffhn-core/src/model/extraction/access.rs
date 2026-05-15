@@ -11,21 +11,6 @@ impl ExtractionRecord {
         self.schema_version
     }
 
-    /// Returns the frozen HTMLCut interop profile.
-    pub fn interop_profile(&self) -> &str {
-        &self.interop_profile
-    }
-
-    /// Returns the exact HTMLCut plan digest.
-    pub fn htmlcut_plan_digest_sha256(&self) -> &str {
-        &self.htmlcut_plan_digest_sha256
-    }
-
-    /// Returns the exact HTMLCut result digest.
-    pub fn htmlcut_result_digest_sha256(&self) -> &str {
-        &self.htmlcut_result_digest_sha256
-    }
-
     /// Returns the normalized comparison-input digest.
     pub fn comparison_input_sha256(&self) -> &str {
         &self.comparison_input_sha256
@@ -36,17 +21,17 @@ impl ExtractionRecord {
         &self.outer_html_sha256
     }
 
-    /// Returns the echoed selection strategy kind.
-    pub fn strategy_kind(&self) -> SelectionKind {
-        self.strategy_kind
+    /// Returns the selection strategy kind.
+    pub fn selection_kind(&self) -> SelectionKind {
+        self.selection_kind
     }
 
-    /// Returns the echoed selection mode.
-    pub fn selection_mode(&self) -> SelectionMatch {
-        self.selection_mode
+    /// Returns the selection mode.
+    pub fn selection_match(&self) -> SelectionMatch {
+        self.selection_match
     }
 
-    /// Returns the echoed output kind.
+    /// Returns the output kind.
     pub fn output_kind(&self) -> OutputKind {
         self.output_kind
     }
@@ -61,12 +46,12 @@ impl ExtractionRecord {
         self.selected_candidate_index
     }
 
-    /// Returns the stable selected-match metadata object.
-    pub fn match_metadata(&self) -> &Value {
-        &self.match_metadata
+    /// Returns the FFHN-owned selection evidence.
+    pub const fn selection_evidence(&self) -> &SelectionEvidence {
+        &self.selection_evidence
     }
 
-    /// Returns warning codes emitted by HTMLCut.
+    /// Returns warning codes surfaced through FFHN's extractor seam.
     pub fn warning_codes(&self) -> &[String] {
         &self.warning_codes
     }
@@ -77,8 +62,30 @@ impl ExtractionRecord {
     }
 
     /// Returns any reserved extensions.
-    pub fn extensions(&self) -> Option<&std::collections::BTreeMap<String, Value>> {
+    pub fn extensions(&self) -> Option<&std::collections::BTreeMap<String, serde_json::Value>> {
         self.extensions.as_ref()
+    }
+}
+
+impl SelectionRange {
+    /// Returns the inclusive start byte offset.
+    pub const fn start_byte(&self) -> usize {
+        self.start_byte
+    }
+
+    /// Returns the exclusive end byte offset.
+    pub const fn end_byte(&self) -> usize {
+        self.end_byte
+    }
+}
+
+impl SelectionEvidence {
+    /// Returns the selection kind represented by this evidence.
+    pub const fn kind(&self) -> SelectionKind {
+        match self {
+            Self::CssSelector { .. } => SelectionKind::CssSelector,
+            Self::DelimiterPair { .. } => SelectionKind::DelimiterPair,
+        }
     }
 }
 
