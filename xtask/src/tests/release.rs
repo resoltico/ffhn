@@ -88,6 +88,15 @@ fn release_script_argument(repo_root: &Path, script_name: &str) -> String {
     crate::release::bash_source_argument_for_tests(&repo_root.join("scripts").join(script_name))
 }
 
+fn host_python_path_for_test(path: &Path) -> String {
+    let mut rendered = path.to_string_lossy().replace('\\', "/");
+    if let Some(stripped) = rendered.strip_prefix("//?/") {
+        rendered = stripped.to_owned();
+    }
+
+    rendered
+}
+
 fn seed_release_dist_inventory(repo_root: &Path) {
     let dist = repo_root.join("dist");
     fs::create_dir_all(&dist).expect("create dist");
@@ -375,7 +384,7 @@ fn release_shell_helpers_read_cargo_config_through_windows_host_python_paths() {
 
     let fake_bin = repo_root.join("fake-bin");
     fs::create_dir_all(&fake_bin).expect("create fake bin");
-    let repo_root_native_for_python = crate::release::bash_source_argument_for_tests(repo_root);
+    let repo_root_native_for_python = host_python_path_for_test(repo_root);
     fs::write(
         fake_bin.join("cygpath"),
         format!(
