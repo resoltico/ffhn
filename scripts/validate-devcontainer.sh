@@ -66,8 +66,8 @@ validate_inner_runtime() {
     [[ -w "${CARGO_TARGET_DIR}" ]]
     [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
     rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
-    cargo --version >/dev/null
-    cargo +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null
+    cargo build --help >/dev/null
+    cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
     rustup target list --installed | grep -Fx 'x86_64-unknown-linux-musl' >/dev/null
     cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
     cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
@@ -267,8 +267,8 @@ main() {
             [[ -w "${CARGO_TARGET_DIR}" ]]
             [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
             rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
-            cargo --version >/dev/null
-            cargo +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null
+            cargo build --help >/dev/null
+            cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
             rustup target list --installed | grep -Fx '\''x86_64-unknown-linux-musl'\'' >/dev/null
             cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
             cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null

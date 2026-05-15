@@ -58,6 +58,7 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 7. `check`: aggregate required-status job; uses `if: always()` with explicit failure detection so a skipped `contributor-devcontainer-gate` — the correct outcome when no devcontainer-relevant files changed — does not block merge; only a failed or cancelled job prevents success
 
 `CI` also exposes `workflow_dispatch` so maintainers can rerun the exact aggregate `Check` against a branch when GitHub fails to attach the `pull_request` workflow on the initial PR open.
+The Rust-cache steps intentionally exclude `~/.cargo/bin`, so pinned Rust toolchains and Cargo QA tools stay owned by the repo bootstrap contract rather than by restored runner cache state.
 
 `/.github/workflows/release.yml` uses one helper job, two build jobs, and one publication job. The effective publication flow is:
 

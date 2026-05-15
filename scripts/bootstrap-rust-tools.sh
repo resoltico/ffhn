@@ -32,7 +32,7 @@ EOF
 }
 
 verify_stable_toolchain_entrypoints() {
-    cargo --version >/dev/null
+    cargo build --help >/dev/null
     rustc --version >/dev/null
 }
 

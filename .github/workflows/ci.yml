@@ -61,14 +61,8 @@ jobs:
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - name: Reassert pinned Rust toolchains after cache restore
-        shell: bash
-        run: bash ./scripts/bootstrap-rust-tools.sh install-toolchains
-
-      - name: Reassert pinned Rust QA tools after cache restore
-        shell: bash
-        run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
+        with:
+          cache-bin: false
 
       - name: Run Rust workspace gate
         shell: bash
@@ -164,14 +158,7 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: cross-platform-${{ matrix.id }}
-
-      - name: Reassert pinned Rust stable toolchain after cache restore
-        shell: bash
-        run: bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
-
-      - name: Reassert pinned cross-platform Rust QA tools after cache restore
-        shell: bash
-        run: bash ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
+          cache-bin: false
 
       - name: Exclude build directory from Windows Defender
         if: runner.os == 'Windows'
@@ -241,13 +228,7 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target_triple }}
-
-      - name: Reassert pinned Rust stable toolchain after cache restore
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
-          rustup target add "${{ matrix.target_triple }}"
+          cache-bin: false
 
       - name: Build standalone package
         shell: bash
