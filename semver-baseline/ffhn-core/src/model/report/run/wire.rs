@@ -1,11 +1,10 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
-    ChangeKind, CompareBasis, Extensions, FailureClass, FetchEngine, OutputKind,
-    PersistWriteStatus, ProcessErrorDetail, ReasonCode, RunChangeRegion, RunChangeSection,
-    RunCompareSection, RunExtractionSection, RunFetchSection, RunMode, RunNotificationDelivery,
-    RunOutcome, RunPersistSection, RunReport, SelectionKind, SelectionMatch, StatePhase,
-    TargetStatus,
+    BaselinePhase, ChangeKind, CompareBasis, Extensions, FetchEngine, OutputKind,
+    PersistWriteStatus, ProcessErrorDetail, RunChangeRegion, RunChangeSection, RunCompareSection,
+    RunExtractionSection, RunFetchSection, RunMode, RunNotificationDelivery, RunPersistSection,
+    RunReport, RunResult, SelectionKind, SelectionMatch,
 };
 use crate::CoreError;
 
@@ -49,13 +48,10 @@ impl From<&RunFetchSection> for RawRunFetchSection {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRunExtractionSection {
-    interop_profile: String,
-    htmlcut_plan_digest_sha256: String,
-    htmlcut_result_digest_sha256: String,
     comparison_input_sha256: String,
     outer_html_sha256: String,
-    strategy_kind: SelectionKind,
-    selection_mode: SelectionMatch,
+    selection_kind: SelectionKind,
+    selection_match: SelectionMatch,
     output_kind: OutputKind,
     candidate_count: usize,
     selected_candidate_index: usize,
@@ -66,13 +62,10 @@ struct RawRunExtractionSection {
 impl From<RawRunExtractionSection> for RunExtractionSection {
     fn from(raw: RawRunExtractionSection) -> Self {
         Self {
-            interop_profile: raw.interop_profile,
-            htmlcut_plan_digest_sha256: raw.htmlcut_plan_digest_sha256,
-            htmlcut_result_digest_sha256: raw.htmlcut_result_digest_sha256,
             comparison_input_sha256: raw.comparison_input_sha256,
             outer_html_sha256: raw.outer_html_sha256,
-            strategy_kind: raw.strategy_kind,
-            selection_mode: raw.selection_mode,
+            selection_kind: raw.selection_kind,
+            selection_match: raw.selection_match,
             output_kind: raw.output_kind,
             candidate_count: raw.candidate_count,
             selected_candidate_index: raw.selected_candidate_index,
@@ -85,13 +78,10 @@ impl From<RawRunExtractionSection> for RunExtractionSection {
 impl From<&RunExtractionSection> for RawRunExtractionSection {
     fn from(section: &RunExtractionSection) -> Self {
         Self {
-            interop_profile: section.interop_profile.clone(),
-            htmlcut_plan_digest_sha256: section.htmlcut_plan_digest_sha256.clone(),
-            htmlcut_result_digest_sha256: section.htmlcut_result_digest_sha256.clone(),
             comparison_input_sha256: section.comparison_input_sha256.clone(),
             outer_html_sha256: section.outer_html_sha256.clone(),
-            strategy_kind: section.strategy_kind,
-            selection_mode: section.selection_mode,
+            selection_kind: section.selection_kind,
+            selection_match: section.selection_match,
             output_kind: section.output_kind,
             candidate_count: section.candidate_count,
             selected_candidate_index: section.selected_candidate_index,
@@ -159,17 +149,19 @@ impl From<&PersistWriteStatus> for RawPersistWriteStatus {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRunPersistSection {
-    duration_ms: u64,
-    state_write: RawPersistWriteStatus,
+    state_commit_duration_ms: u64,
+    state_commit: RawPersistWriteStatus,
+    last_run_write_duration_ms: u64,
     last_run_write: RawPersistWriteStatus,
 }
 
 impl From<RawRunPersistSection> for RunPersistSection {
     fn from(raw: RawRunPersistSection) -> Self {
         Self {
-            duration_ms: raw.duration_ms,
-            state_write: raw.state_write.into(),
+            state_commit: raw.state_commit.into(),
+            state_commit_duration_ms: raw.state_commit_duration_ms,
             last_run_write: raw.last_run_write.into(),
+            last_run_write_duration_ms: raw.last_run_write_duration_ms,
         }
     }
 }
@@ -177,9 +169,10 @@ impl From<RawRunPersistSection> for RunPersistSection {
 impl From<&RunPersistSection> for RawRunPersistSection {
     fn from(section: &RunPersistSection) -> Self {
         Self {
-            duration_ms: section.duration_ms,
-            state_write: RawPersistWriteStatus::from(&section.state_write),
+            state_commit_duration_ms: section.state_commit_duration_ms,
+            state_commit: RawPersistWriteStatus::from(&section.state_commit),
             last_run_write: RawPersistWriteStatus::from(&section.last_run_write),
+            last_run_write_duration_ms: section.last_run_write_duration_ms,
         }
     }
 }
@@ -287,23 +280,24 @@ struct RawRunReport {
     schema_version: u32,
     run_report_digest_sha256: String,
     target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
     run_started_at: String,
     run_finished_at: String,
     run_mode: RunMode,
-    run_outcome: RunOutcome,
-    reason_code: ReasonCode,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    failure_class: Option<FailureClass>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_detail: Option<ProcessErrorDetail>,
-    target_status_after_run: TargetStatus,
+    result: RunResult,
     compare_basis: CompareBasis,
+    #[serde(skip_serializing_if = "Option::is_none")]
     previous_compare_digest_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     current_compare_digest_sha256: Option<String>,
-    state_phase_before_run: StatePhase,
-    state_phase_after_run: StatePhase,
+    baseline_phase_before_run: BaselinePhase,
+    baseline_phase_after_run: BaselinePhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
     fetch: Option<RawRunFetchSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     extraction: Option<RawRunExtractionSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     compare: Option<RawRunCompareSection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     change: Option<RawRunChangeSection>,
@@ -323,19 +317,16 @@ impl TryFrom<RawRunReport> for RunReport {
             schema_version: raw.schema_version,
             run_report_digest_sha256: raw.run_report_digest_sha256,
             target_id: raw.target_id.try_into()?,
+            display_name: raw.display_name,
             run_started_at: raw.run_started_at,
             run_finished_at: raw.run_finished_at,
             run_mode: raw.run_mode,
-            run_outcome: raw.run_outcome,
-            reason_code: raw.reason_code,
-            failure_class: raw.failure_class,
-            error_detail: raw.error_detail,
-            target_status_after_run: raw.target_status_after_run,
+            result: raw.result,
             compare_basis: raw.compare_basis,
             previous_compare_digest_sha256: raw.previous_compare_digest_sha256,
             current_compare_digest_sha256: raw.current_compare_digest_sha256,
-            state_phase_before_run: raw.state_phase_before_run,
-            state_phase_after_run: raw.state_phase_after_run,
+            baseline_phase_before_run: raw.baseline_phase_before_run,
+            baseline_phase_after_run: raw.baseline_phase_after_run,
             fetch: raw.fetch.map(RunFetchSection::from),
             extraction: raw.extraction.map(RunExtractionSection::from),
             compare: raw.compare.map(RunCompareSection::from),
@@ -356,19 +347,16 @@ impl From<&RunReport> for RawRunReport {
             schema_version: report.schema_version,
             run_report_digest_sha256: report.run_report_digest_sha256.clone(),
             target_id: report.target_id.as_str().to_owned(),
+            display_name: report.display_name.clone(),
             run_started_at: report.run_started_at.clone(),
             run_finished_at: report.run_finished_at.clone(),
             run_mode: report.run_mode,
-            run_outcome: report.run_outcome,
-            reason_code: report.reason_code,
-            failure_class: report.failure_class,
-            error_detail: report.error_detail.clone(),
-            target_status_after_run: report.target_status_after_run,
+            result: report.result.clone(),
             compare_basis: report.compare_basis,
             previous_compare_digest_sha256: report.previous_compare_digest_sha256.clone(),
             current_compare_digest_sha256: report.current_compare_digest_sha256.clone(),
-            state_phase_before_run: report.state_phase_before_run,
-            state_phase_after_run: report.state_phase_after_run,
+            baseline_phase_before_run: report.baseline_phase_before_run,
+            baseline_phase_after_run: report.baseline_phase_after_run,
             fetch: report.fetch.as_ref().map(RawRunFetchSection::from),
             extraction: report
                 .extraction

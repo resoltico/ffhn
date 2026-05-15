@@ -33,21 +33,6 @@ impl RunFetchSection {
 }
 
 impl RunExtractionSection {
-    /// Returns the frozen HTMLCut interop profile.
-    pub fn interop_profile(&self) -> &str {
-        &self.interop_profile
-    }
-
-    /// Returns the exact HTMLCut plan digest.
-    pub fn htmlcut_plan_digest_sha256(&self) -> &str {
-        &self.htmlcut_plan_digest_sha256
-    }
-
-    /// Returns the exact HTMLCut result digest.
-    pub fn htmlcut_result_digest_sha256(&self) -> &str {
-        &self.htmlcut_result_digest_sha256
-    }
-
     /// Returns the comparison-input digest.
     pub fn comparison_input_sha256(&self) -> &str {
         &self.comparison_input_sha256
@@ -58,17 +43,17 @@ impl RunExtractionSection {
         &self.outer_html_sha256
     }
 
-    /// Returns the echoed extraction strategy kind.
-    pub const fn strategy_kind(&self) -> SelectionKind {
-        self.strategy_kind
+    /// Returns the extraction strategy kind.
+    pub const fn selection_kind(&self) -> SelectionKind {
+        self.selection_kind
     }
 
-    /// Returns the echoed selection mode.
-    pub const fn selection_mode(&self) -> SelectionMatch {
-        self.selection_mode
+    /// Returns the selection mode.
+    pub const fn selection_match(&self) -> SelectionMatch {
+        self.selection_match
     }
 
-    /// Returns the echoed output kind.
+    /// Returns the output kind.
     pub const fn output_kind(&self) -> OutputKind {
         self.output_kind
     }
@@ -83,7 +68,7 @@ impl RunExtractionSection {
         self.selected_candidate_index
     }
 
-    /// Returns any warning codes emitted by HTMLCut.
+    /// Returns any warning codes surfaced through FFHN's extractor seam.
     pub fn warning_codes(&self) -> &[String] {
         &self.warning_codes
     }
@@ -108,25 +93,37 @@ impl RunCompareSection {
 
 impl RunPersistSection {
     pub(crate) const fn from_writes(
-        duration_ms: u64,
-        state_write: PersistWriteStatus,
+        state_commit_duration_ms: u64,
+        state_commit: PersistWriteStatus,
+        last_run_write_duration_ms: u64,
         last_run_write: PersistWriteStatus,
     ) -> Self {
         Self {
-            duration_ms,
-            state_write,
+            state_commit,
+            state_commit_duration_ms,
             last_run_write,
+            last_run_write_duration_ms,
         }
     }
 
-    /// Returns the persist-stage duration in milliseconds.
-    pub const fn duration_ms(&self) -> u64 {
-        self.duration_ms
+    /// Returns the primary persistence transaction duration in milliseconds.
+    pub const fn state_commit_duration_ms(&self) -> u64 {
+        self.state_commit_duration_ms
     }
 
-    /// Returns the write result for `state.json`.
-    pub const fn state_write(&self) -> &PersistWriteStatus {
-        &self.state_write
+    /// Returns the `last_run.json` write duration in milliseconds.
+    pub const fn last_run_write_duration_ms(&self) -> u64 {
+        self.last_run_write_duration_ms
+    }
+
+    /// Returns the total persist duration across both durable phases.
+    pub const fn total_duration_ms(&self) -> u64 {
+        self.state_commit_duration_ms + self.last_run_write_duration_ms
+    }
+
+    /// Returns the primary persistence transaction result.
+    pub const fn state_commit(&self) -> &PersistWriteStatus {
+        &self.state_commit
     }
 
     /// Returns the write result for `last_run.json`.
@@ -136,8 +133,8 @@ impl RunPersistSection {
 
     /// Returns whether FFHN wrote `state.json`.
     #[cfg(test)]
-    pub const fn wrote_state(&self) -> bool {
-        self.state_write.is_written()
+    pub const fn committed_state(&self) -> bool {
+        self.state_commit.is_written()
     }
 
     /// Returns whether FFHN wrote `last_run.json`.
@@ -148,12 +145,12 @@ impl RunPersistSection {
 
     /// Returns whether either persist write failed.
     pub const fn has_failure(&self) -> bool {
-        self.state_write.is_failed() || self.last_run_write.is_failed()
+        self.state_commit.is_failed() || self.last_run_write.is_failed()
     }
 
     /// Returns the first persist failure detail when one exists.
     pub const fn error(&self) -> Option<&ProcessErrorDetail> {
-        if let Some(error) = self.state_write.error() {
+        if let Some(error) = self.state_commit.error() {
             return Some(error);
         }
         self.last_run_write.error()
@@ -260,24 +257,14 @@ impl RunReport {
         &self.run_report_digest_sha256
     }
 
-    /// Returns the run mode.
-    pub fn run_mode(&self) -> RunMode {
-        self.run_mode
-    }
-
-    /// Returns the run outcome.
-    pub fn run_outcome(&self) -> RunOutcome {
-        self.run_outcome
-    }
-
-    /// Returns the reason code.
-    pub fn reason_code(&self) -> ReasonCode {
-        self.reason_code
-    }
-
     /// Returns the persisted target id string.
     pub fn target_id(&self) -> &str {
         self.target_id.as_str()
+    }
+
+    /// Returns the parsed target display name when FFHN could trust the target document.
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
     }
 
     /// Returns the run start timestamp.
@@ -290,19 +277,34 @@ impl RunReport {
         &self.run_finished_at
     }
 
+    /// Returns the run mode.
+    pub fn run_mode(&self) -> RunMode {
+        self.run_mode
+    }
+
+    /// Returns the structured run result.
+    pub const fn result(&self) -> &RunResult {
+        &self.result
+    }
+
+    /// Returns the run outcome.
+    pub fn run_outcome(&self) -> RunOutcome {
+        self.result.outcome()
+    }
+
     /// Returns the failure class when one exists.
     pub fn failure_class(&self) -> Option<FailureClass> {
-        self.failure_class
+        self.result.failure_class()
+    }
+
+    /// Returns the run-failure cause when one exists.
+    pub fn failure_cause(&self) -> Option<RunFailureCause> {
+        self.result.failure_cause()
     }
 
     /// Returns the structured primary failure detail when one exists.
     pub fn error_detail(&self) -> Option<&ProcessErrorDetail> {
-        self.error_detail.as_ref()
-    }
-
-    /// Returns the target status after the run.
-    pub fn target_status_after_run(&self) -> TargetStatus {
-        self.target_status_after_run
+        self.result.error_detail()
     }
 
     /// Returns the compare basis.
@@ -320,17 +322,69 @@ impl RunReport {
         self.current_compare_digest_sha256.as_deref()
     }
 
-    /// Returns the state phase before the run.
-    pub fn state_phase_before_run(&self) -> StatePhase {
-        self.state_phase_before_run
+    /// Returns the durable baseline phase before the run.
+    pub fn baseline_phase_before_run(&self) -> BaselinePhase {
+        self.baseline_phase_before_run
     }
 
-    /// Returns the state phase after the run.
-    pub fn state_phase_after_run(&self) -> StatePhase {
-        self.state_phase_after_run
+    /// Returns the durable baseline phase after the run.
+    pub fn baseline_phase_after_run(&self) -> BaselinePhase {
+        self.baseline_phase_after_run
     }
 
-    /// Returns the fetch subsection when one exists.
+    /// Returns a coherent body view instead of independent optional stage sections.
+    pub fn body(&self) -> RunBodyView<'_> {
+        match (&self.fetch, &self.extraction, &self.compare, &self.change) {
+            (Some(fetch), Some(extraction), Some(compare), Some(change)) => {
+                RunBodyView::Reportable(ReportableRunBodyView {
+                    fetch,
+                    extraction,
+                    compare,
+                    change,
+                    previous_compare_digest_sha256: self.previous_compare_digest_sha256(),
+                    current_compare_digest_sha256: self
+                        .current_compare_digest_sha256()
+                        .expect("validated reportable bodies carry the current digest"),
+                })
+            }
+            (Some(fetch), Some(extraction), Some(compare), None) => {
+                RunBodyView::FetchExtractionCompare {
+                    fetch: RunFetchView(fetch),
+                    extraction,
+                    compare: RunCompareView(compare),
+                }
+            }
+            (Some(fetch), Some(extraction), None, None) => RunBodyView::FetchAndExtraction {
+                fetch: RunFetchView(fetch),
+                extraction,
+            },
+            (Some(fetch), None, None, None) => RunBodyView::Fetch {
+                fetch: RunFetchView(fetch),
+            },
+            (None, None, None, None) => RunBodyView::None,
+            _ => RunBodyView::None,
+        }
+    }
+
+    /// Returns a successful-run view when the run outcome is successful.
+    pub fn successful(&self) -> Option<SuccessfulRunReportView<'_>> {
+        matches!(
+            self.run_outcome(),
+            RunOutcome::Initialized | RunOutcome::Changed | RunOutcome::Unchanged
+        )
+        .then_some(SuccessfulRunReportView { report: self })
+    }
+
+    /// Returns a failed-run view when the run outcome is failed.
+    pub fn failed(&self) -> Option<FailedRunReportView<'_>> {
+        matches!(
+            self.run_outcome(),
+            RunOutcome::FailedTransient | RunOutcome::FailedPermanent
+        )
+        .then_some(FailedRunReportView { report: self })
+    }
+
+    /// Returns a read-only fetch view when one exists.
     pub fn fetch(&self) -> Option<RunFetchView<'_>> {
         self.fetch.as_ref().map(RunFetchView)
     }
@@ -340,7 +394,7 @@ impl RunReport {
         self.extraction.as_ref()
     }
 
-    /// Returns the compare subsection when one exists.
+    /// Returns a read-only compare view when one exists.
     pub fn compare(&self) -> Option<RunCompareView<'_>> {
         self.compare.as_ref().map(RunCompareView)
     }
@@ -350,12 +404,12 @@ impl RunReport {
         self.change.as_ref()
     }
 
-    /// Returns the persist subsection.
-    pub fn persist(&self) -> RunPersistView<'_> {
+    /// Returns a read-only persist view.
+    pub const fn persist(&self) -> RunPersistView<'_> {
         RunPersistView(&self.persist)
     }
 
-    /// Returns the attempted notification deliveries.
+    /// Returns the best-effort notification deliveries.
     pub fn notifications(
         &self,
     ) -> impl ExactSizeIterator<Item = RunNotificationDeliveryView<'_>> + '_ {
@@ -368,9 +422,94 @@ impl RunReport {
     }
 }
 
-/// Public read-only projection of one fetch subsection.
+impl RunResult {
+    /// Returns whether this result represents a failed run.
+    pub const fn is_failure(&self) -> bool {
+        matches!(
+            self,
+            Self::FailedTransient { .. } | Self::FailedPermanent { .. }
+        )
+    }
+}
+
+/// Read-only fetch view.
 #[derive(Clone, Copy, Debug)]
-pub struct RunFetchView<'a>(pub(super) &'a RunFetchSection);
+pub struct RunFetchView<'a>(pub(crate) &'a RunFetchSection);
+
+/// Read-only compare view.
+#[derive(Clone, Copy, Debug)]
+pub struct RunCompareView<'a>(pub(crate) &'a RunCompareSection);
+
+/// Read-only persist view.
+#[derive(Clone, Copy, Debug)]
+pub struct RunPersistView<'a>(pub(crate) &'a RunPersistSection);
+
+/// Read-only notification-delivery view.
+#[derive(Clone, Copy, Debug)]
+pub struct RunNotificationDeliveryView<'a>(pub(crate) &'a RunNotificationDelivery);
+
+impl<'a> ReportableRunBodyView<'a> {
+    /// Returns the completed fetch section.
+    pub const fn fetch(self) -> RunFetchView<'a> {
+        RunFetchView(self.fetch)
+    }
+
+    /// Returns the completed extraction section.
+    pub fn extraction(self) -> &'a RunExtractionSection {
+        self.extraction
+    }
+
+    /// Returns the completed compare section.
+    pub const fn compare(self) -> RunCompareView<'a> {
+        RunCompareView(self.compare)
+    }
+
+    /// Returns the completed change section.
+    pub fn change(self) -> &'a RunChangeSection {
+        self.change
+    }
+
+    /// Returns the previous compare digest when one exists.
+    pub const fn previous_compare_digest_sha256(self) -> Option<&'a str> {
+        self.previous_compare_digest_sha256
+    }
+
+    /// Returns the current compare digest.
+    pub fn current_compare_digest_sha256(self) -> &'a str {
+        self.current_compare_digest_sha256
+    }
+}
+
+impl<'a> FailedRunReportView<'a> {
+    /// Returns the stable run-failure cause.
+    pub fn failure_cause(self) -> RunFailureCause {
+        self.report
+            .failure_cause()
+            .expect("failed-run views always carry a failure cause")
+    }
+
+    /// Returns the structured primary failure detail.
+    pub fn error_detail(self) -> &'a ProcessErrorDetail {
+        self.report
+            .error_detail()
+            .expect("failed-run views always carry an error detail")
+    }
+
+    /// Returns the coherent run body that completed before the failure.
+    pub fn body(self) -> RunBodyView<'a> {
+        self.report.body()
+    }
+}
+
+impl<'a> SuccessfulRunReportView<'a> {
+    /// Returns the coherent reportable body for a successful run.
+    pub fn body(self) -> ReportableRunBodyView<'a> {
+        match self.report.body() {
+            RunBodyView::Reportable(body) => body,
+            _ => unreachable!("successful runs always carry a full reportable body"),
+        }
+    }
+}
 
 impl<'a> RunFetchView<'a> {
     /// Returns the fetch engine used for the run.
@@ -404,10 +543,6 @@ impl<'a> RunFetchView<'a> {
     }
 }
 
-/// Public read-only projection of one compare subsection.
-#[derive(Clone, Copy, Debug)]
-pub struct RunCompareView<'a>(pub(super) &'a RunCompareSection);
-
 impl<'a> RunCompareView<'a> {
     /// Returns the canonicalizers applied in order.
     pub fn canonicalizers(self) -> &'a [String] {
@@ -420,19 +555,25 @@ impl<'a> RunCompareView<'a> {
     }
 }
 
-/// Public read-only projection of one persist subsection.
-#[derive(Clone, Copy, Debug)]
-pub struct RunPersistView<'a>(pub(super) &'a RunPersistSection);
-
 impl<'a> RunPersistView<'a> {
-    /// Returns the persist-stage duration in milliseconds.
-    pub const fn duration_ms(self) -> u64 {
-        self.0.duration_ms()
+    /// Returns the primary persistence transaction duration in milliseconds.
+    pub const fn state_commit_duration_ms(self) -> u64 {
+        self.0.state_commit_duration_ms()
     }
 
-    /// Returns the write result for `state.json`.
-    pub const fn state_write(self) -> &'a PersistWriteStatus {
-        self.0.state_write()
+    /// Returns the `last_run.json` write duration in milliseconds.
+    pub const fn last_run_write_duration_ms(self) -> u64 {
+        self.0.last_run_write_duration_ms()
+    }
+
+    /// Returns the total persist duration across both durable phases.
+    pub const fn total_duration_ms(self) -> u64 {
+        self.0.total_duration_ms()
+    }
+
+    /// Returns the primary persistence transaction result.
+    pub const fn state_commit(self) -> &'a PersistWriteStatus {
+        self.0.state_commit()
     }
 
     /// Returns the write result for `last_run.json`.
@@ -449,16 +590,24 @@ impl<'a> RunPersistView<'a> {
     pub const fn error(self) -> Option<&'a ProcessErrorDetail> {
         self.0.error()
     }
+
+    /// Returns whether FFHN wrote `state.json`.
+    #[cfg(test)]
+    pub const fn committed_state(self) -> bool {
+        self.0.committed_state()
+    }
+
+    /// Returns whether FFHN wrote `last_run.json`.
+    #[cfg(test)]
+    pub const fn wrote_last_run(self) -> bool {
+        self.0.wrote_last_run()
+    }
 }
 
-/// Public read-only projection of one notification delivery.
-#[derive(Clone, Copy, Debug)]
-pub struct RunNotificationDeliveryView<'a>(pub(super) &'a RunNotificationDelivery);
-
 impl<'a> RunNotificationDeliveryView<'a> {
-    /// Returns the hook name from `target.toml`.
-    pub fn hook_name(self) -> &'a str {
-        self.0.hook_name()
+    /// Returns the route name from `target.toml`.
+    pub fn route_name(self) -> &'a str {
+        self.0.route_name()
     }
 
     /// Returns the delivery duration in milliseconds.
@@ -466,18 +615,18 @@ impl<'a> RunNotificationDeliveryView<'a> {
         self.0.duration_ms()
     }
 
-    /// Returns the exit code when one exists.
+    /// Returns the stable delivery status.
+    pub const fn status(self) -> NotificationDeliveryStatus {
+        self.0.status()
+    }
+
+    /// Returns the exit status when one exists.
     pub const fn exit_code(self) -> Option<i32> {
         self.0.exit_code()
     }
 
-    /// Returns the best-effort error detail when delivery failed.
+    /// Returns the best-effort failure detail when delivery failed.
     pub fn error(self) -> Option<&'a str> {
         self.0.error()
-    }
-
-    /// Returns the stable delivery status.
-    pub const fn status(self) -> NotificationDeliveryStatus {
-        self.0.status()
     }
 }

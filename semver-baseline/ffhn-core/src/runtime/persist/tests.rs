@@ -1,18 +1,19 @@
 use super::super::state::SnapshotArtifacts;
 use super::super::state::{StateLoad, load_state};
-use super::super::storage::{read_text, with_write_error_injected, write_exact_text};
+use super::super::storage::{read_json, read_text, with_write_error_injected, write_exact_text};
 use super::snapshot_store::unique_snapshot_work_dir;
 use super::*;
+use crate::runtime::domain::PersistedState;
 use crate::stable_json::{sha256_hex, stable_json};
 use crate::{
-    CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HTMLCUT_INTEROP_PROFILE,
-    HttpMethod, NetworkFetchConfig, OutputKind, ReasonCode, RelativeArtifactPath, RunOutcome,
-    RunReport, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionKind,
-    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StateDocument,
-    StatePhase, TargetDocument, TargetId, TargetPaths, TargetSource, WhitespaceMode,
+    BaselinePhase, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HttpMethod, LastRunRecord,
+    NetworkFetchConfig, OutputKind, RelativeArtifactPath, RunFailureCause, RunOutcome, RunReport,
+    RunResult, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionEvidence,
+    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
+    StateDocument, StoredBaseline, TargetDocument, TargetId, TargetPaths, TargetSource,
+    WhitespaceMode,
 };
-use serde_json::json;
 use std::io;
 use tempfile::tempdir;
 use url::Url;
@@ -59,7 +60,8 @@ fn target() -> TargetDocument {
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -68,17 +70,17 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
     ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-        interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-        htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-        htmlcut_result_digest_sha256: DIGEST.to_owned(),
         comparison_input_sha256: DIGEST.to_owned(),
         outer_html_sha256: outer_html_sha256.to_owned(),
-        strategy_kind: SelectionKind::CssSelector,
-        selection_mode: SelectionMatch::Single,
+        selection_kind: SelectionKind::CssSelector,
+        selection_match: SelectionMatch::Single,
         output_kind: OutputKind::OuterHtml,
         candidate_count: 1,
         selected_candidate_index: 1,
-        match_metadata: json!({"selector": "main"}),
+        selection_evidence: SelectionEvidence::CssSelector {
+            path: "html > body > main".to_owned(),
+            tag_name: "main".to_owned(),
+        },
         warning_codes: Vec::new(),
         created_at: "2026-04-05T10:15:30Z".to_owned(),
         extensions: None,
@@ -109,21 +111,27 @@ fn prior_state_with(
     history: Vec<SnapshotArtifacts>,
 ) -> StateLoad {
     StateLoad::Valid(Box::new(super::super::state::LoadedState {
-        document: StateDocument {
+        state: PersistedState::from_document(StateDocument {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
-            last_run_outcome: Some(RunOutcome::Initialized),
-            last_reason_code: Some(ReasonCode::Ok),
-            current_snapshot: current.as_ref().map(|snapshot| snapshot.reference.clone()),
-            snapshot_history: history
-                .iter()
-                .map(|snapshot| snapshot.reference.clone())
-                .collect(),
+            baseline: match &current {
+                Some(current_snapshot) => StoredBaseline::Ready {
+                    current_snapshot: current_snapshot.reference.clone(),
+                    snapshot_history: history
+                        .iter()
+                        .map(|snapshot| snapshot.reference.clone())
+                        .collect(),
+                },
+                None => StoredBaseline::Pending,
+            },
+            last_run: Some(LastRunRecord::new(
+                "2026-04-05T10:15:30Z".to_owned(),
+                RunOutcome::Initialized,
+                None,
+            )),
             extensions: None,
-        },
+        }),
         current,
     }))
 }
@@ -173,31 +181,33 @@ fn persist_state_only_updates_existing_state_and_handles_empty_prior_state() {
         &target(),
         &existing,
         RunOutcome::FailedTransient,
-        ReasonCode::FetchHttpServerError,
+        Some(RunFailureCause::FetchHttpServerError),
         "2026-04-05T11:00:00Z",
     )
     .expect("persist existing state");
     assert!(wrote_state);
     let state = state.expect("state document");
     assert_eq!(
-        state.last_reason_code,
-        Some(ReasonCode::FetchHttpServerError)
+        state
+            .last_run
+            .as_ref()
+            .and_then(LastRunRecord::failure_cause),
+        Some(RunFailureCause::FetchHttpServerError)
     );
-    assert_eq!(state.last_run_outcome, Some(RunOutcome::FailedTransient));
 
     let (wrote_state, state) = persist_state_only(
         &paths,
         &target(),
         &StateLoad::Missing,
         RunOutcome::SkippedDisabled,
-        ReasonCode::Disabled,
+        None,
         "2026-04-05T11:00:00Z",
     )
     .expect("persist disabled state");
     assert!(wrote_state);
     assert_eq!(
-        state.expect("disabled state").state_phase,
-        StatePhase::NeverSucceeded
+        state.expect("disabled state").baseline_phase(),
+        BaselinePhase::NeverSucceeded
     );
 
     let (wrote_state, state) = persist_state_only(
@@ -205,12 +215,57 @@ fn persist_state_only_updates_existing_state_and_handles_empty_prior_state() {
         &target(),
         &StateLoad::Missing,
         RunOutcome::FailedTransient,
-        ReasonCode::FetchHttpServerError,
+        Some(RunFailureCause::FetchHttpServerError),
         "2026-04-05T11:00:00Z",
     )
     .expect("missing prior state");
     assert!(!wrote_state);
     assert!(state.is_none());
+}
+
+#[test]
+fn persist_state_only_rejects_failed_outcomes_without_failure_causes() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let prior_state = prior_state_with(
+        Some(snapshot(
+            SnapshotSlot::Current,
+            "current",
+            "hello",
+            "<main>Hello</main>",
+        )),
+        Vec::new(),
+    );
+
+    let transient_error = persist_state_only(
+        &paths,
+        &target(),
+        &prior_state,
+        RunOutcome::FailedTransient,
+        None,
+        "2026-04-05T11:00:00Z",
+    )
+    .expect_err("failed transient without cause should be rejected");
+    assert!(
+        transient_error
+            .to_string()
+            .contains("failed_transient persisted last_run requires a failure cause")
+    );
+
+    let permanent_error = persist_state_only(
+        &paths,
+        &target(),
+        &prior_state,
+        RunOutcome::FailedPermanent,
+        None,
+        "2026-04-05T11:00:00Z",
+    )
+    .expect_err("failed permanent without cause should be rejected");
+    assert!(
+        permanent_error
+            .to_string()
+            .contains("failed_permanent persisted last_run requires a failure cause")
+    );
 }
 
 #[test]
@@ -249,16 +304,16 @@ fn persist_successful_run_rotates_current_into_history_and_prunes_to_limit() {
     .expect("persist changed run")
     .expect("state");
 
-    assert_eq!(state.state_phase, StatePhase::HasBaseline);
+    assert_eq!(state.baseline_phase(), BaselinePhase::HasBaseline);
     assert_eq!(
         read_text(&paths.current_snapshot_dir().join("canonical.txt")).expect("current canonical"),
         "after"
     );
-    assert_eq!(state.snapshot_history.len(), 1);
-    assert_eq!(state.snapshot_history[0].slot, SnapshotSlot::History);
+    assert_eq!(state.snapshot_history().len(), 1);
+    assert_eq!(state.snapshot_history()[0].slot(), SnapshotSlot::History);
     assert!(
-        state.snapshot_history[0]
-            .canonical_text_path
+        state.snapshot_history()[0]
+            .canonical_text_path()
             .as_str()
             .starts_with("snapshots/history/")
     );
@@ -290,7 +345,7 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
     )
     .expect("persist initialized run")
     .expect("state");
-    assert!(initialized.snapshot_history.is_empty());
+    assert!(initialized.snapshot_history().is_empty());
     assert!(!paths.history_snapshots_dir().join("stale").exists());
 
     let current = snapshot(
@@ -321,12 +376,12 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
     .expect("state");
     assert_eq!(
         unchanged
-            .current_snapshot
+            .current_snapshot()
             .expect("current")
-            .canonical_text_sha256,
+            .canonical_text_sha256(),
         current.reference.canonical_text_sha256
     );
-    assert_eq!(unchanged.snapshot_history.len(), 1);
+    assert_eq!(unchanged.snapshot_history().len(), 1);
 }
 
 #[test]
@@ -348,7 +403,7 @@ fn persist_successful_run_changed_without_prior_current_keeps_history_empty() {
     .expect("persist changed run without prior current")
     .expect("state");
 
-    assert_eq!(state.snapshot_history, Vec::new());
+    assert_eq!(state.snapshot_history(), &[]);
 }
 
 #[test]
@@ -496,12 +551,15 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
-            last_run_outcome: Some(RunOutcome::Initialized),
-            last_reason_code: Some(ReasonCode::Ok),
-            current_snapshot: Some(current.reference.clone()),
-            snapshot_history: vec![older.reference.clone(), oldest.reference.clone()],
+            baseline: StoredBaseline::Ready {
+                current_snapshot: current.reference.clone(),
+                snapshot_history: vec![older.reference.clone(), oldest.reference.clone()],
+            },
+            last_run: Some(LastRunRecord::new(
+                "2026-04-05T10:15:30Z".to_owned(),
+                RunOutcome::Initialized,
+                None,
+            )),
             extensions: None,
         },
     );
@@ -542,11 +600,23 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
             .join(&oldest.reference.canonical_text_path)
             .exists()
     );
+    let history_entries = std::fs::read_dir(paths.history_snapshots_dir())
+        .expect("read history snapshots")
+        .count();
+    assert_eq!(history_entries, 2);
+    let snapshot_work_dirs = std::fs::read_dir(paths.snapshots_dir())
+        .expect("read snapshots dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".current-") || name.starts_with(".history-"))
+        .collect::<Vec<_>>();
+    assert!(snapshot_work_dirs.is_empty(), "{snapshot_work_dirs:?}");
 
     let loaded = load_state(&paths);
     assert!(matches!(loaded, StateLoad::Valid(_)));
     let persisted_state = read_text(&paths.state_file()).expect("state text");
-    assert!(persisted_state.contains("\"last_reason_code\":\"ok\""));
+    assert!(persisted_state.contains("\"last_run\":{\"outcome\":\"initialized\""));
+    assert!(!persisted_state.contains("\"last_reason_code\""));
 }
 
 #[test]
@@ -583,22 +653,39 @@ fn write_last_run_persists_report_json() {
         schema_version: crate::RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
         target_id: target_id("demo"),
+        display_name: Some("Demo".to_owned()),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: crate::RunMode::Live,
-        run_outcome: RunOutcome::Initialized,
-        reason_code: ReasonCode::Ok,
-        failure_class: None,
-        error_detail: None,
-        target_status_after_run: crate::TargetStatus::Ready,
+        result: RunResult::Initialized,
         compare_basis: CompareBasis::CanonicalTextSha256,
         previous_compare_digest_sha256: None,
         current_compare_digest_sha256: Some(DIGEST.to_owned()),
-        state_phase_before_run: StatePhase::NeverSucceeded,
-        state_phase_after_run: StatePhase::HasBaseline,
-        fetch: None,
-        extraction: None,
-        compare: None,
+        baseline_phase_before_run: BaselinePhase::NeverSucceeded,
+        baseline_phase_after_run: BaselinePhase::HasBaseline,
+        fetch: Some(crate::RunFetchSection {
+            engine: crate::FetchEngine::File,
+            final_url: Some("file:///tmp/source.html".to_owned()),
+            http_status: None,
+            content_type: None,
+            bytes_read: Some(42),
+            duration_ms: 1,
+        }),
+        extraction: Some(crate::RunExtractionSection {
+            comparison_input_sha256: DIGEST.to_owned(),
+            outer_html_sha256: DIGEST.to_owned(),
+            selection_kind: SelectionKind::CssSelector,
+            selection_match: SelectionMatch::Single,
+            output_kind: OutputKind::OuterHtml,
+            candidate_count: 1,
+            selected_candidate_index: 1,
+            warning_codes: Vec::new(),
+            duration_ms: 1,
+        }),
+        compare: Some(crate::RunCompareSection {
+            canonicalizers: Vec::new(),
+            duration_ms: 1,
+        }),
         change: Some(crate::RunChangeSection {
             kind: crate::ChangeKind::Initialized,
             previous_text_bytes: None,
@@ -612,6 +699,7 @@ fn write_last_run_persists_report_json() {
         persist: crate::RunPersistSection::from_writes(
             1,
             crate::PersistWriteStatus::Written,
+            0,
             crate::PersistWriteStatus::NotAttempted,
         ),
         notifications: Vec::new(),
@@ -621,4 +709,6 @@ fn write_last_run_persists_report_json() {
     .expect("report digest");
     write_last_run(&paths, &report).expect("write last run");
     assert!(paths.last_run_file().is_file());
+    let snapshot: crate::LastRunSnapshot = read_json(&paths.last_run_file()).expect("snapshot");
+    assert_eq!(snapshot.run_report(), &report);
 }

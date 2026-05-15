@@ -11,17 +11,20 @@ use super::storage::read_text;
 pub(crate) enum TargetLoad {
     Valid(Box<TargetDocument>),
     Invalid(ProcessErrorDetail),
+    Unavailable(ProcessErrorDetail),
 }
 
-/// Loads one target document while preserving process-level read failures.
+/// Loads one target document after the caller has already verified the watch root exists.
 ///
 /// Returns [`TargetLoad::Valid`] when the document decoded and validated successfully,
 /// [`TargetLoad::Invalid`] when the target exists but violates FFHN's target contract, and
-/// `Err(CoreError::Io { .. })` for process-level read failures.
+/// [`TargetLoad::Unavailable`] when the target path cannot be read as one target document.
 pub(crate) fn load_target_document(paths: &TargetPaths) -> Result<TargetLoad, CoreError> {
     let target = match read_target_document(&paths.target_file()) {
         Ok(target) => target,
-        Err(error @ CoreError::Io { .. }) => return Err(error),
+        Err(error @ CoreError::Io { .. }) => {
+            return Ok(TargetLoad::Unavailable(target_load_detail(paths, &error)));
+        }
         Err(error) => return Ok(TargetLoad::Invalid(target_load_detail(paths, &error))),
     };
 

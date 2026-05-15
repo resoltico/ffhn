@@ -18,6 +18,7 @@ enum RawProcessErrorKind {
     Contract,
     HtmlcutInterop,
     Internal,
+    PersistTransaction,
 }
 
 impl From<RawProcessErrorKind> for ProcessErrorKind {
@@ -32,6 +33,7 @@ impl From<RawProcessErrorKind> for ProcessErrorKind {
             RawProcessErrorKind::Contract => Self::Contract,
             RawProcessErrorKind::HtmlcutInterop => Self::HtmlcutInterop,
             RawProcessErrorKind::Internal => Self::Internal,
+            RawProcessErrorKind::PersistTransaction => Self::PersistTransaction,
         }
     }
 }
@@ -48,6 +50,7 @@ impl From<ProcessErrorKind> for RawProcessErrorKind {
             ProcessErrorKind::Contract => Self::Contract,
             ProcessErrorKind::HtmlcutInterop => Self::HtmlcutInterop,
             ProcessErrorKind::Internal => Self::Internal,
+            ProcessErrorKind::PersistTransaction => Self::PersistTransaction,
         }
     }
 }
@@ -152,7 +155,7 @@ impl From<&NotificationDeliveryOutcome> for RawNotificationDeliveryOutcome {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRunNotificationDelivery {
-    hook_name: String,
+    route_name: String,
     duration_ms: u64,
     outcome: RawNotificationDeliveryOutcome,
 }
@@ -160,7 +163,7 @@ struct RawRunNotificationDelivery {
 impl From<RawRunNotificationDelivery> for RunNotificationDelivery {
     fn from(raw: RawRunNotificationDelivery) -> Self {
         Self {
-            hook_name: raw.hook_name,
+            route_name: raw.route_name,
             duration_ms: raw.duration_ms,
             outcome: raw.outcome.into(),
         }
@@ -170,7 +173,7 @@ impl From<RawRunNotificationDelivery> for RunNotificationDelivery {
 impl From<&RunNotificationDelivery> for RawRunNotificationDelivery {
     fn from(delivery: &RunNotificationDelivery) -> Self {
         Self {
-            hook_name: delivery.hook_name.clone(),
+            route_name: delivery.route_name.clone(),
             duration_ms: delivery.duration_ms,
             outcome: RawNotificationDeliveryOutcome::from(&delivery.outcome),
         }
@@ -201,7 +204,7 @@ impl<'de> Deserialize<'de> for RunNotificationDelivery {
 struct RawNotificationPayload {
     schema_name: String,
     schema_version: u32,
-    hook_name: String,
+    route_name: String,
     delivery_started_at: String,
     run_report: RunReport,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -215,7 +218,7 @@ impl TryFrom<RawNotificationPayload> for NotificationPayload {
         let payload = Self {
             schema_name: raw.schema_name,
             schema_version: raw.schema_version,
-            hook_name: raw.hook_name,
+            route_name: raw.route_name,
             delivery_started_at: raw.delivery_started_at,
             run_report: raw.run_report,
             extensions: raw.extensions,
@@ -230,7 +233,7 @@ impl From<&NotificationPayload> for RawNotificationPayload {
         Self {
             schema_name: payload.schema_name.clone(),
             schema_version: payload.schema_version,
-            hook_name: payload.hook_name.clone(),
+            route_name: payload.route_name.clone(),
             delivery_started_at: payload.delivery_started_at.clone(),
             run_report: payload.run_report.clone(),
             extensions: payload.extensions.clone(),

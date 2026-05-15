@@ -22,12 +22,8 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: None,
-            last_run_outcome: None,
-            last_reason_code: None,
-            current_snapshot: None,
-            snapshot_history: Vec::new(),
+            baseline: StoredBaseline::Pending,
+            last_run: None,
             extensions: None,
         },
     )
@@ -43,9 +39,9 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     );
     let report = run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry run");
     handle.join().expect("dry-run join");
-    assert_eq!(report.run_mode, RunMode::DryRun);
-    assert_eq!(report.run_outcome, RunOutcome::Initialized);
-    assert!(!report.persist.wrote_state());
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
+    assert!(!report.persist().committed_state());
     assert!(!paths.last_run_file().exists());
 
     write_target(
@@ -70,7 +66,7 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     let integrity_dry_run = run_once_with_options(&paths, RunOptions::DRY_RUN)
         .expect("dry run with integrity mismatch");
     handle.join().expect("integrity join");
-    assert_eq!(integrity_dry_run.run_outcome, RunOutcome::Initialized);
+    assert_eq!(integrity_dry_run.run_outcome(), RunOutcome::Initialized);
 
     let (url, handle) = serve_once(TestResponse {
         status_line: "500 Internal Server Error",
@@ -84,8 +80,8 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     let fetch_failure =
         run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run fetch failure");
     handle.join().expect("fetch failure join");
-    assert_eq!(fetch_failure.run_outcome, RunOutcome::FailedTransient);
-    assert!(!fetch_failure.persist.wrote_state());
+    assert_eq!(fetch_failure.run_outcome(), RunOutcome::FailedTransient);
+    assert!(!fetch_failure.persist().committed_state());
 
     #[cfg(unix)]
     {
@@ -108,8 +104,8 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
             run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run unreadable");
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
         handle.join().expect("unreadable state join");
-        assert_eq!(unreadable_state.run_outcome, RunOutcome::Initialized);
-        assert!(!unreadable_state.persist.wrote_state());
+        assert_eq!(unreadable_state.run_outcome(), RunOutcome::Initialized);
+        assert!(!unreadable_state.persist().committed_state());
     }
 
     let (url, handle) = serve_once(TestResponse {
@@ -124,8 +120,11 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     let extraction_failure =
         run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run extraction failure");
     handle.join().expect("extraction join");
-    assert_eq!(extraction_failure.run_outcome, RunOutcome::FailedPermanent);
-    assert!(extraction_failure.fetch.is_some());
+    assert_eq!(
+        extraction_failure.run_outcome(),
+        RunOutcome::FailedPermanent
+    );
+    assert!(extraction_failure.fetch().is_some());
     assert!(!paths.last_run_file().exists());
 }
 
@@ -161,8 +160,8 @@ fn run_once_dry_run_waits_for_a_stable_locked_view() {
     let report = dry_run.join().expect("join dry run");
     response_handle.join().expect("join response server");
 
-    assert_eq!(report.run_mode, RunMode::DryRun);
-    assert_eq!(report.run_outcome, RunOutcome::Initialized);
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
     assert!(paths.lock_dir().is_dir());
     assert!(paths.run_lock_file().is_file());
     assert!(!paths.state_file().exists());

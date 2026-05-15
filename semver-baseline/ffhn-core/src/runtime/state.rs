@@ -6,10 +6,11 @@ use serde_json::Value;
 use crate::canonical::normalize_line_endings;
 use crate::stable_json::sha256_hex;
 use crate::{
-    CoreError, ExtractionRecord, ProcessErrorDetail, SnapshotDigestSummary, SnapshotReference,
-    StateDocument, StatePhase, TargetPaths, TargetStatus,
+    BaselinePhase, CoreError, ExtractionRecord, ProcessErrorDetail, SnapshotDigestSummary,
+    SnapshotReference, StateDocument, TargetPaths,
 };
 
+use super::domain::PersistedState;
 use super::storage::read_text;
 
 #[derive(Clone, Debug)]
@@ -22,7 +23,7 @@ pub(crate) struct SnapshotArtifacts {
 
 #[derive(Clone, Debug)]
 pub(crate) struct LoadedState {
-    pub(crate) document: StateDocument,
+    pub(crate) state: PersistedState,
     pub(crate) current: Option<SnapshotArtifacts>,
 }
 
@@ -32,11 +33,11 @@ pub(crate) enum StateLoad {
     Valid(Box<LoadedState>),
     Unreadable(ProcessErrorDetail),
     InvalidDocument {
-        phase: Option<StatePhase>,
+        phase: Option<BaselinePhase>,
         detail: ProcessErrorDetail,
     },
     IntegrityMismatch {
-        phase: Option<StatePhase>,
+        phase: Option<BaselinePhase>,
         detail: ProcessErrorDetail,
     },
 }
@@ -60,7 +61,7 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
         Ok(document) => document,
         Err(detail) => {
             return StateLoad::InvalidDocument {
-                phase: recover_state_phase(&state_json),
+                phase: recover_baseline_phase(&state_json),
                 detail,
             };
         }
@@ -78,7 +79,8 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
         };
     }
 
-    let current = if let Some(reference) = &document.current_snapshot {
+    let state = PersistedState::from_document(document);
+    let current = if let Some(reference) = state.current_snapshot() {
         match load_snapshot(paths.target_dir(), reference) {
             Ok(snapshot) => snapshot,
             Err(detail) => {
@@ -91,7 +93,7 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
     } else {
         None
     };
-    for reference in &document.snapshot_history {
+    for reference in state.snapshot_history() {
         if let Err(detail) = load_snapshot(paths.target_dir(), reference) {
             return StateLoad::IntegrityMismatch {
                 phase: parsed_phase,
@@ -100,29 +102,33 @@ pub(crate) fn load_state(paths: &TargetPaths) -> StateLoad {
         }
     }
 
-    StateLoad::Valid(Box::new(LoadedState { document, current }))
+    StateLoad::Valid(Box::new(LoadedState { state, current }))
 }
 
 fn decode_state_document(
     state_path: &Path,
     state_json: &str,
-) -> Result<(StateDocument, Option<StatePhase>), ProcessErrorDetail> {
+) -> Result<(StateDocument, Option<BaselinePhase>), ProcessErrorDetail> {
     let value =
         decode_json_value(state_json).map_err(|error| detail_with_path(&error, state_path))?;
-    let phase = recover_state_phase_value(&value);
+    let phase = recover_baseline_phase_value(&value);
     let document = decode_json_contract::<StateDocument>(value)
         .map_err(|error| detail_with_path(&error, state_path))?;
     Ok((document, phase))
 }
 
-fn recover_state_phase(state_json: &str) -> Option<StatePhase> {
+fn recover_baseline_phase(state_json: &str) -> Option<BaselinePhase> {
     let value = serde_json::from_str::<Value>(state_json).ok()?;
-    recover_state_phase_value(&value)
+    recover_baseline_phase_value(&value)
 }
 
-fn recover_state_phase_value(value: &Value) -> Option<StatePhase> {
-    let phase = value.get("state_phase")?.clone();
-    serde_json::from_value(phase).ok()
+fn recover_baseline_phase_value(value: &Value) -> Option<BaselinePhase> {
+    let baseline_kind = value.get("baseline")?.get("kind")?.as_str()?;
+    match baseline_kind {
+        "pending" => Some(BaselinePhase::NeverSucceeded),
+        "ready" => Some(BaselinePhase::HasBaseline),
+        _ => None,
+    }
 }
 
 fn load_snapshot(
@@ -225,31 +231,18 @@ pub(crate) fn prior_valid_state(state: &StateLoad) -> Option<&LoadedState> {
 
 pub(crate) fn prior_compare_digest(state: &StateLoad) -> Option<String> {
     prior_valid_state(state)
-        .and_then(|state| state.document.current_snapshot.as_ref())
+        .and_then(|state| state.state.current_snapshot())
         .map(|snapshot| snapshot.canonical_text_sha256.clone())
 }
 
-pub(crate) fn state_phase_or_default(state: &StateLoad) -> StatePhase {
+pub(crate) fn baseline_phase_or_default(state: &StateLoad) -> BaselinePhase {
     match state {
-        StateLoad::Missing => StatePhase::NeverSucceeded,
-        StateLoad::Valid(state) => state.document.state_phase,
-        StateLoad::Unreadable(_) => StatePhase::NeverSucceeded,
+        StateLoad::Missing => BaselinePhase::NeverSucceeded,
+        StateLoad::Valid(state) => state.state.baseline_phase(),
+        StateLoad::Unreadable(_) => BaselinePhase::NeverSucceeded,
         StateLoad::InvalidDocument { phase, .. } | StateLoad::IntegrityMismatch { phase, .. } => {
-            phase.unwrap_or(StatePhase::NeverSucceeded)
+            phase.unwrap_or(BaselinePhase::NeverSucceeded)
         }
-    }
-}
-
-pub(crate) fn status_from_state(state: &StateLoad) -> TargetStatus {
-    match state {
-        StateLoad::Missing => TargetStatus::Pending,
-        StateLoad::Valid(state) if state.document.state_phase == StatePhase::HasBaseline => {
-            TargetStatus::Ready
-        }
-        StateLoad::Valid(_) => TargetStatus::Pending,
-        StateLoad::Unreadable(_)
-        | StateLoad::InvalidDocument { .. }
-        | StateLoad::IntegrityMismatch { .. } => TargetStatus::Invalid,
     }
 }
 
@@ -259,14 +252,6 @@ pub(crate) fn state_error_detail(state: &StateLoad) -> Option<&ProcessErrorDetai
         StateLoad::Unreadable(detail)
         | StateLoad::InvalidDocument { detail, .. }
         | StateLoad::IntegrityMismatch { detail, .. } => Some(detail),
-    }
-}
-
-pub(crate) fn status_from_loaded_state(state: Option<&StateDocument>) -> TargetStatus {
-    match state {
-        Some(state) if state.state_phase == StatePhase::HasBaseline => TargetStatus::Ready,
-        Some(_) => TargetStatus::Pending,
-        None => TargetStatus::Pending,
     }
 }
 

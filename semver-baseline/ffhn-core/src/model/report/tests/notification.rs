@@ -2,20 +2,27 @@ use super::*;
 use serde_json::json;
 use std::collections::BTreeMap;
 
+fn predelivery_report() -> RunReport {
+    RunReport {
+        persist: persist_section(
+            1,
+            PersistWriteStatus::Written,
+            PersistWriteStatus::NotAttempted,
+        ),
+        ..valid_run_report()
+    }
+    .with_digest()
+    .expect("predelivery run report digest")
+}
+
 #[test]
 fn notification_payload_accessors_expose_the_public_contract() {
-    let mut run_report = valid_run_report();
-    run_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    run_report = run_report
-        .with_digest()
-        .expect("predelivery run report digest");
-
     let payload = NotificationPayload {
         schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
         schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
+        route_name: "notify".to_owned(),
         delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report,
+        run_report: predelivery_report(),
         extensions: Some(BTreeMap::from([(
             "demo".to_owned(),
             json!({"kind": "ext"}),
@@ -30,7 +37,7 @@ fn notification_payload_accessors_expose_the_public_contract() {
         payload.schema_version(),
         crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION
     );
-    assert_eq!(payload.hook_name(), "notify");
+    assert_eq!(payload.route_name(), "notify");
     assert_eq!(payload.delivery_started_at(), "2026-04-05T10:15:31Z");
     assert_eq!(payload.run_report().run_outcome(), RunOutcome::Changed);
     assert_eq!(
@@ -39,31 +46,34 @@ fn notification_payload_accessors_expose_the_public_contract() {
     );
 
     let delivered = delivered_notification();
-    assert_eq!(delivered.hook_name(), "notify");
+    assert_eq!(delivered.route_name(), "notify");
     assert_eq!(delivered.duration_ms(), 1);
     assert_eq!(delivered.status(), NotificationDeliveryStatus::Delivered);
+    assert_eq!(delivered.status().as_str(), "delivered");
     assert_eq!(delivered.outcome().exit_code(), Some(0));
     assert_eq!(delivered.outcome().error(), None);
     assert_eq!(delivered.exit_code(), Some(0));
     assert_eq!(delivered.error(), None);
 
-    let timed_out = RunNotificationDelivery::timed_out("notify", 2, "hook timed out");
-    assert_eq!(timed_out.hook_name(), "notify");
+    let timed_out = RunNotificationDelivery::timed_out("notify", 2, "route timed out");
+    assert_eq!(timed_out.route_name(), "notify");
     assert_eq!(timed_out.duration_ms(), 2);
     assert_eq!(timed_out.status(), NotificationDeliveryStatus::TimedOut);
+    assert_eq!(timed_out.status().as_str(), "timed_out");
     assert_eq!(timed_out.outcome().exit_code(), None);
-    assert_eq!(timed_out.outcome().error(), Some("hook timed out"));
+    assert_eq!(timed_out.outcome().error(), Some("route timed out"));
     assert_eq!(timed_out.exit_code(), None);
-    assert_eq!(timed_out.error(), Some("hook timed out"));
+    assert_eq!(timed_out.error(), Some("route timed out"));
 
-    let failed = failed_notification(Some(7), "hook exited with status 7");
-    assert_eq!(failed.hook_name(), "notify");
+    let failed = failed_notification(Some(7), "route exited with status 7");
+    assert_eq!(failed.route_name(), "notify");
     assert_eq!(failed.duration_ms(), 1);
     assert_eq!(failed.status(), NotificationDeliveryStatus::Failed);
+    assert_eq!(failed.status().as_str(), "failed");
     assert_eq!(failed.outcome().exit_code(), Some(7));
-    assert_eq!(failed.outcome().error(), Some("hook exited with status 7"));
+    assert_eq!(failed.outcome().error(), Some("route exited with status 7"));
     assert_eq!(failed.exit_code(), Some(7));
-    assert_eq!(failed.error(), Some("hook exited with status 7"));
+    assert_eq!(failed.error(), Some("route exited with status 7"));
 }
 
 #[test]
@@ -143,9 +153,25 @@ fn process_error_detail_serde_round_trips_all_wire_kinds() {
                 "message": "bad state"
             }),
         ),
+        (
+            ProcessErrorDetail::new(
+                ProcessErrorKind::PersistTransaction,
+                "primary persist failure: filesystem error at /tmp/watch/demo/state.json: write failed",
+                None,
+            )
+            .expect("persist transaction detail"),
+            json!({
+                "kind": "persist_transaction",
+                "message": "primary persist failure: filesystem error at /tmp/watch/demo/state.json: write failed"
+            }),
+        ),
     ];
 
     for (detail, expected_json) in cases {
+        assert_eq!(
+            detail.kind().as_str(),
+            expected_json["kind"].as_str().expect("kind string")
+        );
         let encoded = serde_json::to_value(&detail).expect("serialize process error detail");
         assert_eq!(encoded, expected_json);
         let decoded: ProcessErrorDetail =
@@ -161,7 +187,7 @@ fn notification_delivery_serde_round_trips_all_wire_status_variants() {
     assert_eq!(
         delivered_json,
         json!({
-            "hook_name": "notify",
+            "route_name": "notify",
             "duration_ms": 1,
             "outcome": {
                 "status": "delivered",
@@ -173,16 +199,16 @@ fn notification_delivery_serde_round_trips_all_wire_status_variants() {
         serde_json::from_value(delivered_json).expect("deserialize delivered");
     assert_eq!(parsed_delivered, delivered);
 
-    let timed_out = RunNotificationDelivery::timed_out("notify-timeout", 2, "hook timed out");
+    let timed_out = RunNotificationDelivery::timed_out("notify-timeout", 2, "route timed out");
     let timed_out_json = serde_json::to_value(&timed_out).expect("serialize timed out");
     assert_eq!(
         timed_out_json,
         json!({
-            "hook_name": "notify-timeout",
+            "route_name": "notify-timeout",
             "duration_ms": 2,
             "outcome": {
                 "status": "timed_out",
-                "error": "hook timed out"
+                "error": "route timed out"
             }
         })
     );
@@ -190,17 +216,17 @@ fn notification_delivery_serde_round_trips_all_wire_status_variants() {
         serde_json::from_value(timed_out_json).expect("deserialize timed out");
     assert_eq!(parsed_timed_out, timed_out);
 
-    let failed = RunNotificationDelivery::failed("notify-failure", 3, Some(7), "hook failed");
+    let failed = RunNotificationDelivery::failed("notify-failure", 3, Some(7), "route failed");
     let failed_json = serde_json::to_value(&failed).expect("serialize failed");
     assert_eq!(
         failed_json,
         json!({
-            "hook_name": "notify-failure",
+            "route_name": "notify-failure",
             "duration_ms": 3,
             "outcome": {
                 "status": "failed",
                 "exit_code": 7,
-                "error": "hook failed"
+                "error": "route failed"
             }
         })
     );
@@ -211,184 +237,118 @@ fn notification_delivery_serde_round_trips_all_wire_status_variants() {
 
 #[test]
 fn notification_payload_validation_accepts_predelivery_live_snapshots() {
-    let mut run_report = valid_run_report();
-    run_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    run_report = run_report
-        .with_digest()
-        .expect("predelivery run report digest");
-
     NotificationPayload {
         schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
         schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
+        route_name: "notify".to_owned(),
         delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report,
+        run_report: predelivery_report(),
         extensions: None,
     }
     .validate()
-    .expect("valid notification payload");
+    .expect("predelivery payload");
 }
 
 #[test]
-fn notification_payload_validation_allows_predelivery_persist_errors_but_rejects_postdelivery_state()
- {
-    let mut persist_error_report = valid_run_report();
-    persist_error_report.run_outcome = RunOutcome::FailedTransient;
-    persist_error_report.reason_code = ReasonCode::PersistError;
-    persist_error_report.failure_class = Some(FailureClass::Transient);
-    persist_error_report.error_detail = Some(valid_process_error());
-    persist_error_report.persist.state_write = PersistWriteStatus::Failed {
-        error: valid_process_error(),
+fn notification_payload_validation_rejects_invalid_route_name_and_run_snapshot_shapes() {
+    let invalid_route_name = NotificationPayload {
+        route_name: String::new(),
+        ..NotificationPayload {
+            schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+            schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+            route_name: "notify".to_owned(),
+            delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+            run_report: predelivery_report(),
+            extensions: None,
+        }
     };
-    persist_error_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    persist_error_report = persist_error_report
+    assert!(invalid_route_name.validate().is_err());
+
+    let dry_run_payload = NotificationPayload {
+        run_report: RunReport {
+            run_mode: RunMode::DryRun,
+            persist: persist_section(
+                1,
+                PersistWriteStatus::NotAttempted,
+                PersistWriteStatus::NotAttempted,
+            ),
+            ..valid_run_report()
+        }
         .with_digest()
-        .expect("persist error report digest");
-
-    NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: persist_error_report,
-        extensions: None,
-    }
-    .validate()
-    .expect("persist-error notification payload");
-
-    let mut postdelivery_report = valid_run_report();
-    postdelivery_report.notifications = vec![delivered_notification()];
-    postdelivery_report = postdelivery_report
-        .with_digest()
-        .expect("postdelivery report digest");
-
-    let invalid = NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: postdelivery_report,
-        extensions: None,
+        .expect("dry run digest"),
+        ..NotificationPayload {
+            schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+            schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+            route_name: "notify".to_owned(),
+            delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+            run_report: predelivery_report(),
+            extensions: None,
+        }
     };
-    assert!(invalid.validate().is_err());
+    assert!(dry_run_payload.validate().is_err());
 
-    let mut invalid_last_run_write = valid_run_report();
-    invalid_last_run_write.persist.last_run_write = PersistWriteStatus::Failed {
-        error: valid_process_error(),
-    };
-    invalid_last_run_write = invalid_last_run_write
-        .with_digest()
-        .expect("invalid last-run-write digest");
-    let invalid = NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: invalid_last_run_write,
-        extensions: None,
-    };
-    assert!(invalid.validate().is_err());
-}
-
-#[test]
-fn notification_payload_validation_rejects_invalid_identity_non_live_and_postdelivery_payloads() {
-    let mut predelivery_report = valid_run_report();
-    predelivery_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    predelivery_report = predelivery_report
-        .with_digest()
-        .expect("predelivery digest");
-
-    let invalid_identity = NotificationPayload {
-        schema_name: "ffhn.other_payload".to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: predelivery_report.clone(),
-        extensions: None,
-    };
-    assert!(invalid_identity.validate().is_err());
-
-    let mut dry_run_report = predelivery_report.clone();
-    dry_run_report.run_mode = RunMode::DryRun;
-    dry_run_report.persist.state_write = PersistWriteStatus::NotAttempted;
-    dry_run_report = dry_run_report.with_digest().expect("dry-run digest");
-    let non_live = NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: dry_run_report,
-        extensions: None,
-    };
-    assert!(non_live.validate().is_err());
-
-    let mut notification_report = predelivery_report;
-    notification_report.notifications = vec![delivered_notification()];
-    notification_report = notification_report
-        .with_digest()
-        .expect("notification digest");
-    let postdelivery = NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: notification_report,
-        extensions: None,
-    };
-    assert!(postdelivery.validate().is_err());
-}
-
-#[test]
-fn notification_payload_deserialization_revalidates_predelivery_live_contract() {
-    let mut run_report = valid_run_report();
-    run_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    run_report = run_report
-        .with_digest()
-        .expect("predelivery run report digest");
-
-    let payload = NotificationPayload {
-        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
-        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
-        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-        run_report: run_report.clone(),
-        extensions: None,
-    };
-    let json = serde_json::to_string(&payload).expect("payload json");
-    let parsed: NotificationPayload =
-        serde_json::from_str(&json).expect("deserialize notification payload");
-    assert_eq!(parsed, payload);
-
-    let invalid = NotificationPayload {
+    let invalid_last_run_write = NotificationPayload {
         run_report: valid_run_report(),
         ..NotificationPayload {
             schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
             schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-            hook_name: "notify".to_owned(),
+            route_name: "notify".to_owned(),
             delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
-            run_report,
+            run_report: predelivery_report(),
             extensions: None,
         }
     };
-    let invalid_json = serde_json::to_string(&invalid).expect("invalid payload json");
-    assert!(serde_json::from_str::<NotificationPayload>(&invalid_json).is_err());
+    assert!(invalid_last_run_write.validate().is_err());
+
+    let notification_loopback = NotificationPayload {
+        run_report: RunReport {
+            notifications: vec![failed_notification(Some(7), "route failed")],
+            ..predelivery_report()
+        }
+        .with_digest()
+        .expect("loopback digest"),
+        ..NotificationPayload {
+            schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+            schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+            route_name: "notify".to_owned(),
+            delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+            run_report: predelivery_report(),
+            extensions: None,
+        }
+    };
+    assert!(notification_loopback.validate().is_err());
 }
 
 #[test]
-fn notification_payload_validation_rejects_delivery_timestamps_before_run_finish() {
-    let mut run_report = valid_run_report();
-    run_report.persist.last_run_write = PersistWriteStatus::NotAttempted;
-    run_report = run_report
-        .with_digest()
-        .expect("predelivery run report digest");
-
-    let invalid = NotificationPayload {
+fn notification_payload_validation_rejects_delivery_timing_and_legacy_wire_shapes() {
+    let too_early = NotificationPayload {
         schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
         schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-        hook_name: "notify".to_owned(),
+        route_name: "notify".to_owned(),
         delivery_started_at: "2026-04-05T10:15:30Z".to_owned(),
-        run_report,
+        run_report: predelivery_report(),
         extensions: None,
     };
-    assert!(invalid.validate().is_err());
+    assert!(too_early.validate().is_err());
+
+    let payload = NotificationPayload {
+        schema_name: crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME.to_owned(),
+        schema_version: crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+        route_name: "notify".to_owned(),
+        delivery_started_at: "2026-04-05T10:15:31Z".to_owned(),
+        run_report: predelivery_report(),
+        extensions: None,
+    };
+    let json = serde_json::to_string(&payload).expect("payload json");
+    let parsed: NotificationPayload = serde_json::from_str(&json).expect("payload round trip");
+    assert_eq!(parsed, payload);
+
+    let legacy_json = serde_json::json!({
+        "schema_name": crate::NOTIFICATION_PAYLOAD_SCHEMA_NAME,
+        "schema_version": crate::NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
+        "hook_name": "notify",
+        "delivery_started_at": "2026-04-05T10:15:31Z",
+        "run_report": serde_json::to_value(predelivery_report()).expect("report json")
+    });
+    assert!(serde_json::from_value::<NotificationPayload>(legacy_json).is_err());
 }
