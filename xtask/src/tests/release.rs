@@ -318,15 +318,16 @@ absolute_target_root="{absolute_target_root}"
 source "$script_dir/common.sh"
 
 expected_default_root="$(cd "$repo_root/.." && pwd)/.ffhn-artifacts/target"
+expected_default_root="$(ffhn_normalize_bash_path "$expected_default_root")"
 
 unset CARGO_TARGET_DIR
 [[ "$(ffhn_cargo_target_dir "$repo_root")" == "$expected_default_root" ]]
 
 export CARGO_TARGET_DIR="custom-target"
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$repo_root/custom-target" ]]
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$(ffhn_normalize_bash_path "$repo_root/custom-target")" ]]
 
 export CARGO_TARGET_DIR="$absolute_target_root"
-[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$absolute_target_root" ]]
+[[ "$(ffhn_cargo_target_dir "$repo_root")" == "$(ffhn_normalize_bash_path "$absolute_target_root")" ]]
 "#,
         scripts_dir = scripts_dir,
         repo_root = repo_root_for_bash,

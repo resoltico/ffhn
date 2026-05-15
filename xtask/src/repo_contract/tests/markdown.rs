@@ -226,14 +226,18 @@ pub(super) fn resolve_repo_path(
 }
 
 fn strip_frontmatter_block(text: &str) -> (usize, &str) {
-    let Some(rest) = text.strip_prefix("---\n") else {
+    let (start_delimiter, end_delimiter, rest) = if let Some(rest) = text.strip_prefix("---\n") {
+        ("---\n", "\n---\n", rest)
+    } else if let Some(rest) = text.strip_prefix("---\r\n") {
+        ("---\r\n", "\r\n---\r\n", rest)
+    } else {
         return (0, text);
     };
-    let Some(end) = rest.find("\n---\n") else {
+    let Some(end) = rest.find(end_delimiter) else {
         return (0, text);
     };
-    let body_start = end + "\n---\n".len();
-    let line_offset = text[..("---\n".len() + body_start)].lines().count();
+    let body_start = end + end_delimiter.len();
+    let line_offset = text[..(start_delimiter.len() + body_start)].lines().count();
     (line_offset, &rest[body_start..])
 }
 

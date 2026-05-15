@@ -1,5 +1,9 @@
 use super::*;
 
+fn normalized_path_text(value: &str) -> String {
+    value.replace('\\', "/")
+}
+
 #[test]
 fn shell_script_paths_returns_sorted_shell_scripts_only() {
     let repo_root = tempdir().expect("tempdir");
@@ -160,27 +164,31 @@ fn check_plan_includes_all_strict_gates() {
         .find(|spec| is_semver_check_spec(spec))
         .expect("semver gate");
     assert_eq!(
-        semver_spec.env.get("CARGO_TARGET_DIR"),
-        Some(
+        semver_spec
+            .env
+            .get("CARGO_TARGET_DIR")
+            .map(|value| normalized_path_text(value)),
+        Some(normalized_path_text(
             &semver_scratch_dir_for_tests(
                 repo_root.path(),
                 Some(Path::new(".managed-artifacts/target"))
             )
-            .to_string_lossy()
-            .into_owned()
-        )
+            .to_string_lossy(),
+        ))
     );
     assert_eq!(
-        semver_spec.env.get("CARGO_BUILD_BUILD_DIR"),
-        Some(
+        semver_spec
+            .env
+            .get("CARGO_BUILD_BUILD_DIR")
+            .map(|value| normalized_path_text(value)),
+        Some(normalized_path_text(
             &repo_root
                 .path()
                 .join(".managed-artifacts")
                 .join("build")
                 .join("semver-checks")
-                .to_string_lossy()
-                .into_owned()
-        )
+                .to_string_lossy(),
+        ))
     );
     assert_eq!(
         plan.last().expect("release smoke"),

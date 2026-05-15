@@ -362,7 +362,6 @@ mod tests {
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    #[cfg(unix)]
     use tempfile::tempdir;
 
     #[cfg(unix)]
@@ -374,6 +373,16 @@ mod tests {
         fs::set_permissions(&path, permissions).expect("set permissions");
     }
 
+    #[cfg(windows)]
+    fn unsuccessful_probe_command() -> (&'static str, &'static [&'static str]) {
+        ("cmd", &["/C", "exit 7"])
+    }
+
+    #[cfg(not(windows))]
+    fn unsuccessful_probe_command() -> (&'static str, &'static [&'static str]) {
+        ("/bin/sh", &["-c", "exit 7"])
+    }
+
     #[test]
     fn reported_version_extracts_digit_prefixed_segments_and_rejects_plain_text() {
         assert_eq!(reported_version("cargo-audit 0.22.1"), Some("0.22.1"));
@@ -382,19 +391,8 @@ mod tests {
 
     #[test]
     fn ensure_toolchain_available_reports_missing_toolchains() {
-        let rustc_path = String::from_utf8(
-            Command::new("which")
-                .arg("rustc")
-                .output()
-                .expect("probe rustc")
-                .stdout,
-        )
-        .expect("rustc path utf8")
-        .trim()
-        .to_owned();
-        let error =
-            ensure_toolchain_available_with(&rustc_path, "definitely-missing-ffhn-toolchain")
-                .expect_err("missing toolchain should fail");
+        let error = ensure_toolchain_available_with("rustc", "definitely-missing-ffhn-toolchain")
+            .expect_err("missing toolchain should fail");
         assert!(error.to_string().contains("required Rust toolchain"));
         assert!(error.to_string().contains("not available"));
     }
@@ -508,19 +506,24 @@ mod tests {
 
     #[test]
     fn ensure_command_exists_reports_missing_and_unsuccessful_commands() {
-        let missing =
-            ensure_command_exists("/definitely/missing/ffhn-command", &["--version"], "hint")
-                .expect_err("missing command should fail");
-        assert!(
-            missing
-                .to_string()
-                .contains("required command `/definitely/missing/ffhn-command` is unavailable")
-        );
-
-        let non_success = ensure_command_exists("/bin/sh", &["-c", "exit 7"], "hint")
-            .expect_err("non-success command should fail");
-        assert!(non_success.to_string().contains(
-            "required command `/bin/sh` exited unsuccessfully while probing availability"
+        let temp = tempdir().expect("tempdir");
+        let missing_program = temp.path().join(format!(
+            "missing-ffhn-command{}",
+            std::env::consts::EXE_SUFFIX
         ));
+        let missing_program_text = missing_program.to_string_lossy().into_owned();
+        let missing = ensure_command_exists(&missing_program_text, &["--version"], "hint")
+            .expect_err("missing command should fail");
+        assert!(missing.to_string().contains(&format!(
+            "required command `{}` is unavailable",
+            missing_program.display()
+        )));
+
+        let (program, args) = unsuccessful_probe_command();
+        let non_success = ensure_command_exists(program, args, "hint")
+            .expect_err("non-success command should fail");
+        assert!(non_success.to_string().contains(&format!(
+            "required command `{program}` exited unsuccessfully while probing availability"
+        )));
     }
 }
