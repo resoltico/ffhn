@@ -52,6 +52,20 @@ print(posixpath.normpath(posixpath.join(base_path, relative_path)))
 PY
 }
 
+ffhn_path_for_host_python() {
+    local candidate="$1"
+
+    if command -v cygpath >/dev/null 2>&1; then
+        case "${candidate}" in
+            /[A-Za-z]/*)
+                candidate="$(cygpath -w "${candidate}")"
+                ;;
+        esac
+    fi
+
+    printf '%s\n' "${candidate}"
+}
+
 ffhn_resolve_script_dir() {
     local source_path="$1"
 
@@ -106,8 +120,11 @@ ffhn_temp_root() {
 ffhn_cargo_build_config_value() {
     local repo_root="$1"
     local field_name="$2"
+    local python_repo_root
 
-    python3 - <<'PY' "${repo_root}" "${field_name}"
+    python_repo_root="$(ffhn_path_for_host_python "${repo_root}")"
+
+    python3 - <<'PY' "${python_repo_root}" "${field_name}"
 import ast
 import pathlib
 import sys
