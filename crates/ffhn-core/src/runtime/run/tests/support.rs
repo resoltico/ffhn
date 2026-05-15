@@ -22,19 +22,21 @@ pub(super) use super::super::outcome::{
 };
 pub(super) use super::super::reporting::finish_report;
 pub(super) use super::super::{RunOptions, run_batch, run_once, run_once_with_options};
+#[cfg(unix)]
 pub(super) use crate::NotificationRoute;
 pub(super) use crate::stable_json::sha256_hex;
 pub(super) use crate::{
     BaselinePhase, ChangeKind, CompareBasis, CompareConfig, CoreError,
     EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig,
-    FetchEngine, HttpMethod, LastRunRecord, NetworkFetchConfig, NotificationAdapter,
-    NotificationEndpoint, OutputKind, PersistWriteStatus, RUN_REPORT_SCHEMA_NAME,
-    RUN_REPORT_SCHEMA_VERSION, RelativeArtifactPath, RunChangeSection, RunCompareSection,
-    RunExtractionSection, RunFailureCause, RunFetchSection, RunMode, RunOutcome, RunPersistSection,
-    RunReport, RunResult, SelectionConfig, SelectionEvidence, SelectionKind, SelectionMatch,
-    SelectionModeConfig, SnapshotReference, SnapshotSlot, StoredBaseline, TargetDocument, TargetId,
-    TargetPaths, TargetSource, WhitespaceMode,
+    FetchEngine, HttpMethod, LastRunRecord, NetworkFetchConfig, OutputKind, PersistWriteStatus,
+    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, RelativeArtifactPath, RunChangeSection,
+    RunCompareSection, RunExtractionSection, RunFailureCause, RunFetchSection, RunMode, RunOutcome,
+    RunPersistSection, RunReport, RunResult, SelectionConfig, SelectionEvidence, SelectionKind,
+    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StoredBaseline,
+    TargetDocument, TargetId, TargetPaths, TargetSource, WhitespaceMode,
 };
+#[cfg(unix)]
+pub(super) use crate::{NotificationAdapter, NotificationEndpoint};
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
 #[cfg(unix)]
 pub(super) use serde_json::json;
