@@ -105,6 +105,15 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
         "docs/release-protocol.md must document the CI workflow_dispatch recovery path"
     );
     assert!(
+        release_protocol.contains("./scripts/validate-devcontainer.sh"),
+        "docs/release-protocol.md must route release operators to the dedicated devcontainer validator when contributor-environment paths change"
+    );
+    assert!(
+        release_protocol
+            .contains("FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh"),
+        "docs/release-protocol.md must route release operators to the cached-image full devcontainer gate when contributor-environment paths change"
+    );
+    assert!(
         release_protocol.contains("app/dependabot"),
         "docs/release-protocol.md must document GitHub's Dependabot app identity"
     );

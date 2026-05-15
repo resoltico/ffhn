@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-14"
+updated: "2026-05-15"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -103,6 +103,32 @@ cargo xtask check
 ```
 
 That gate must succeed before any final release commit or tag. The maintained definition of that gate lives in [quality-gates.md](quality-gates.md).
+
+If the current substantive pre-release work or release-prep diff touches the contributor-devcontainer
+surface, run the dedicated contributor-environment proof before you push the branch for review. The
+trigger set is the same one that drives CI's `contributor-devcontainer-gate`:
+
+- `.github/workflows/ci.yml`
+- `.devcontainer/`
+- `tooling/rust-tooling.env`
+- `scripts/bootstrap-rust-tools.sh`
+- `scripts/validate-devcontainer.sh`
+- `scripts/run-devcontainer-check.sh`
+- `scripts/devcontainer-prepare-user-home.sh`
+- `scripts/devcontainer-cli-helper.Dockerfile`
+- `scripts/common.sh`
+- `check.sh`
+
+When any of those paths are in scope, run:
+
+```bash
+./scripts/validate-devcontainer.sh
+FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh
+```
+
+`./check.sh` proves the shipped Rust/product contract. The two devcontainer entrypoints prove the
+committed contributor environment, the raw Docker image contract, the Dev Container client path, and
+the full headless maintainer gate through that environment.
 
 FFHN keeps normal Cargo output out of the repository tree by default through
 [../.cargo/config.toml](../.cargo/config.toml), which points the maintained host-native path at the
