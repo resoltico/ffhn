@@ -31,6 +31,11 @@ Install the pinned Rust toolchains and Cargo QA tools owned by tooling/rust-tool
 EOF
 }
 
+verify_stable_toolchain_entrypoints() {
+    cargo --version >/dev/null
+    rustc --version >/dev/null
+}
+
 retry() {
     local attempts="$1"
     shift
@@ -49,6 +54,7 @@ retry() {
 install_stable_toolchain() {
     retry 3 rustup toolchain install "${RUST_STABLE_TOOLCHAIN}" --profile minimal --component clippy --component rustfmt --component llvm-tools-preview
     retry 3 rustup default "${RUST_STABLE_TOOLCHAIN}"
+    verify_stable_toolchain_entrypoints
 }
 
 install_coverage_toolchain() {

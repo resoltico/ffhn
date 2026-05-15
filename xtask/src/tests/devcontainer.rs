@@ -3,6 +3,20 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+fn assert_ordered(haystack: &str, earlier: &str, later: &str) {
+    let earlier_index = haystack
+        .find(earlier)
+        .unwrap_or_else(|| panic!("missing expected fragment {earlier:?}"));
+    let later_relative_index = haystack[earlier_index..]
+        .find(later)
+        .unwrap_or_else(|| panic!("missing expected fragment {later:?} after {earlier:?}"));
+    let later_index = earlier_index + later_relative_index;
+    assert!(
+        earlier_index < later_index,
+        "expected {earlier:?} to appear before {later:?}",
+    );
+}
+
 #[test]
 fn validate_devcontainer_shell_entrypoint_is_self_describing() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -178,6 +192,9 @@ fn bootstrap_rust_tools_stays_self_contained_for_the_contributor_image() {
         .expect("read bootstrap-rust-tools.sh");
 
     assert!(script.contains("ffhn_scrub_ambient_native_toolchain_env()"));
+    assert!(script.contains("verify_stable_toolchain_entrypoints()"));
+    assert!(script.contains("cargo --version >/dev/null"));
+    assert!(script.contains("rustc --version >/dev/null"));
     assert!(!script.contains("common.sh"));
 }
 
@@ -354,4 +371,57 @@ fn ci_workflow_gives_the_cross_platform_gate_enough_time_for_windows() {
     assert!(cross_platform_job.contains("- id: windows-x64"));
     assert!(cross_platform_job.contains("cargo nextest run --no-fail-fast"));
     assert!(cross_platform_job.contains("cargo xtask semver-check"));
+}
+
+#[test]
+fn ci_workflow_reasserts_pinned_rust_tooling_after_cache_restore() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
+
+    let rust_gate_job = workflow
+        .split("rust-gate:")
+        .nth(1)
+        .and_then(|section| section.split("devcontainer-changes:").next())
+        .expect("rust-gate section");
+    assert_ordered(
+        rust_gate_job,
+        "Cache Rust build artifacts",
+        "Reassert pinned Rust toolchains after cache restore",
+    );
+    assert_ordered(
+        rust_gate_job,
+        "Reassert pinned Rust toolchains after cache restore",
+        "Reassert pinned Rust QA tools after cache restore",
+    );
+
+    let cross_platform_job = workflow
+        .split("cross-platform-rust-gate:")
+        .nth(1)
+        .and_then(|section| section.split("release-target-smoke:").next())
+        .expect("cross-platform-rust-gate section");
+    assert_ordered(
+        cross_platform_job,
+        "Cache Rust build artifacts",
+        "Reassert pinned Rust stable toolchain after cache restore",
+    );
+    assert_ordered(
+        cross_platform_job,
+        "Reassert pinned Rust stable toolchain after cache restore",
+        "Reassert pinned cross-platform Rust QA tools after cache restore",
+    );
+
+    let release_target_smoke_job = workflow
+        .split("release-target-smoke:")
+        .nth(1)
+        .and_then(|section| section.split("check:").next())
+        .expect("release-target-smoke section");
+    assert_ordered(
+        release_target_smoke_job,
+        "Cache Rust build artifacts",
+        "Reassert pinned Rust stable toolchain after cache restore",
+    );
+    assert!(release_target_smoke_job.contains("rustup target add"));
 }
