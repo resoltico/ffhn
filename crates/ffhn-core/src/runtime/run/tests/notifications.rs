@@ -7,6 +7,7 @@ struct FailOnSecondWrite {
     writes: usize,
 }
 
+#[cfg(unix)]
 fn target_with_notification_endpoint(
     route_name: &str,
     program: &str,

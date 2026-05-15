@@ -270,10 +270,11 @@ fn semver_required_directories(repo_root: &Path) -> [PathBuf; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use tempfile::tempdir;
 
     #[cfg(unix)]
     fn write_executable(dir: &Path, name: &str, body: &str) {

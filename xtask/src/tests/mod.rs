@@ -12,11 +12,12 @@ use crate::coverage::{
 use crate::hygiene::{
     HygieneCleanMode, HygieneEntry, aggregate_entry_for_tests, clean_hygiene,
     dir_size_bytes_for_tests, dir_size_bytes_result_for_tests, ensure_hygiene,
-    entry_from_path_for_tests, format_bytes_for_tests, hygiene_report,
-    looks_like_cargo_target_dir_for_tests, missing_managed_markers_for_tests,
-    prepare_artifact_layout, render_hygiene_report, repo_tmp_cargo_roots_for_tests,
+    format_bytes_for_tests, hygiene_report, looks_like_cargo_target_dir_for_tests,
+    missing_managed_markers_for_tests, prepare_artifact_layout, render_hygiene_report,
     report_violations_for_tests,
 };
+#[cfg(unix)]
+use crate::hygiene::{entry_from_path_for_tests, repo_tmp_cargo_roots_for_tests};
 use crate::model::{
     CommandArtifactLayout, CommandSpec, CoverageCounter, CoverageDataSet, CoverageFile,
     CoverageFileSummary, CoverageReport,

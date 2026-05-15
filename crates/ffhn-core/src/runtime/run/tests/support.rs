@@ -36,6 +36,7 @@ pub(super) use crate::{
     TargetPaths, TargetSource, WhitespaceMode,
 };
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
+#[cfg(unix)]
 pub(super) use serde_json::json;
 pub(super) use std::io::{Read, Write};
 pub(super) use std::net::TcpListener;
@@ -68,6 +69,7 @@ pub(super) fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
     RelativeArtifactPath::new(path).expect("relative artifact path")
 }
 
+#[cfg(unix)]
 pub(super) fn notification_route(
     name: &str,
     on: Vec<RunOutcome>,
@@ -82,6 +84,7 @@ pub(super) fn notification_route(
     }
 }
 
+#[cfg(unix)]
 pub(super) fn notification_endpoint(
     name: &str,
     program: &str,

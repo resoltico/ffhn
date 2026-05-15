@@ -826,7 +826,7 @@ pub(crate) fn dir_size_bytes_result_for_tests(path: &Path) -> DynResult<u64> {
     dir_size_bytes(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn entry_from_path_for_tests(path: &Path) -> DynResult<HygieneEntry> {
     entry_from_path(
         "test-entry",
@@ -862,7 +862,7 @@ pub(crate) fn report_violations_for_tests(entries: &[HygieneEntry]) -> Vec<Hygie
     report_violations(entries)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn repo_tmp_cargo_roots_for_tests(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
     repo_tmp_cargo_roots(repo_root)
 }
