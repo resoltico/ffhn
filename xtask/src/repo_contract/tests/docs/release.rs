@@ -105,6 +105,19 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
         "docs/release-protocol.md must document the CI workflow_dispatch recovery path"
     );
     assert!(
+        release_protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${VERSION}\" ]"),
+        "docs/release-protocol.md must verify the packaged one-line ffhn --version contract exactly"
+    );
+    assert!(
+        !release_protocol
+            .contains("DESCRIPTION=\"$(./scripts/workspace-package-field.sh description)\""),
+        "docs/release-protocol.md must not treat the package description as a second --version line"
+    );
+    assert!(
+        !release_protocol.contains("sed -n '2p'"),
+        "docs/release-protocol.md must not parse a nonexistent second --version line"
+    );
+    assert!(
         release_protocol.contains("./scripts/validate-devcontainer.sh"),
         "docs/release-protocol.md must route release operators to the dedicated devcontainer validator when contributor-environment paths change"
     );

@@ -384,7 +384,6 @@ esac
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-DESCRIPTION="$(./scripts/workspace-package-field.sh description)"
 
 gh release download "$TAG" \
   -p "$HOST_ARCHIVE" \
@@ -401,8 +400,7 @@ gh release download "$TAG" \
 
   tar -xzf "$HOST_ARCHIVE"
   VERSION_OUTPUT="$("./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --version | tr -d '\r')"
-  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '1p')" = "ffhn ${VERSION}" ]
-  [ "$(printf '%s\n' "$VERSION_OUTPUT" | sed -n '2p')" = "$DESCRIPTION" ]
+  [ "$VERSION_OUTPUT" = "ffhn ${VERSION}" ]
   "./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --help | grep "status"
 )
 

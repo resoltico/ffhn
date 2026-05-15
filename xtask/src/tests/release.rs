@@ -23,6 +23,7 @@ fn seed_release_script_repo() -> tempfile::TempDir {
         "build-release-source-archives.sh",
         "build-release-artifact.sh",
         "build-release-checksums.sh",
+        "smoke-release-artifact.sh",
         "publish-github-release.sh",
         "verify-github-release.sh",
     ] {
