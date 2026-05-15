@@ -289,6 +289,7 @@ main() {
         --tag "${helper_image_tag}" \
         --file "${helper_dockerfile_path}" \
         "${repo_root}/scripts" >/dev/null
+    docker run --rm "${helper_image_tag}" docker buildx version >/dev/null
 
     printf 'devcontainer validation: bring up the committed devcontainer through the client path\n'
     docker run --rm \
@@ -309,6 +310,8 @@ main() {
                 set -e
             }
             trap cleanup EXIT
+            mkdir -p "${HOME}"
+            git config --global --add safe.directory "${FFHN_REPO_ROOT}"
             devcontainer up --remove-existing-container --workspace-folder "${FFHN_REPO_ROOT}" >/dev/null
             printf "devcontainer validation: run inner runtime probe through devcontainer exec\n"
             devcontainer exec --workspace-folder "${FFHN_REPO_ROOT}" ./scripts/validate-devcontainer.sh

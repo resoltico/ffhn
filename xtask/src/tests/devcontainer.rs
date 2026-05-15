@@ -170,6 +170,18 @@ fn committed_devcontainer_dockerfile_pins_the_24_04_devcontainer_base_and_bakes_
 }
 
 #[test]
+fn bootstrap_rust_tools_stays_self_contained_for_the_contributor_image() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let script = fs::read_to_string(repo_root.join("scripts/bootstrap-rust-tools.sh"))
+        .expect("read bootstrap-rust-tools.sh");
+
+    assert!(script.contains("ffhn_scrub_ambient_native_toolchain_env()"));
+    assert!(!script.contains("common.sh"));
+}
+
+#[test]
 fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -178,11 +190,44 @@ fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
         fs::read_to_string(repo_root.join("scripts/devcontainer-cli-helper.Dockerfile"))
             .expect("read devcontainer cli helper dockerfile");
 
-    assert!(dockerfile.contains("ARG BASE_IMAGE=ffhn-devcontainer:local"));
-    assert!(dockerfile.contains("FROM ${BASE_IMAGE}"));
+    let node_arg = dockerfile
+        .find("ARG NODE_RUNTIME_IMAGE=docker.io/library/node:20-bookworm-slim@sha256:")
+        .expect("node runtime arg");
+    let node_from = dockerfile
+        .find("FROM ${NODE_RUNTIME_IMAGE} AS node_runtime")
+        .expect("node runtime FROM");
+    let buildx_arg = dockerfile
+        .find("ARG BUILDX_PLUGIN_IMAGE=docker.io/docker/buildx-bin:latest@sha256:")
+        .expect("buildx plugin arg");
+    let buildx_from = dockerfile
+        .find("FROM ${BUILDX_PLUGIN_IMAGE} AS buildx_plugin")
+        .expect("buildx plugin FROM");
+    let base_arg = dockerfile
+        .find("ARG BASE_IMAGE=ffhn-devcontainer:local")
+        .expect("base image arg");
+    let base_from = dockerfile.find("FROM ${BASE_IMAGE}").expect("base FROM");
+
+    assert!(node_arg < node_from);
+    assert!(buildx_arg < buildx_from);
+    assert!(base_arg < base_from);
     assert!(
-        dockerfile.contains("apt-get install --yes --no-install-recommends docker.io nodejs npm")
+        dockerfile.contains("COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node")
     );
+    assert!(dockerfile.contains(
+        "COPY --from=node_runtime /usr/local/lib/node_modules /usr/local/lib/node_modules"
+    ));
+    assert!(dockerfile.contains(
+        "COPY --from=buildx_plugin /buildx /usr/libexec/docker/cli-plugins/docker-buildx"
+    ));
+    assert!(
+        dockerfile.contains("ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm")
+    );
+    assert!(
+        dockerfile.contains("ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx")
+    );
+    assert!(dockerfile.contains("apt-get install --yes --no-install-recommends docker.io"));
+    assert!(dockerfile.contains("docker buildx version >/dev/null"));
+    assert!(!dockerfile.contains("docker.io nodejs npm"));
     assert!(dockerfile.contains("@devcontainers/cli@0.86.0"));
     assert!(dockerfile.contains("USER root"));
 }
@@ -224,6 +269,11 @@ fn validate_devcontainer_repairs_workspace_volumes_and_exercises_client_path() {
     assert!(script.contains("scripts/devcontainer-cli-helper.Dockerfile"));
     assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("--build-arg \"BASE_IMAGE=${image_tag}\""));
+    assert!(
+        script.contains("docker run --rm \"${helper_image_tag}\" docker buildx version >/dev/null")
+    );
+    assert!(script.contains("mkdir -p \"${HOME}\""));
+    assert!(script.contains("git config --global --add safe.directory \"${FFHN_REPO_ROOT}\""));
     assert!(script.contains("readonly FFHN_VALIDATE_REPO_ROOT"));
     assert!(script.contains("--volume \"${repo_root}:/workspaces/ffhn\""));
     assert!(!script.contains("--volume \"${repo_root}:/workspaces/ffhn:ro\""));
@@ -261,6 +311,27 @@ fn ci_workflow_runs_the_full_headless_devcontainer_gate() {
     assert!(contributor_job.contains("./scripts/run-devcontainer-check.sh"));
     assert!(contributor_job.contains("FFHN_DEVCONTAINER_VOLUME_MODE: shared-ci"));
     assert!(contributor_job.contains("FFHN_DEVCONTAINER_SKIP_BUILD: 1"));
+}
+
+#[test]
+fn ci_workflow_tracks_the_full_devcontainer_dependency_surface() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root");
+    let workflow =
+        fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).expect("read ci workflow");
+
+    let detection_job = workflow
+        .split("devcontainer-changes:")
+        .nth(1)
+        .and_then(|section| section.split("contributor-devcontainer-gate:").next())
+        .expect("devcontainer-changes section");
+
+    assert!(detection_job.contains(".github/workflows/ci.yml"));
+    assert!(detection_job.contains("tooling/rust-tooling.env"));
+    assert!(detection_job.contains("scripts/bootstrap-rust-tools.sh"));
+    assert!(detection_job.contains("scripts/common.sh"));
+    assert!(detection_job.contains("check.sh"));
 }
 
 #[test]

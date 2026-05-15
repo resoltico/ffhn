@@ -57,6 +57,8 @@ fn rust_tooling_manifest_owns_the_repo_toolchain_and_qa_versions() {
     let bootstrap = fs::read_to_string(repo_root.join("scripts/bootstrap-rust-tools.sh"))
         .expect("read bootstrap-rust-tools.sh");
     assert!(bootstrap.contains("tooling/rust-tooling.env"));
+    assert!(bootstrap.contains("ffhn_scrub_ambient_native_toolchain_env()"));
+    assert!(!bootstrap.contains("common.sh"));
     assert!(bootstrap.contains("install-stable-toolchain"));
     assert!(bootstrap.contains("install-coverage-toolchain"));
     assert!(bootstrap.contains("install-cross-platform-qa-tools"));
@@ -67,6 +69,9 @@ fn rust_tooling_manifest_owns_the_repo_toolchain_and_qa_versions() {
     assert!(ci.contains("bash ./scripts/bootstrap-rust-tools.sh install-qa-tools"));
     assert!(ci.contains("bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain"));
     assert!(ci.contains("bash ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools"));
+    assert!(ci.contains(".github/workflows/ci.yml"));
+    assert!(ci.contains("tooling/rust-tooling.env"));
+    assert!(ci.contains("scripts/bootstrap-rust-tools.sh"));
     assert!(!ci.contains("RUST_STABLE_VERSION:"));
     assert!(!ci.contains("taiki-e/install-action@"));
 

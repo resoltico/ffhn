@@ -6,13 +6,16 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 readonly script_dir
 readonly repo_root
 
-# shellcheck source=scripts/common.sh
-. "${script_dir}/common.sh"
-
 readonly tooling_env_path="${FFHN_RUST_TOOLING_ENV:-${repo_root}/tooling/rust-tooling.env}"
 
 # shellcheck disable=SC1090,SC1091
 source "${tooling_env_path}"
+
+# This entrypoint is copied into the contributor image without the rest of scripts/.
+# Keep the bootstrap contract self-contained.
+ffhn_scrub_ambient_native_toolchain_env() {
+    unset CC CXX CLANG_BIN CPPFLAGS LDFLAGS
+}
 
 usage() {
     cat <<'EOF'

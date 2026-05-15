@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-05-14"
+updated: "2026-05-15"
 route:
   keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
   questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
@@ -144,7 +144,10 @@ GitHub CI also runs a dedicated contributor-devcontainer gate on Linux to keep t
 
 **Path-based devcontainer gate theory.** The devcontainer gate validates the contributor *environment*, not application code. Application code changes are already proven by `rust-gate`. Running the full devcontainer gate on every PR regardless of what changed wastes 40-45 minutes per run proving the same environment twice. The gate therefore fires only when the environment itself changes — specifically when any of these paths are touched:
 
+- `.github/workflows/ci.yml` — the workflow that defines the detection logic and contributor gate
 - `.devcontainer/` — the Dockerfile and devcontainer.json
+- `tooling/rust-tooling.env`
+- `scripts/bootstrap-rust-tools.sh`
 - `scripts/validate-devcontainer.sh`
 - `scripts/run-devcontainer-check.sh`
 - `scripts/devcontainer-prepare-user-home.sh`
@@ -202,7 +205,8 @@ cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz
 
 Manual sanitizer-backed seed smokes live in [../fuzz/README.md](../fuzz/README.md). They require `cargo-fuzz` and nightly, but they are not part of `./check.sh`.
 
-If you change `.devcontainer/`, `check.sh`, or any of the devcontainer helper scripts
+If you change `.github/workflows/ci.yml`, `.devcontainer/`, `tooling/rust-tooling.env`,
+`scripts/bootstrap-rust-tools.sh`, `check.sh`, or any of the devcontainer helper scripts
 (`scripts/validate-devcontainer.sh`, `scripts/run-devcontainer-check.sh`,
 `scripts/devcontainer-prepare-user-home.sh`, `scripts/devcontainer-cli-helper.Dockerfile`,
 `scripts/common.sh`), run `./scripts/validate-devcontainer.sh` in the same change. Those paths

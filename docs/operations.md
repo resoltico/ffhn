@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: OPERATIONS
-updated: "2026-05-14"
+updated: "2026-05-15"
 route:
   keywords: [operations, check.sh, release scripts, ci workflow, dist profile, github release, supported targets, release packages, checksum manifest]
   questions: ["how do I operate ffhn locally?", "how do the ffhn release scripts work?", "which standalone targets does ffhn publish?", "which FFHN release assets are published?"]
@@ -52,7 +52,7 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 1. `release-target-matrix`: computes the standalone release-target matrix
 2. `rust-gate`: installs toolchains and QA tools, then runs `./check.sh`
 3. `devcontainer-changes`: detects whether any devcontainer-relevant path changed in the PR or push; outputs a boolean that gates the next job
-4. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; fires only when `devcontainer-changes` reports a relevant path was touched — specifically `.devcontainer/`, the devcontainer helper scripts, or `check.sh`; skipped otherwise because the rust-gate already proves the code
+4. `contributor-devcontainer-gate`: validates the committed contributor container and runs the full headless `./check.sh` maintainer gate through `./scripts/validate-devcontainer.sh` plus `./scripts/run-devcontainer-check.sh`; fires only when `devcontainer-changes` reports a relevant path was touched — specifically `.github/workflows/ci.yml`, `.devcontainer/`, `tooling/rust-tooling.env`, `scripts/bootstrap-rust-tools.sh`, the devcontainer helper scripts, or `check.sh`; skipped otherwise because the rust-gate already proves the code
 5. `cross-platform-rust-gate`: runs formatting, Clippy, tests, dependency-policy checks, and the maintained semver gate on macOS arm64 and Windows x64; excludes the managed Cargo artifact roots from Windows Defender before Cargo operations begin
 6. `release-target-smoke`: builds, extracts, and smoke-tests the packaged CLI for every supported release target
 7. `check`: aggregate required-status job; uses `if: always()` with explicit failure detection so a skipped `contributor-devcontainer-gate` — the correct outcome when no devcontainer-relevant files changed — does not block merge; only a failed or cancelled job prevents success

@@ -89,7 +89,10 @@ jobs:
             exit 0
           fi
           changed=$(git diff --name-only "$base" "${{ github.sha }}" -- \
+            '.github/workflows/ci.yml' \
             '.devcontainer' \
+            'tooling/rust-tooling.env' \
+            'scripts/bootstrap-rust-tools.sh' \
             'scripts/validate-devcontainer.sh' \
             'scripts/run-devcontainer-check.sh' \
             'scripts/devcontainer-prepare-user-home.sh' \

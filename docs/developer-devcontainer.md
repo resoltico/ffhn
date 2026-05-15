@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: DEVCONTAINER
-updated: "2026-05-14"
+updated: "2026-05-15"
 route:
   keywords: [devcontainer, docker desktop, contributor container, vscode, dev containers, rust toolchain, cargo xtask, ffhn contributor workflow]
   questions: ["what is the preferred FFHN contributor workflow?", "how do I use the FFHN devcontainer?", "does FFHN have a contributor container?", "how do I validate the FFHN devcontainer?", "how do I run the full FFHN maintainer gate inside the devcontainer?"]
@@ -26,9 +26,11 @@ The current committed owner files are:
 
 1. [../.devcontainer/devcontainer.json](../.devcontainer/devcontainer.json)
 2. [../.devcontainer/Dockerfile](../.devcontainer/Dockerfile)
-3. [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh)
-4. [../scripts/validate-devcontainer.sh](../scripts/validate-devcontainer.sh)
-5. [../scripts/run-devcontainer-check.sh](../scripts/run-devcontainer-check.sh)
+3. [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
+4. [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh)
+5. [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh)
+6. [../scripts/validate-devcontainer.sh](../scripts/validate-devcontainer.sh)
+7. [../scripts/run-devcontainer-check.sh](../scripts/run-devcontainer-check.sh)
 
 The contributor container is intentionally separate from FFHN's shipped runtime model. FFHN
 publishes native standalone binaries, documented in [platform-support.md](platform-support.md), not
@@ -111,7 +113,12 @@ That script:
 2. poisons the mounted cache and build-output volumes with root-owned files
 3. verifies that [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh) repairs writability for the contributor user
 4. checks the pinned toolchains and Cargo QA versions from [../tooling/rust-tooling.env](../tooling/rust-tooling.env), plus `shellcheck`, `gh`, `clang`, and `./check.sh --help`, on the raw Docker image
-5. builds a small Dev Container CLI helper from the already-built contributor image, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
+5. builds a small Dev Container CLI helper from the already-built contributor image, layers in a pinned Node 20 runtime plus a pinned Docker Buildx CLI plugin for the pinned Dev Containers CLI, proves that `docker buildx` works inside that helper, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
+
+The contributor image copies exactly the pinned tooling manifest plus the standalone
+[../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installer before Rust
+setup begins. That bootstrap entrypoint is intentionally self-contained so the image build does not
+depend on extra repo-local helper files that were never copied into Docker.
 
 Run the full maintainer gate through the same contributor image and persistent cache volumes:
 
@@ -181,7 +188,10 @@ ownership only when the mounted path is not writable.
 The `contributor-devcontainer-gate` CI job fires only when devcontainer-relevant files change. The
 path set that triggers it:
 
+- `.github/workflows/ci.yml` — the workflow that defines the detection logic and contributor gate
 - `.devcontainer/` — the Dockerfile and `devcontainer.json`
+- `tooling/rust-tooling.env`
+- `scripts/bootstrap-rust-tools.sh`
 - `scripts/validate-devcontainer.sh`
 - `scripts/run-devcontainer-check.sh`
 - `scripts/devcontainer-prepare-user-home.sh`
