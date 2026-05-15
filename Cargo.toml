@@ -18,7 +18,7 @@ repository = "https://github.com/resoltico/ffhn"
 homepage = "https://github.com/resoltico/ffhn"
 
 [workspace.dependencies]
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
 clap = { version = "4.6.1", features = ["derive"] }
 encoding_rs = "0.8.35"
 ffhn-core = { path = "crates/ffhn-core", version = "7.0.0" }
