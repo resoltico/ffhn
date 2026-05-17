@@ -73,6 +73,35 @@ fn cli_contract_lookups_cover_present_and_missing_ids() {
 fn execution_modes_and_usage_errors_use_the_canonical_contract() {
     let live = cli_execution_mode(RunMode::Live);
     let dry_run = cli_execution_mode(RunMode::DryRun);
+    let run = run_operation();
+    let status = status_operation();
+
+    assert_eq!(
+        run.usage,
+        "ffhn run (--target <ID>... | --all) [--watch-root <PATH>] [--jobs <N>] [--dry-run] [--format <FORMAT>]"
+    );
+    assert_eq!(run.examples[0], "ffhn run --target demo");
+    assert_eq!(
+        run.output_notes[0],
+        "`ffhn run --target <ID>` produces one `ffhn.run_report` result in the selected format."
+    );
+    assert_eq!(
+        run.operational_notes[0],
+        "The watch root must already exist and be a directory."
+    );
+    assert_eq!(
+        status.usage,
+        "ffhn status --target <ID> [--watch-root <PATH>] [--format <FORMAT>]"
+    );
+    assert_eq!(status.examples[0], "ffhn status --target demo");
+    assert_eq!(
+        status.output_notes[0],
+        "Produces one `ffhn.status_report` result in the selected format."
+    );
+    assert_eq!(
+        status.operational_notes[1],
+        "Status waits behind any active live run so it can inspect one stable target view."
+    );
 
     assert_eq!(live.id, "live");
     assert!(live.writes_state);
@@ -86,11 +115,15 @@ fn execution_modes_and_usage_errors_use_the_canonical_contract() {
 
     assert_eq!(
         positive_batch_concurrency_usage_error(),
-        "must be a positive integer"
+        "`--jobs <N>` must be a positive integer"
     );
     assert_eq!(
         positive_batch_concurrency_limit().id,
         CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID
+    );
+    assert_eq!(
+        run_target_selection_usage_error(),
+        "one of '--target <ID>' or '--all' is required"
     );
     assert_eq!(unique_target_ids_limit().id, CLI_LIMIT_UNIQUE_TARGET_IDS_ID);
     assert_eq!(
@@ -115,12 +148,18 @@ fn execution_modes_and_usage_errors_use_the_canonical_contract() {
 fn hard_limit_rendering_covers_plain_and_placeholder_templates() {
     let plain = cli_hard_limit(CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID)
         .expect("positive batch concurrency limit");
+    let run_selection =
+        cli_hard_limit(CLI_LIMIT_RUN_TARGET_SELECTION_ID).expect("run target selection limit");
     let placeholder =
         cli_hard_limit(CLI_LIMIT_UNIQUE_TARGET_IDS_ID).expect("unique target ids limit");
 
     assert_eq!(
         plain.render_cli_usage_error(Some("ignored")),
-        "must be a positive integer"
+        "`--jobs <N>` must be a positive integer"
+    );
+    assert_eq!(
+        run_selection.render_cli_usage_error(None),
+        "one of '--target <ID>' or '--all' is required"
     );
     assert_eq!(
         placeholder.render_cli_usage_error(None),

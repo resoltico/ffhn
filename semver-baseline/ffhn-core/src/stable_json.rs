@@ -12,6 +12,11 @@ pub fn stable_json<T: Serialize>(value: &T) -> Result<String, CoreError> {
     Ok(output)
 }
 
+/// Computes the SHA-256 digest of one value after stable serialization.
+pub fn stable_digest<T: Serialize>(value: &T) -> Result<String, CoreError> {
+    Ok(sha256_hex(stable_json(value)?.as_bytes()))
+}
+
 /// Computes the SHA-256 digest of one value after stable serialization with one field omitted.
 pub fn stable_digest_omitting_field<T: Serialize>(
     value: &T,
@@ -119,6 +124,23 @@ mod tests {
             stable_digest_omitting_field(&left, "digest").expect("left digest omission");
         let right_digest =
             stable_digest_omitting_field(&right, "digest").expect("right digest omission");
+
+        assert_eq!(left_digest, right_digest);
+    }
+
+    #[test]
+    fn stable_digest_uses_stable_field_ordering() {
+        let left = json!({
+            "b": 2,
+            "a": {"d": false, "c": true},
+        });
+        let right = json!({
+            "a": {"c": true, "d": false},
+            "b": 2,
+        });
+
+        let left_digest = stable_digest(&left).expect("left digest");
+        let right_digest = stable_digest(&right).expect("right digest");
 
         assert_eq!(left_digest, right_digest);
     }

@@ -24,9 +24,13 @@ pub const CLI_ARGUMENT_ALL_ID: &str = "all";
 pub const CLI_ARGUMENT_JOBS_ID: &str = "jobs";
 /// Canonical CLI argument id for `--dry-run`.
 pub const CLI_ARGUMENT_DRY_RUN_ID: &str = "dry_run";
+/// Canonical CLI argument id for `--format`.
+pub const CLI_ARGUMENT_FORMAT_ID: &str = "format";
 
 /// Canonical CLI hard-limit id for positive batch concurrency.
 pub const CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID: &str = "positive_batch_concurrency";
+/// Canonical CLI hard-limit id for selecting one run target set.
+pub const CLI_LIMIT_RUN_TARGET_SELECTION_ID: &str = "run_target_selection";
 /// Canonical CLI hard-limit id for unique repeated `--target` values.
 pub const CLI_LIMIT_UNIQUE_TARGET_IDS_ID: &str = "unique_target_ids";
 /// Canonical CLI hard-limit id for durable explicit `--target` values.
@@ -53,7 +57,6 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
-        required_unless_present: None,
         conflicts_with: &[],
         default_value: Some("watchlist"),
     },
@@ -66,7 +69,6 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::String,
         repeatable: true,
         required: false,
-        required_unless_present: Some(CLI_ARGUMENT_ALL_ID),
         conflicts_with: &[],
         default_value: None,
     },
@@ -75,11 +77,10 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         long_name: "all",
         display_label: "All",
         value_name: None,
-        help_summary: "Run each immediate watch-root subdirectory containing target.toml. Valid disabled targets are skipped.",
+        help_summary: "Run each immediate watch-root subdirectory containing target.toml, including disabled targets.",
         value_kind: CliArgumentValueKind::Flag,
         repeatable: false,
         required: false,
-        required_unless_present: None,
         conflicts_with: &[CLI_ARGUMENT_TARGET_ID],
         default_value: None,
     },
@@ -92,7 +93,6 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::PositiveInteger,
         repeatable: false,
         required: false,
-        required_unless_present: None,
         conflicts_with: &[],
         default_value: Some("1"),
     },
@@ -105,9 +105,20 @@ const RUN_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::Flag,
         repeatable: false,
         required: false,
-        required_unless_present: None,
         conflicts_with: &[],
         default_value: None,
+    },
+    CliArgumentContract {
+        id: CLI_ARGUMENT_FORMAT_ID,
+        long_name: "format",
+        display_label: "Format",
+        value_name: Some("FORMAT"),
+        help_summary: "Output format: json, json-pretty, or summary.",
+        value_kind: CliArgumentValueKind::String,
+        repeatable: false,
+        required: false,
+        conflicts_with: &[],
+        default_value: Some("json"),
     },
 ];
 
@@ -121,7 +132,6 @@ const STATUS_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::Path,
         repeatable: false,
         required: false,
-        required_unless_present: None,
         conflicts_with: &[],
         default_value: Some("watchlist"),
     },
@@ -134,9 +144,20 @@ const STATUS_ARGUMENTS: &[CliArgumentContract] = &[
         value_kind: CliArgumentValueKind::String,
         repeatable: false,
         required: true,
-        required_unless_present: None,
         conflicts_with: &[],
         default_value: None,
+    },
+    CliArgumentContract {
+        id: CLI_ARGUMENT_FORMAT_ID,
+        long_name: "format",
+        display_label: "Format",
+        value_name: Some("FORMAT"),
+        help_summary: "Output format: json, json-pretty, or summary.",
+        value_kind: CliArgumentValueKind::String,
+        repeatable: false,
+        required: false,
+        conflicts_with: &[],
+        default_value: Some("json"),
     },
 ];
 
@@ -172,20 +193,65 @@ const STATUS_INVOCATIONS: &[CliInvocationContract] = &[CliInvocationContract {
     analysis_summary: "status inspection; valid targets may create `lock/run.lock` and wait behind active live runs",
 }];
 
+const RUN_EXAMPLES: &[&str] = &[
+    "ffhn run --target demo",
+    "ffhn run --target demo_a --target demo_b",
+    "ffhn run --all --jobs 4",
+    "ffhn run --target demo --dry-run",
+];
+
+const RUN_OUTPUT_NOTES: &[&str] = &[
+    "`ffhn run --target <ID>` produces one `ffhn.run_report` result in the selected format.",
+    "Repeated `--target` values or `--all` produce one `ffhn.batch_run_report` result in the selected format.",
+    "Structured run failures remain on stdout in the selected format; fatal process-level failures are written to stderr and exit `3`.",
+];
+
+const RUN_OPERATIONAL_NOTES: &[&str] = &[
+    "The watch root must already exist and be a directory.",
+    "`--all` discovers only immediate watch-root subdirectories containing `target.toml`.",
+    "Disabled targets are discovered and reported normally, but they are not executed.",
+    "Explicit `--target` requests whose `target.toml` path is missing or unreadable emit structured `target_unavailable` results instead of raw fatal stderr.",
+];
+
+const STATUS_EXAMPLES: &[&str] = &[
+    "ffhn status --target demo",
+    "ffhn status --watch-root ./watchlist --target demo",
+];
+
+const STATUS_OUTPUT_NOTES: &[&str] = &[
+    "Produces one `ffhn.status_report` result in the selected format.",
+    "Valid-target reports carry top-level `enabled = true|false` so disablement stays separate from baseline readiness.",
+    "Malformed or contract-invalid target documents use `status.kind = invalid_config` with structured `status.error_detail`.",
+    "Missing or unreadable explicit target paths use `status.kind = unavailable_target` with structured `status.error_detail`.",
+];
+
+const STATUS_OPERATIONAL_NOTES: &[&str] = &[
+    "The watch root must already exist and be a directory.",
+    "Status waits behind any active live run so it can inspect one stable target view.",
+];
+
 const OPERATIONS: &[CliOperationContract] = &[
     CliOperationContract {
         id: CLI_OPERATION_RUN_ID,
         display_label: "Run",
         help_summary: "Run one or more configured targets once.",
+        usage: "ffhn run (--target <ID>... | --all) [--watch-root <PATH>] [--jobs <N>] [--dry-run] [--format <FORMAT>]",
         arguments: RUN_ARGUMENTS,
         invocations: RUN_INVOCATIONS,
+        examples: RUN_EXAMPLES,
+        output_notes: RUN_OUTPUT_NOTES,
+        operational_notes: RUN_OPERATIONAL_NOTES,
     },
     CliOperationContract {
         id: CLI_OPERATION_STATUS_ID,
         display_label: "Status",
         help_summary: "Read one target's current machine-readable status.",
+        usage: "ffhn status --target <ID> [--watch-root <PATH>] [--format <FORMAT>]",
         arguments: STATUS_ARGUMENTS,
         invocations: STATUS_INVOCATIONS,
+        examples: STATUS_EXAMPLES,
+        output_notes: STATUS_OUTPUT_NOTES,
+        operational_notes: STATUS_OPERATIONAL_NOTES,
     },
 ];
 
@@ -216,7 +282,14 @@ const HARD_LIMITS: &[CliHardLimitContract] = &[
         operation_id: Some(CLI_OPERATION_RUN_ID),
         display_label: "Positive Batch Concurrency",
         summary: "`--jobs` must be a positive integer; `0` is invalid CLI usage.",
-        cli_usage_error_template: "must be a positive integer",
+        cli_usage_error_template: "`--jobs <N>` must be a positive integer",
+    },
+    CliHardLimitContract {
+        id: CLI_LIMIT_RUN_TARGET_SELECTION_ID,
+        operation_id: Some(CLI_OPERATION_RUN_ID),
+        display_label: "Run Target Selection",
+        summary: "One of `--target <ID>` or `--all` is required.",
+        cli_usage_error_template: "one of '--target <ID>' or '--all' is required",
     },
     CliHardLimitContract {
         id: CLI_LIMIT_UNIQUE_TARGET_IDS_ID,
@@ -378,6 +451,13 @@ pub fn status_report_write_error() -> String {
 /// Returns the canonical CLI-usage error for invalid batch concurrency.
 pub fn positive_batch_concurrency_usage_error() -> &'static str {
     positive_batch_concurrency_limit().cli_usage_error_template
+}
+
+/// Returns the canonical CLI-usage error for missing run-target selection.
+pub fn run_target_selection_usage_error() -> &'static str {
+    cli_hard_limit(CLI_LIMIT_RUN_TARGET_SELECTION_ID)
+        .expect("run target selection limit")
+        .cli_usage_error_template
 }
 
 /// Returns the canonical CLI-usage error for duplicate explicit target ids.

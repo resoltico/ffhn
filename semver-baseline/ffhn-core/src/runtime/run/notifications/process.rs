@@ -1,5 +1,6 @@
 use std::io::{self, Read};
 use std::process::{ChildStderr, ExitStatus};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -28,28 +29,85 @@ impl NotificationProcess for std::process::Child {
     }
 }
 
+pub(crate) fn notification_deadline(started: Instant, timeout_ms: u64) -> Instant {
+    started + Duration::from_millis(timeout_ms)
+}
+
+pub(crate) fn notification_time_remaining(
+    started: Instant,
+    timeout_ms: u64,
+) -> Result<Duration, RunNotificationDelivery> {
+    let now = Instant::now();
+    let deadline = notification_deadline(started, timeout_ms);
+    if now >= deadline {
+        return Err(notification_failure(
+            "",
+            started,
+            true,
+            None,
+            "route process timed out",
+        ));
+    }
+    Ok(deadline.saturating_duration_since(now))
+}
+
+pub(crate) fn recv_with_notification_deadline<T>(
+    receiver: &mpsc::Receiver<T>,
+    route_name: &str,
+    started: Instant,
+    timeout_ms: u64,
+) -> Result<T, RunNotificationDelivery> {
+    let remaining = match notification_time_remaining(started, timeout_ms) {
+        Ok(remaining) => remaining,
+        Err(_) => {
+            return Err(notification_failure(
+                route_name,
+                started,
+                true,
+                None,
+                "route process timed out",
+            ));
+        }
+    };
+
+    receiver
+        .recv_timeout(remaining)
+        .map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => {
+                notification_failure(route_name, started, true, None, "route process timed out")
+            }
+            mpsc::RecvTimeoutError::Disconnected => notification_failure(
+                route_name,
+                started,
+                false,
+                None,
+                "notification payload writer terminated unexpectedly",
+            ),
+        })
+}
+
 pub(crate) fn wait_for_notification_process<P: NotificationProcess>(
     process: &mut P,
-    hook_name: &str,
+    route_name: &str,
     started: Instant,
     timeout_ms: u64,
 ) -> RunNotificationDelivery {
-    let deadline = started + Duration::from_millis(timeout_ms);
+    let deadline = notification_deadline(started, timeout_ms);
     loop {
         match process.try_wait() {
             Ok(Some(status)) => {
                 return if status.success() {
                     RunNotificationDelivery::delivered(
-                        hook_name,
+                        route_name,
                         elapsed_ms(&started),
                         status.code().unwrap_or(0),
                     )
                 } else {
                     RunNotificationDelivery::failed(
-                        hook_name,
+                        route_name,
                         elapsed_ms(&started),
                         status.code(),
-                        format!("hook exited with status {status}"),
+                        format!("route process exited with status {status}"),
                     )
                 };
             }
@@ -57,29 +115,35 @@ pub(crate) fn wait_for_notification_process<P: NotificationProcess>(
                 if Instant::now() >= deadline {
                     let _ = process.kill();
                     let _ = process.wait();
-                    return notification_failure(hook_name, started, true, None, "hook timed out");
+                    return notification_failure(
+                        route_name,
+                        started,
+                        true,
+                        None,
+                        "route process timed out",
+                    );
                 }
                 thread::sleep(Duration::from_millis(10));
             }
             Err(error) => {
-                return notification_failure(hook_name, started, false, None, error);
+                return notification_failure(route_name, started, false, None, error);
             }
         }
     }
 }
 
 pub(crate) fn notification_failure(
-    hook_name: &str,
+    route_name: &str,
     started: Instant,
     timed_out: bool,
     exit_code: Option<i32>,
     error: impl ToString,
 ) -> RunNotificationDelivery {
     if timed_out {
-        RunNotificationDelivery::timed_out(hook_name, elapsed_ms(&started), error.to_string())
+        RunNotificationDelivery::timed_out(route_name, elapsed_ms(&started), error.to_string())
     } else {
         RunNotificationDelivery::failed(
-            hook_name,
+            route_name,
             elapsed_ms(&started),
             exit_code,
             error.to_string(),
@@ -196,15 +260,17 @@ mod tests {
         append_notification_stderr(&mut delivered, Some("ignored".to_owned()));
         assert!(delivered.error().is_none());
 
-        let mut untouched = RunNotificationDelivery::timed_out("notify", 1, "hook timed out");
+        let mut untouched =
+            RunNotificationDelivery::timed_out("notify", 1, "route process timed out");
         append_notification_stderr(&mut untouched, None);
-        assert_eq!(untouched.error(), Some("hook timed out"));
+        assert_eq!(untouched.error(), Some("route process timed out"));
 
-        let mut timed_out = RunNotificationDelivery::timed_out("notify", 1, "hook timed out");
+        let mut timed_out =
+            RunNotificationDelivery::timed_out("notify", 1, "route process timed out");
         append_notification_stderr(&mut timed_out, Some("hook stderr".to_owned()));
         assert_eq!(
             timed_out.error(),
-            Some("hook timed out; stderr: hook stderr")
+            Some("route process timed out; stderr: hook stderr")
         );
 
         let mut failed = RunNotificationDelivery::failed("notify", 1, Some(7), "");

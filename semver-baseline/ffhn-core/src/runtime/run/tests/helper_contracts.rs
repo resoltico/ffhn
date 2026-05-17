@@ -1,23 +1,28 @@
 use super::support::*;
-use htmlcut_core::interop::v1::Selection;
+use crate::runtime::run::outcome::compare_source_for_basis;
+use htmlcut_core::interop::v1::{HttpUrl, Selection};
 
 #[test]
 fn helper_functions_cover_error_mapping_and_compare_outcomes() {
     assert_eq!(
-        reason_code_for_htmlcut_error(ErrorCode::PlanInvalid),
-        ReasonCode::ExtractionPlanInvalid
+        failure_cause_for_htmlcut_error(ErrorCode::PlanInvalid),
+        RunFailureCause::SelectionContractInvalid
     );
     assert_eq!(
-        reason_code_for_htmlcut_error(ErrorCode::NoMatch),
-        ReasonCode::ExtractionNoMatch
+        failure_cause_for_htmlcut_error(ErrorCode::NoMatch),
+        RunFailureCause::SelectionNoMatch
     );
     assert_eq!(
-        reason_code_for_htmlcut_error(ErrorCode::AmbiguousMatch),
-        ReasonCode::ExtractionAmbiguousMatch
+        failure_cause_for_htmlcut_error(ErrorCode::AmbiguousMatch),
+        RunFailureCause::SelectionAmbiguousMatch
     );
     assert_eq!(
-        reason_code_for_htmlcut_error(ErrorCode::InternalError),
-        ReasonCode::ExtractionInternalError
+        failure_cause_for_htmlcut_error(ErrorCode::MissingAttribute),
+        RunFailureCause::SelectionInternalError
+    );
+    assert_eq!(
+        failure_cause_for_htmlcut_error(ErrorCode::InternalError),
+        RunFailureCause::SelectionInternalError
     );
 
     assert_eq!(
@@ -36,11 +41,11 @@ fn helper_functions_cover_error_mapping_and_compare_outcomes() {
         RunOutcome::Changed
     );
     assert_eq!(
-        failure_run_outcome(ReasonCode::FetchTimeout),
+        failure_run_outcome(RunFailureCause::FetchTimeout),
         RunOutcome::FailedTransient
     );
     assert_eq!(
-        failure_run_outcome(ReasonCode::Disabled),
+        failure_run_outcome(RunFailureCause::ConfigInvalid),
         RunOutcome::FailedPermanent
     );
     assert_eq!(RunOutcome::SkippedDisabled.as_str(), "skipped_disabled");
@@ -81,11 +86,14 @@ fn helper_functions_cover_error_mapping_and_compare_outcomes() {
 fn required_outer_html_enforces_the_persisted_artifact_contract() {
     let url = Url::parse("https://example.com").expect("url");
     let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
-    let plan =
-        super::super::super::interop::build_htmlcut_plan(target.selection_config()).expect("plan");
+    let plan = super::super::super::interop::build_htmlcut_plan(
+        target.selection_config(),
+        target.compare_config_internal(),
+    )
+    .expect("plan");
     let source = HtmlInput::new("demo".to_owned(), "<main>Hello</main>".to_owned())
         .expect("source")
-        .with_input_base_url(url);
+        .with_input_base_url(HttpUrl::try_from(url).expect("http url"));
 
     let mut result = execute_plan(&source, &plan).expect("result");
     let selected_match = required_selected_match(&result).expect("selected match");
@@ -94,24 +102,64 @@ fn required_outer_html_enforces_the_persisted_artifact_contract() {
         "<main>Hello</main>"
     );
 
-    result.selected_matches[0].outer_html = None;
+    result.selected_matches[0].outer_html_output = "<main>Hello\r\nworld</main>".to_owned();
     let selected_match = required_selected_match(&result).expect("selected match after mutation");
-    assert!(required_outer_html(selected_match).is_err());
+    assert_eq!(
+        required_outer_html(selected_match).expect("normalized outer html"),
+        "<main>Hello\nworld</main>"
+    );
+}
+
+#[test]
+fn compare_source_for_basis_projects_text_inner_and_outer_html() {
+    let url = Url::parse("https://example.com").expect("url");
+    let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
+    let plan = super::super::super::interop::build_htmlcut_plan(
+        target.selection_config(),
+        target.compare_config_internal(),
+    )
+    .expect("plan");
+    let source = HtmlInput::new(
+        "demo".to_owned(),
+        "<main><span>Hello</span></main>".to_owned(),
+    )
+    .expect("source")
+    .with_input_base_url(HttpUrl::try_from(url).expect("http url"));
+
+    let result = execute_plan(&source, &plan).expect("result");
+    let selected_match = required_selected_match(&result).expect("selected match");
+    assert_eq!(
+        compare_source_for_basis(selected_match, CompareBasis::Text).expect("text compare"),
+        "Hello"
+    );
+    assert_eq!(
+        compare_source_for_basis(selected_match, CompareBasis::InnerHtml)
+            .expect("inner html compare"),
+        "<span>Hello</span>"
+    );
+    assert_eq!(
+        compare_source_for_basis(selected_match, CompareBasis::OuterHtml)
+            .expect("outer html compare"),
+        "<main><span>Hello</span></main>"
+    );
 }
 
 #[test]
 fn required_selected_match_rejects_htmlcut_all_selection_results_for_ffhn() {
     let url = Url::parse("https://example.com").expect("url");
     let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
-    let mut plan =
-        super::super::super::interop::build_htmlcut_plan(target.selection_config()).expect("plan");
+    let mut plan = super::super::super::interop::build_htmlcut_plan(
+        target.selection_config(),
+        target.compare_config_internal(),
+    )
+    .expect("plan");
     plan.selection = Selection::all();
     let source = HtmlInput::new(
         "demo".to_owned(),
         "<main>One</main><main>Two</main>".to_owned(),
     )
     .expect("source")
-    .with_input_base_url(url);
+    .with_input_base_url(HttpUrl::try_from(url).expect("http url"));
 
     let result = execute_plan(&source, &plan).expect("all-selection result");
     let error = required_selected_match(&result).expect_err("ffhn should reject all-selection");

@@ -9,7 +9,7 @@ use url::Url;
 use crate::canonical::normalize_line_endings;
 use crate::time::elapsed_ms;
 use crate::{
-    NetworkFetchConfig, ProcessErrorDetail, ProcessErrorKind, ReasonCode, RunFetchSection,
+    NetworkFetchConfig, ProcessErrorDetail, ProcessErrorKind, RunFailureCause, RunFetchSection,
     TargetDocument,
 };
 
@@ -32,9 +32,9 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
     let mut response = match request.call() {
         Ok(response) => response,
         Err(error) => {
-            let reason_code = map_ureq_error(&error);
+            let failure_cause = map_ureq_error(&error);
             return Err(Box::new(FetchFailure {
-                reason_code,
+                failure_cause,
                 error_detail: ProcessErrorDetail::new(
                     ProcessErrorKind::Io,
                     error.to_string(),
@@ -59,7 +59,7 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     if !http_status_is_success(http_status) {
         return Err(Box::new(FetchFailure {
-            reason_code: map_http_status_reason(http_status),
+            failure_cause: map_http_status_reason(http_status),
             error_detail: ProcessErrorDetail::new(
                 ProcessErrorKind::Contract,
                 format!("HTTP request returned status {http_status}"),
@@ -79,7 +79,7 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     if !supported_content_type(content_type.as_deref()) {
         return Err(Box::new(FetchFailure {
-            reason_code: ReasonCode::FetchUnsupportedContentType,
+            failure_cause: RunFailureCause::FetchUnsupportedContentType,
             error_detail: ProcessErrorDetail::new(
                 ProcessErrorKind::Contract,
                 format!(
@@ -102,7 +102,7 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     if content_length_exceeds_limit(&response, fetch.max_bytes) {
         return Err(Box::new(FetchFailure {
-            reason_code: ReasonCode::FetchTooLarge,
+            failure_cause: RunFailureCause::FetchTooLarge,
             error_detail: ProcessErrorDetail::new(
                 ProcessErrorKind::Contract,
                 format!(
@@ -125,9 +125,9 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     let bytes = match read_limited_bytes(response.body_mut().as_reader(), fetch.max_bytes) {
         Ok(bytes) => bytes,
-        Err(reason_code) => {
+        Err(failure_cause) => {
             return Err(Box::new(FetchFailure {
-                reason_code,
+                failure_cause,
                 error_detail: ProcessErrorDetail::new(
                     ProcessErrorKind::Io,
                     "could not read the full HTTP response body",
@@ -148,9 +148,9 @@ pub(super) fn fetch_http_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     let html = match decode_body(&bytes, content_type.as_deref()) {
         Ok(html) => html,
-        Err(reason_code) => {
+        Err(failure_cause) => {
             return Err(Box::new(FetchFailure {
-                reason_code,
+                failure_cause,
                 error_detail: ProcessErrorDetail::new(
                     ProcessErrorKind::Contract,
                     "HTTP response body could not be decoded into supported HTML text",
@@ -217,11 +217,11 @@ pub(super) fn build_agent(fetch: &NetworkFetchConfig) -> ureq::Agent {
         .into()
 }
 
-pub(super) fn map_ureq_error(error: &ureq::Error) -> ReasonCode {
+pub(super) fn map_ureq_error(error: &ureq::Error) -> RunFailureCause {
     match error {
-        ureq::Error::Timeout(_) => ReasonCode::FetchTimeout,
-        ureq::Error::BodyExceedsLimit(_) => ReasonCode::FetchTooLarge,
-        ureq::Error::Decompress(_, _) => ReasonCode::FetchDecodeError,
+        ureq::Error::Timeout(_) => RunFailureCause::FetchTimeout,
+        ureq::Error::BodyExceedsLimit(_) => RunFailureCause::FetchTooLarge,
+        ureq::Error::Decompress(_, _) => RunFailureCause::FetchDecodeError,
         ureq::Error::StatusCode(status) => map_http_status_reason(*status),
         ureq::Error::Http(_)
         | ureq::Error::InvalidProxyUrl
@@ -239,18 +239,18 @@ pub(super) fn map_ureq_error(error: &ureq::Error) -> ReasonCode {
         | ureq::Error::RedirectFailed
         | ureq::Error::BadUri(_)
         | ureq::Error::LargeResponseHeader(_, _)
-        | ureq::Error::BodyStalled => ReasonCode::FetchNetworkError,
+        | ureq::Error::BodyStalled => RunFailureCause::FetchNetworkError,
         // Treat bespoke or future non-exhaustive ureq variants as transient network failures until
         // FFHN classifies them explicitly. Revisit this arm whenever ureq is upgraded.
-        _ => ReasonCode::FetchNetworkError,
+        _ => RunFailureCause::FetchNetworkError,
     }
 }
 
-pub(super) fn map_http_status_reason(status: u16) -> ReasonCode {
+pub(super) fn map_http_status_reason(status: u16) -> RunFailureCause {
     if status >= 500 {
-        ReasonCode::FetchHttpServerError
+        RunFailureCause::FetchHttpServerError
     } else {
-        ReasonCode::FetchHttpClientError
+        RunFailureCause::FetchHttpClientError
     }
 }
 
@@ -294,32 +294,36 @@ fn header_value(response: &ureq::http::Response<ureq::Body>, name: &str) -> Opti
 pub(super) fn read_limited_bytes(
     mut reader: impl Read,
     max_bytes: usize,
-) -> Result<Vec<u8>, ReasonCode> {
+) -> Result<Vec<u8>, RunFailureCause> {
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 8192];
 
     loop {
         let read = reader
             .read(&mut buffer)
-            .map_err(|_| ReasonCode::FetchNetworkError)?;
+            .map_err(|_| RunFailureCause::FetchNetworkError)?;
         if read == 0 {
             break;
         }
 
         bytes.extend_from_slice(&buffer[..read]);
         if bytes.len() > max_bytes {
-            return Err(ReasonCode::FetchTooLarge);
+            return Err(RunFailureCause::FetchTooLarge);
         }
     }
 
     Ok(bytes)
 }
 
-pub(super) fn decode_body(bytes: &[u8], content_type: Option<&str>) -> Result<String, ReasonCode> {
-    let encoding = charset_from_content_type(content_type).ok_or(ReasonCode::FetchDecodeError)?;
+pub(super) fn decode_body(
+    bytes: &[u8],
+    content_type: Option<&str>,
+) -> Result<String, RunFailureCause> {
+    let encoding =
+        charset_from_content_type(content_type).ok_or(RunFailureCause::FetchDecodeError)?;
     let (text, _, had_errors) = encoding.decode(bytes);
     if had_errors {
-        return Err(ReasonCode::FetchDecodeError);
+        return Err(RunFailureCause::FetchDecodeError);
     }
     Ok(text.into_owned())
 }

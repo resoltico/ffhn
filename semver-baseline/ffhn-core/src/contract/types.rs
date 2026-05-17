@@ -32,8 +32,6 @@ pub struct CliArgumentContract {
     pub repeatable: bool,
     /// Whether the argument is required.
     pub required: bool,
-    /// Companion argument id that satisfies the requirement when present.
-    pub required_unless_present: Option<&'static str>,
     /// Conflicting argument ids.
     pub conflicts_with: &'static [&'static str],
     /// Default value shown in help when applicable.
@@ -64,10 +62,18 @@ pub struct CliOperationContract {
     pub display_label: &'static str,
     /// Canonical help summary.
     pub help_summary: &'static str,
+    /// Canonical usage synopsis shown in help and usage errors.
+    pub usage: &'static str,
     /// Operation arguments in display order.
     pub arguments: &'static [CliArgumentContract],
     /// Canonical invocation patterns for the operation.
     pub invocations: &'static [CliInvocationContract],
+    /// Canonical runnable command examples for the operation.
+    pub examples: &'static [&'static str],
+    /// Canonical structured-stdout notes for the operation.
+    pub output_notes: &'static [&'static str],
+    /// Canonical operational notes that are not part of the command grammar.
+    pub operational_notes: &'static [&'static str],
 }
 
 /// One canonical execution-mode description.

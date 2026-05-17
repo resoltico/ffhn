@@ -4,9 +4,8 @@ use std::num::NonZeroUsize;
 use url::Url;
 
 use super::super::{
-    CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod,
-    OutputKind, RegexFlag, RunOutcome, SelectionKind, SelectionMatch, TargetId, TargetKind,
-    WhitespaceMode,
+    CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod, RegexFlag,
+    RunOutcome, SelectionKind, SelectionMatch, TargetId, TargetKind, WhitespaceMode,
 };
 use super::defaults::default_history_limit;
 
@@ -82,19 +81,38 @@ impl Default for StorageConfig {
     }
 }
 
-/// Best-effort process notification hook.
+/// One notification route in FFHN.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NotificationHook {
-    /// Stable hook label used in reports.
+pub(crate) struct NotificationRoute {
+    /// Stable route label used in reports.
     pub(crate) name: String,
-    /// Run outcomes that should trigger the hook.
+    /// Run outcomes that should trigger the route.
     pub(crate) on: Vec<RunOutcome>,
-    /// Executable path used to deliver the notification.
-    pub(crate) program: String,
-    /// Exact argument vector passed to the executable.
-    pub(crate) args: Vec<String>,
-    /// Maximum runtime in milliseconds.
-    pub(crate) timeout_ms: u64,
+    /// Delivery endpoint for the route.
+    pub(crate) endpoint: String,
+}
+
+/// One named notification delivery endpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NotificationEndpoint {
+    /// Stable endpoint label referenced by routes.
+    pub(crate) name: String,
+    /// Delivery adapter for the endpoint.
+    pub(crate) adapter: NotificationAdapter,
+}
+
+/// Delivery adapter for one notification endpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NotificationAdapter {
+    /// Deliver the payload by writing compact JSON plus a newline to a child process stdin.
+    ProcessStdin {
+        /// Executable path used to deliver the notification.
+        program: String,
+        /// Exact argument vector passed to the executable.
+        args: Vec<String>,
+        /// Maximum runtime in milliseconds.
+        timeout_ms: u64,
+    },
 }
 
 /// Candidate selection mode inside one extraction strategy.
@@ -118,12 +136,6 @@ pub(crate) enum SelectionConfig {
     CssSelector {
         /// Candidate selection mode.
         selection_mode: SelectionModeConfig,
-        /// Output payload.
-        output: OutputKind,
-        /// Extraction-time whitespace mode.
-        whitespace: WhitespaceMode,
-        /// Extraction-time URL rewriting.
-        rewrite_urls: bool,
         /// CSS selector query.
         selector: String,
     },
@@ -131,12 +143,6 @@ pub(crate) enum SelectionConfig {
     DelimiterPair {
         /// Candidate selection mode.
         selection_mode: SelectionModeConfig,
-        /// Output payload.
-        output: OutputKind,
-        /// Extraction-time whitespace mode.
-        whitespace: WhitespaceMode,
-        /// Extraction-time URL rewriting.
-        rewrite_urls: bool,
         /// Start delimiter.
         start: String,
         /// End delimiter.
@@ -153,16 +159,20 @@ pub(crate) enum SelectionConfig {
 }
 
 /// Compare section.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
 pub(crate) struct CompareConfig {
     /// Compare basis.
     pub(crate) basis: CompareBasis,
+    /// Text whitespace mode when the compare basis is `text`.
+    pub(crate) whitespace: Option<WhitespaceMode>,
+    /// Whether FFHN rewrites discovered URLs before comparison.
+    pub(crate) rewrite_urls: bool,
     /// Ordered canonicalization pipeline.
     pub(crate) canonicalization: Vec<CanonicalizerSpec>,
 }
 
 /// One canonicalizer specification.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
 pub struct CanonicalizerSpec {
     /// Canonicalizer kind.
     pub(crate) kind: CanonicalizerKind,
@@ -195,12 +205,97 @@ pub struct TargetDocument {
     pub(crate) compare: CompareConfig,
     /// Rolling storage policy.
     pub(crate) storage: StorageConfig,
-    /// Notification hooks.
-    pub(crate) notifications: Vec<NotificationHook>,
+    /// Notification delivery endpoints.
+    pub(crate) notification_endpoints: Vec<NotificationEndpoint>,
+    /// Notification routes.
+    pub(crate) notification_routes: Vec<NotificationRoute>,
     /// Reserved extensions.
     pub(crate) extensions: Extensions,
 }
 
-/// Public read-only projection of one notification hook.
+/// Public read-only projection of one notification route.
 #[derive(Clone, Copy, Debug)]
-pub struct NotificationHookView<'a>(pub(crate) &'a NotificationHook);
+pub struct NotificationRouteView<'a> {
+    pub(crate) route: &'a NotificationRoute,
+    pub(crate) endpoint: &'a NotificationEndpoint,
+}
+
+/// Read-only typed target-source projection.
+#[derive(Clone, Copy, Debug)]
+pub enum TargetSourceView<'a> {
+    /// HTTP or HTTPS source target.
+    Http(HttpTargetSourceView<'a>),
+    /// Local file source target.
+    File(FileTargetSourceView<'a>),
+}
+
+/// Read-only HTTP target-source projection.
+#[derive(Clone, Copy, Debug)]
+pub struct HttpTargetSourceView<'a>(pub(crate) &'a Url);
+
+/// Read-only file target-source projection.
+#[derive(Clone, Copy, Debug)]
+pub struct FileTargetSourceView<'a>(pub(crate) &'a str);
+
+/// Read-only typed fetch-configuration projection.
+#[derive(Clone, Copy, Debug)]
+pub enum FetchConfigView<'a> {
+    /// HTTP fetch configuration.
+    Http(HttpFetchConfigView<'a>),
+    /// Local file fetch configuration.
+    File(FileFetchConfigView<'a>),
+}
+
+/// Read-only HTTP fetch configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct HttpFetchConfigView<'a>(pub(crate) &'a NetworkFetchConfig);
+
+/// Read-only file fetch configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct FileFetchConfigView<'a>(pub(crate) &'a FileFetchConfig);
+
+/// Read-only typed selection-configuration projection.
+#[derive(Clone, Copy, Debug)]
+pub enum SelectionConfigView<'a> {
+    /// CSS selector extraction configuration.
+    CssSelector(CssSelectorSelectionView<'a>),
+    /// Delimiter-pair extraction configuration.
+    DelimiterPair(DelimiterPairSelectionView<'a>),
+}
+
+/// Read-only CSS selector extraction configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct CssSelectorSelectionView<'a> {
+    pub(crate) selection_mode: &'a SelectionModeConfig,
+    pub(crate) selector: &'a str,
+}
+
+/// Read-only delimiter-pair extraction configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct DelimiterPairSelectionView<'a> {
+    pub(crate) selection_mode: &'a SelectionModeConfig,
+    pub(crate) start: &'a str,
+    pub(crate) end: &'a str,
+    pub(crate) mode: DelimiterMode,
+    pub(crate) include_start: bool,
+    pub(crate) include_end: bool,
+    pub(crate) flags: &'a [RegexFlag],
+}
+
+/// Read-only selection mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionModeView {
+    /// Exactly one candidate must match.
+    Single,
+    /// Use the first candidate.
+    First,
+    /// Use one explicit one-based candidate index.
+    Nth {
+        /// One-based candidate index.
+        index: usize,
+    },
+}
+
+/// Read-only compare configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct CompareConfigView<'a>(pub(crate) &'a CompareConfig);

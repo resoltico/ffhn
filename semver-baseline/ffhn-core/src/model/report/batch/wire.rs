@@ -15,7 +15,7 @@ struct RawBatchOutcomeCounts {
     failed_transient: usize,
     failed_permanent: usize,
     skipped_disabled: usize,
-    persist_error: usize,
+    persist_failure: usize,
     notification_failure: usize,
     fatal_error: usize,
 }
@@ -29,7 +29,7 @@ impl From<RawBatchOutcomeCounts> for BatchOutcomeCounts {
             failed_transient: raw.failed_transient,
             failed_permanent: raw.failed_permanent,
             skipped_disabled: raw.skipped_disabled,
-            persist_error: raw.persist_error,
+            persist_failure: raw.persist_failure,
             notification_failure: raw.notification_failure,
             fatal_error: raw.fatal_error,
         }
@@ -45,7 +45,7 @@ impl From<&BatchOutcomeCounts> for RawBatchOutcomeCounts {
             failed_transient: counts.failed_transient,
             failed_permanent: counts.failed_permanent,
             skipped_disabled: counts.skipped_disabled,
-            persist_error: counts.persist_error,
+            persist_failure: counts.persist_failure,
             notification_failure: counts.notification_failure,
             fatal_error: counts.fatal_error,
         }

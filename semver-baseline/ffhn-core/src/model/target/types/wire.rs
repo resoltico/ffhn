@@ -5,9 +5,9 @@ use url::Url;
 
 use super::{
     CanonicalizerSpec, CompareBasis, CompareConfig, Extensions, FetchConfig, FetchEngine,
-    FileFetchConfig, NetworkFetchConfig, NotificationHook, OutputKind, RegexFlag, RunOutcome,
-    SelectionConfig, SelectionKind, SelectionMatch, SelectionModeConfig, StorageConfig,
-    TargetDocument, TargetKind, TargetSource, WhitespaceMode,
+    FileFetchConfig, NetworkFetchConfig, NotificationAdapter, NotificationEndpoint,
+    NotificationRoute, RegexFlag, RunOutcome, SelectionConfig, SelectionKind, SelectionMatch,
+    SelectionModeConfig, StorageConfig, TargetDocument, TargetKind, TargetSource, WhitespaceMode,
 };
 use crate::{CoreError, DelimiterMode, HttpMethod};
 
@@ -244,9 +244,6 @@ struct RawSelectionConfig {
     selection_match: SelectionMatch,
     #[serde(skip_serializing_if = "Option::is_none")]
     index: Option<usize>,
-    output: OutputKind,
-    whitespace: WhitespaceMode,
-    rewrite_urls: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     selector: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -285,9 +282,6 @@ impl TryFrom<RawSelectionConfig> for SelectionConfig {
 
                 Ok(Self::CssSelector {
                     selection_mode,
-                    output: raw.output,
-                    whitespace: raw.whitespace,
-                    rewrite_urls: raw.rewrite_urls,
                     selector: raw
                         .selector
                         .ok_or_else(|| CoreError::contract("selection.selector is required"))?,
@@ -302,9 +296,6 @@ impl TryFrom<RawSelectionConfig> for SelectionConfig {
 
                 Ok(Self::DelimiterPair {
                     selection_mode,
-                    output: raw.output,
-                    whitespace: raw.whitespace,
-                    rewrite_urls: raw.rewrite_urls,
                     start: raw
                         .start
                         .ok_or_else(|| CoreError::contract("selection.start is required"))?,
@@ -332,9 +323,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
         match selection {
             SelectionConfig::CssSelector {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 selector,
             } => {
                 let (selection_match, index) = selection_mode.raw_parts();
@@ -342,9 +330,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
                     kind: SelectionKind::CssSelector,
                     selection_match,
                     index,
-                    output: *output,
-                    whitespace: *whitespace,
-                    rewrite_urls: *rewrite_urls,
                     selector: Some(selector.clone()),
                     start: None,
                     end: None,
@@ -356,9 +341,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
             }
             SelectionConfig::DelimiterPair {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 start,
                 end,
                 mode,
@@ -371,9 +353,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
                     kind: SelectionKind::DelimiterPair,
                     selection_match,
                     index,
-                    output: *output,
-                    whitespace: *whitespace,
-                    rewrite_urls: *rewrite_urls,
                     selector: None,
                     start: Some(start.clone()),
                     end: Some(end.clone()),
@@ -440,6 +419,11 @@ impl From<&CanonicalizerSpec> for RawCanonicalizerSpec {
 #[serde(deny_unknown_fields)]
 struct RawCompareConfig {
     basis: CompareBasis,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    whitespace: Option<WhitespaceMode>,
+    #[serde(default)]
+    rewrite_urls: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     canonicalization: Vec<RawCanonicalizerSpec>,
 }
 
@@ -447,6 +431,8 @@ impl From<RawCompareConfig> for CompareConfig {
     fn from(raw: RawCompareConfig) -> Self {
         Self {
             basis: raw.basis,
+            whitespace: raw.whitespace,
+            rewrite_urls: raw.rewrite_urls,
             canonicalization: raw
                 .canonicalization
                 .into_iter()
@@ -460,6 +446,8 @@ impl From<&CompareConfig> for RawCompareConfig {
     fn from(compare: &CompareConfig) -> Self {
         Self {
             basis: compare.basis,
+            whitespace: compare.whitespace,
+            rewrite_urls: compare.rewrite_urls,
             canonicalization: compare
                 .canonicalization
                 .iter()
@@ -502,9 +490,31 @@ impl From<&StorageConfig> for RawStorageConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct RawNotificationHook {
+struct RawNotificationRoute {
     name: String,
     on: Vec<RunOutcome>,
+    endpoint: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RawNotificationAdapterKind {
+    ProcessStdin,
+}
+
+impl From<&NotificationAdapter> for RawNotificationAdapterKind {
+    fn from(adapter: &NotificationAdapter) -> Self {
+        match adapter {
+            NotificationAdapter::ProcessStdin { .. } => Self::ProcessStdin,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct RawNotificationEndpoint {
+    name: String,
+    kind: RawNotificationAdapterKind,
     program: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     args: Vec<String>,
@@ -512,26 +522,55 @@ struct RawNotificationHook {
     timeout_ms: u64,
 }
 
-impl From<RawNotificationHook> for NotificationHook {
-    fn from(raw: RawNotificationHook) -> Self {
+impl From<RawNotificationRoute> for NotificationRoute {
+    fn from(raw: RawNotificationRoute) -> Self {
         Self {
             name: raw.name,
             on: raw.on,
-            program: raw.program,
-            args: raw.args,
-            timeout_ms: raw.timeout_ms,
+            endpoint: raw.endpoint,
         }
     }
 }
 
-impl From<&NotificationHook> for RawNotificationHook {
-    fn from(hook: &NotificationHook) -> Self {
+impl From<&NotificationRoute> for RawNotificationRoute {
+    fn from(route: &NotificationRoute) -> Self {
         Self {
-            name: hook.name.clone(),
-            on: hook.on.clone(),
-            program: hook.program.clone(),
-            args: hook.args.clone(),
-            timeout_ms: hook.timeout_ms,
+            name: route.name.clone(),
+            on: route.on.clone(),
+            endpoint: route.endpoint.clone(),
+        }
+    }
+}
+
+impl From<RawNotificationEndpoint> for NotificationEndpoint {
+    fn from(raw: RawNotificationEndpoint) -> Self {
+        Self {
+            name: raw.name,
+            adapter: match raw.kind {
+                RawNotificationAdapterKind::ProcessStdin => NotificationAdapter::ProcessStdin {
+                    program: raw.program,
+                    args: raw.args,
+                    timeout_ms: raw.timeout_ms,
+                },
+            },
+        }
+    }
+}
+
+impl From<&NotificationEndpoint> for RawNotificationEndpoint {
+    fn from(endpoint: &NotificationEndpoint) -> Self {
+        match &endpoint.adapter {
+            NotificationAdapter::ProcessStdin {
+                program,
+                args,
+                timeout_ms,
+            } => Self {
+                name: endpoint.name.clone(),
+                kind: RawNotificationAdapterKind::from(&endpoint.adapter),
+                program: program.clone(),
+                args: args.clone(),
+                timeout_ms: *timeout_ms,
+            },
         }
     }
 }
@@ -551,7 +590,9 @@ struct RawTargetDocument {
     #[serde(default)]
     storage: RawStorageConfig,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    notifications: Vec<RawNotificationHook>,
+    notification_endpoints: Vec<RawNotificationEndpoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notification_routes: Vec<RawNotificationRoute>,
     #[serde(skip_serializing_if = "Option::is_none")]
     extensions: Extensions,
 }
@@ -571,10 +612,15 @@ impl TryFrom<RawTargetDocument> for TargetDocument {
             selection: raw.selection,
             compare: raw.compare.into(),
             storage: raw.storage.into(),
-            notifications: raw
-                .notifications
+            notification_endpoints: raw
+                .notification_endpoints
                 .into_iter()
-                .map(NotificationHook::from)
+                .map(NotificationEndpoint::from)
+                .collect(),
+            notification_routes: raw
+                .notification_routes
+                .into_iter()
+                .map(NotificationRoute::from)
                 .collect(),
             extensions: raw.extensions,
         };
@@ -596,10 +642,15 @@ impl From<&TargetDocument> for RawTargetDocument {
             selection: document.selection.clone(),
             compare: RawCompareConfig::from(&document.compare),
             storage: RawStorageConfig::from(&document.storage),
-            notifications: document
-                .notifications
+            notification_endpoints: document
+                .notification_endpoints
                 .iter()
-                .map(RawNotificationHook::from)
+                .map(RawNotificationEndpoint::from)
+                .collect(),
+            notification_routes: document
+                .notification_routes
+                .iter()
+                .map(RawNotificationRoute::from)
                 .collect(),
             extensions: document.extensions.clone(),
         }
