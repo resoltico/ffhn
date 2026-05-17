@@ -55,9 +55,6 @@ mod tests {
     fn css_selection() -> SelectionConfig {
         SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         }
     }
@@ -68,9 +65,6 @@ mod tests {
 
         let first_text = SelectionConfig::DelimiterPair {
             selection_mode: SelectionModeConfig::First,
-            output: crate::OutputKind::Text,
-            whitespace: crate::WhitespaceMode::Preserve,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: DelimiterMode::Regex,
@@ -90,9 +84,6 @@ mod tests {
             selection_mode: SelectionModeConfig::Nth {
                 index: std::num::NonZeroUsize::new(1).expect("non-zero index"),
             },
-            output: crate::OutputKind::InnerHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: DelimiterMode::Regex,
@@ -107,9 +98,6 @@ mod tests {
     fn selection_contract_reports_invalid_css_selectors() {
         let invalid = SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main[".to_owned(),
         };
 
@@ -122,9 +110,6 @@ mod tests {
     fn selection_contract_reports_invalid_regex_boundaries() {
         let invalid = SelectionConfig::DelimiterPair {
             selection_mode: SelectionModeConfig::Single,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "(".to_owned(),
             end: "END".to_owned(),
             mode: DelimiterMode::Regex,

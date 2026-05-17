@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: REPORTS
-updated: "2026-05-14"
+updated: "2026-05-17"
 route:
   keywords: [reports, ffhn.state, ffhn.extraction_record, ffhn.last_run_snapshot, ffhn.notification_payload, ffhn.status_report, snapshot references, snapshot artifacts, state document]
   questions: ["what do ffhn state and status documents mean?", "what is stored in ffhn.state?", "what is stored in ffhn.extraction_record?", "what is stored in ffhn.last_run_snapshot?", "what is ffhn.notification_payload?", "what do ffhn snapshot artifacts mean?"]
@@ -35,15 +35,17 @@ Run-oriented semantics live in [run-reports.md](run-reports.md):
 Important fields:
 
 1. `target_id`
-2. `baseline`
-3. optional `last_run`
+2. `monitoring_contract_digest_sha256`
+3. `baseline`
+4. optional `last_run`
 
 Field semantics:
 
-1. `baseline.kind = "pending" | "ready"` is the durable baseline-state discriminator
-2. `baseline.ready.current_snapshot` and `baseline.ready.snapshot_history` are `SnapshotReference` objects that carry `slot`, digests, relative artifact paths, and `captured_at`
-3. `last_run` summarizes the most recent attempted live run that reached state persistence, not only the most recent success
-4. `last_run.outcome` is one of `initialized`, `changed`, `unchanged`, `skipped_disabled`, `failed_transient`, or `failed_permanent`
+1. `monitoring_contract_digest_sha256` fingerprints the target definition that produced the saved baseline
+2. `baseline.kind = "pending" | "ready"` is the durable baseline-state discriminator
+3. `baseline.ready.current_snapshot` and `baseline.ready.snapshot_history` are `SnapshotReference` objects that carry `slot`, digests, relative artifact paths, and `captured_at`
+4. `last_run` summarizes the most recent attempted live run that reached state persistence, not only the most recent success
+5. `last_run.outcome` is one of `initialized`, `changed`, `unchanged`, `skipped_disabled`, `failed_transient`, or `failed_permanent`
 
 ## `ffhn.last_run_snapshot`
 
@@ -78,29 +80,32 @@ Every persisted snapshot directory contains one `extraction.json` file with `ffh
 
 Important fields:
 
-1. `comparison_input_sha256`
+1. `compare_source_sha256`
 2. `outer_html_sha256`
-3. `selection_kind`
-4. `selection_match`
-5. `output_kind`
+3. `compare_basis`
+4. `selection_kind`
+5. `selection_match`
 6. `candidate_count`
 7. `selected_candidate_index`
 8. `selection_evidence`
 9. `warning_codes`
 10. `created_at`
+11. `monitoring_contract_digest_sha256`
 
 Interpretation:
 
-1. `comparison_input_sha256` is the digest of HTMLCut's selected `text_output` after FFHN has normalized line endings to LF
-2. `selection_evidence` is FFHN-owned evidence for the selected payload, not a raw upstream HTMLCut metadata object
-3. `warning_codes` includes warning-level diagnostics only
-4. `warning_codes` can include `EFFECTIVE_BASE_URL_UNRESOLVED` when URL rewriting was requested but HTMLCut could not resolve an effective HTTP(S) base URL
-5. the record is paired one-for-one with the sibling `canonical.txt` and `outer.html` artifacts in the same snapshot directory
+1. `compare_source_sha256` is the digest of the selected projection before FFHN applies canonicalizers
+2. `compare_basis` records which selected projection FFHN used to build the compare pipeline: rendered text, inner HTML, or outer HTML
+3. `selection_evidence` is FFHN-owned evidence for the selected payload, not a raw upstream HTMLCut metadata object
+4. `warning_codes` includes warning-level diagnostics only
+5. `warning_codes` can include `EFFECTIVE_BASE_URL_UNRESOLVED` when URL rewriting was requested but HTMLCut could not resolve an effective HTTP(S) base URL
+6. `monitoring_contract_digest_sha256` ties the extraction record to the same target-definition fingerprint stored in `state.json`
+7. the record is paired one-for-one with the sibling `compare.txt` and `outer.html` artifacts in the same snapshot directory
 
 Key invariants:
 
 1. `candidate_count` and `selected_candidate_index` must be positive, and the selected index must stay within the candidate count
-2. `selection_kind`, `selection_match`, `output_kind`, and `selection_evidence.kind` must stay internally consistent
+2. `selection_kind`, `selection_match`, `compare_basis`, and `selection_evidence.kind` must stay internally consistent
 3. CSS-selector evidence carries `path` plus `tag_name`; delimiter-pair evidence carries FFHN-owned byte ranges and boundary-inclusion flags
 
 ## `ffhn.status_report`
@@ -124,14 +129,15 @@ Interpretation:
 6. `status.kind = "unavailable_target"` means the explicit `target.toml` path was missing or unreadable after watch-root validation had already succeeded
 7. `status.kind = "invalid_state"` means `state.json` was unreadable or contract-invalid
 8. `status.kind = "integrity_mismatch"` means retained artifacts failed digest or extraction-record integrity
-9. `baseline_phase` is a derived view of the durable baseline state: `pending` implies `never_succeeded`, `ready` implies `has_baseline`, and invalid-state or integrity-mismatch reports preserve the recovered `baseline.kind` when FFHN can still decode it
-10. unreadable or unrecoverable `state.json` falls back to `baseline_phase = "never_succeeded"`
-11. malformed persisted JSON reports `error_detail.kind = "json"`, while valid JSON that violates FFHN's `state.json` or `extraction.json` contract reports `error_detail.kind = "contract"`
+9. `status.kind = "incompatible_baseline"` means the saved baseline was captured under a different monitoring contract than the current `target.toml`
+10. `baseline_phase` is a derived view of the durable baseline state: `pending` implies `never_succeeded`, `ready` implies `has_baseline`, and invalid-state or integrity-mismatch reports preserve the recovered `baseline.kind` when FFHN can still decode it
+11. unreadable or unrecoverable `state.json` falls back to `baseline_phase = "never_succeeded"`
+12. malformed persisted JSON reports `error_detail.kind = "json"`, while valid JSON that violates FFHN's `state.json` or `extraction.json` contract reports `error_detail.kind = "contract"`
 
 Special case:
 
 1. `status.kind = "invalid_config"` and `status.kind = "unavailable_target"` do not carry `baseline_phase`, `display_name`, or `enabled`
-2. invalid status variants require `error_detail`, while `pending` and `ready` forbid it
+2. invalid or incompatible status variants require `error_detail`, while `pending` and `ready` forbid it
 
 `status.ready.current_snapshot` and `status.ready.snapshot_history` carry only digest summaries, not the full artifact bodies.
 
@@ -157,7 +163,7 @@ Key invariants:
 
 Snapshot references point at three persisted files:
 
-1. `canonical.txt`: compare-time canonical text
+1. `compare.txt`: the final compare value after FFHN applies compare-basis projection, URL rewriting, text whitespace shaping when applicable, and configured canonicalizers
 2. `outer.html`: selected outer HTML from HTMLCut
 3. `extraction.json`: persisted `ffhn.extraction_record`
 

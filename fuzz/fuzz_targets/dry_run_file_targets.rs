@@ -121,18 +121,18 @@ fn target_toml(
 ) -> String {
     let strategy_section = match strategy {
         Strategy::Css => format!(
-            "[selection]\nkind = \"css_selector\"\nselector = \"{}\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n",
+            "[selection]\nkind = \"css_selector\"\nselector = \"{}\"\nmatch = \"single\"\n",
             safe_selector(selector)
         ),
         Strategy::Delimiter => format!(
-            "[selection]\nkind = \"delimiter_pair\"\nstart = \"{}\"\nend = \"{}\"\nmode = \"literal\"\ninclude_start = false\ninclude_end = true\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n",
+            "[selection]\nkind = \"delimiter_pair\"\nstart = \"{}\"\nend = \"{}\"\nmode = \"literal\"\ninclude_start = false\ninclude_end = true\nmatch = \"single\"\n",
             safe_delimiter(delimiter_start, "BEGIN"),
             safe_delimiter(delimiter_end, "END")
         ),
     };
 
     format!(
-        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n"
+        "schema_name = \"ffhn.target\"\nschema_version = 4\ntarget_id = \"{target_id}\"\ndisplay_name = \"Fuzz\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n{strategy_section}\n[compare]\nbasis = \"text\"\nwhitespace = \"normalize\"\nrewrite_urls = false\ncanonicalization = []\n"
     )
 }
 

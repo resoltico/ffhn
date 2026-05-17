@@ -226,9 +226,26 @@ impl CompareConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError`] when any canonicalizer entry violates FFHN's compare-pipeline
-    /// contract.
+    /// Returns [`CoreError`] when the compare basis and rendering options are incompatible, or
+    /// when any canonicalizer entry violates FFHN's compare-pipeline contract.
     pub fn validate(&self) -> Result<(), CoreError> {
+        match self.basis {
+            crate::CompareBasis::Text => {
+                if self.whitespace.is_none() {
+                    return Err(CoreError::contract(
+                        "compare.whitespace is required when compare.basis = text",
+                    ));
+                }
+            }
+            crate::CompareBasis::InnerHtml | crate::CompareBasis::OuterHtml => {
+                if self.whitespace.is_some() {
+                    return Err(CoreError::contract(
+                        "compare.whitespace is only valid when compare.basis = text",
+                    ));
+                }
+            }
+        }
+
         for canonicalizer in &self.canonicalization {
             canonicalizer.validate()?;
         }

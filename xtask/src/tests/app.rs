@@ -1,10 +1,9 @@
+use super::*;
+use crate::app::{TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root};
+use crate::tests::PROCESS_ENV_LOCK;
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-
-use super::*;
-use crate::app::{TEST_REPO_ROOT_ENV, remove_dir_if_exists, remove_file_if_exists, repo_root};
 
 #[cfg(unix)]
 use crate::app::{run_audit, run_check, run_coverage, run_semver_check, run_spec};
@@ -13,8 +12,6 @@ use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratc
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-
-static PATH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
 fn run_from_routes_cli_requests_through_the_library_entrypoint() {
@@ -71,8 +68,8 @@ fn run_spec_can_quiet_stdout_while_passing_explicit_env_overrides() {
 #[test]
 #[allow(unsafe_code)]
 fn run_spec_scrubs_ambient_native_toolchain_overrides_unless_explicitly_requested() {
-    let _guard = PATH_LOCK
-        .get_or_init(|| Mutex::new(()))
+    let _guard = PROCESS_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let repo_root = tempdir().expect("tempdir");
@@ -82,7 +79,7 @@ fn run_spec_scrubs_ambient_native_toolchain_overrides_unless_explicitly_requeste
     let original_cppflags = env::var_os("CPPFLAGS");
     let original_ldflags = env::var_os("LDFLAGS");
 
-    // SAFETY: PATH_LOCK serializes all process-environment mutation in this test module.
+    // SAFETY: PROCESS_ENV_LOCK serializes all process-environment mutation in this test module.
     unsafe {
         env::set_var("CC", "/broken/clang");
         env::set_var("CXX", "/broken/clang++");
@@ -147,14 +144,14 @@ fn remove_helpers_delete_existing_paths_and_ignore_missing_ones() {
 #[test]
 #[allow(unsafe_code)]
 fn repo_root_falls_back_to_the_workspace_parent_without_a_test_override() {
-    let _guard = PATH_LOCK
-        .get_or_init(|| Mutex::new(()))
+    let _guard = PROCESS_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let original_repo_root = env::var_os(TEST_REPO_ROOT_ENV);
     // SAFETY: environment mutation is process-global and not thread-safe. This test holds
-    // PATH_LOCK for the entire mutation window, and every test in this process that reads or
-    // writes TEST_REPO_ROOT_ENV or PATH must also acquire PATH_LOCK first. Adding a PATH- or
+    // PROCESS_ENV_LOCK for the entire mutation window, and every test in this process that reads or
+    // writes TEST_REPO_ROOT_ENV or PATH must also acquire PROCESS_ENV_LOCK first. Adding a PATH- or
     // TEST_REPO_ROOT_ENV-dependent test without the lock breaks that invariant and risks a data
     // race through the shared process environment.
     unsafe { env::remove_var(TEST_REPO_ROOT_ENV) };
@@ -169,12 +166,12 @@ fn repo_root_falls_back_to_the_workspace_parent_without_a_test_override() {
 
     match original_repo_root {
         Some(repo_root) => {
-            // SAFETY: same invariant as above; PATH_LOCK still serializes all environment access
+            // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all environment access
             // for tests that touch TEST_REPO_ROOT_ENV or PATH.
             unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root) }
         }
         None => {
-            // SAFETY: same invariant as above; PATH_LOCK still serializes all environment access
+            // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all environment access
             // for tests that touch TEST_REPO_ROOT_ENV or PATH.
             unsafe { env::remove_var(TEST_REPO_ROOT_ENV) }
         }
@@ -265,7 +262,7 @@ fn run_coverage_reports_line_only_failures() {
 
 #[cfg(unix)]
 #[test]
-fn run_from_routes_check_semver_and_coverage_subcommands_through_the_repo_root_override() {
+fn run_from_routes_check_semver_coverage_and_miri_subcommands_through_the_repo_root_override() {
     let repo_root = tempdir().expect("tempdir");
     let bin_dir = repo_root.path().join("bin");
     fs::create_dir_all(&bin_dir).expect("create bin dir");
@@ -281,6 +278,7 @@ fn run_from_routes_check_semver_and_coverage_subcommands_through_the_repo_root_o
             .expect("run audit --file through cli");
         crate::run_from(["xtask", "semver-check"]).expect("run semver-check through cli");
         crate::run_from(["xtask", "coverage"]).expect("run coverage through cli");
+        crate::run_from(["xtask", "miri"]).expect("run miri through cli");
     });
 }
 
@@ -480,9 +478,9 @@ fn write_release_binary(repo_root: &Path) {
 fn write_coverage_cargo_stub(bin_dir: &Path, coverage_json: &str) {
     let tooling = sample_tooling();
     let script = format!(
-        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    audit) printf 'cargo-audit %s\\n' \"{cargo_audit_version}\" ; exit 0 ;;\n    deny) printf 'cargo-deny %s\\n' \"{cargo_deny_version}\" ; exit 0 ;;\n    fuzz) printf 'cargo-fuzz %s\\n' \"{cargo_fuzz_version}\" ; exit 0 ;;\n    llvm-cov) printf 'cargo-llvm-cov %s\\n' \"{cargo_llvm_cov_version}\" ; exit 0 ;;\n    nextest) printf 'cargo-nextest %s\\n' \"{cargo_nextest_version}\" ; exit 0 ;;\n    outdated) printf 'cargo-outdated %s\\n' \"{cargo_outdated_version}\" ; exit 0 ;;\n    semver-checks) printf 'cargo-semver-checks %s\\n' \"{cargo_semver_checks_version}\" ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"build\" ]; then\n  target_root=\"${{CARGO_TARGET_DIR:-$PWD/target}}\"\n  mkdir -p \"$target_root/dist\"\n  printf '#!/bin/sh\\nexit 0\\n' > \"$target_root/dist/ffhn\"\n  chmod +x \"$target_root/dist/ffhn\"\nfi\nif [ \"$1\" = \"{coverage_toolchain}\" ] && [ \"$2\" = \"llvm-cov\" ] && [ \"$3\" = \"--branch\" ]; then\n  while [ \"$#\" -gt 0 ]; do\n    if [ \"$1\" = \"--output-path\" ]; then\n      shift\n      output_path=\"$1\"\n      break\n    fi\n    shift\n  done\n  mkdir -p \"$(dirname \"$output_path\")\"\n  printf '%s' '{}' | sed \"s|REPO_ROOT|$PWD|g\" > \"$output_path\"\nfi\nexit 0\n",
+        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    audit) printf 'cargo-audit %s\\n' \"{cargo_audit_version}\" ; exit 0 ;;\n    deny) printf 'cargo-deny %s\\n' \"{cargo_deny_version}\" ; exit 0 ;;\n    fuzz) printf 'cargo-fuzz %s\\n' \"{cargo_fuzz_version}\" ; exit 0 ;;\n    llvm-cov) printf 'cargo-llvm-cov %s\\n' \"{cargo_llvm_cov_version}\" ; exit 0 ;;\n    nextest) printf 'cargo-nextest %s\\n' \"{cargo_nextest_version}\" ; exit 0 ;;\n    outdated) printf 'cargo-outdated %s\\n' \"{cargo_outdated_version}\" ; exit 0 ;;\n    semver-checks) printf 'cargo-semver-checks %s\\n' \"{cargo_semver_checks_version}\" ; exit 0 ;;\n    miri) printf 'cargo-miri test-stub\\n' ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"build\" ]; then\n  target_root=\"${{CARGO_TARGET_DIR:-$PWD/target}}\"\n  mkdir -p \"$target_root/dist\"\n  printf '#!/bin/sh\\nexit 0\\n' > \"$target_root/dist/ffhn\"\n  chmod +x \"$target_root/dist/ffhn\"\nfi\nif [ \"$1\" = \"{qa_nightly_toolchain}\" ] && [ \"$2\" = \"llvm-cov\" ] && [ \"$3\" = \"--branch\" ]; then\n  while [ \"$#\" -gt 0 ]; do\n    if [ \"$1\" = \"--output-path\" ]; then\n      shift\n      output_path=\"$1\"\n      break\n    fi\n    shift\n  done\n  mkdir -p \"$(dirname \"$output_path\")\"\n  printf '%s' '{}' | sed \"s|REPO_ROOT|$PWD|g\" > \"$output_path\"\nfi\nif [ \"$1\" = \"{qa_nightly_toolchain}\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"test\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"{qa_nightly_toolchain}\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  printf 'miri 0.1.0 (test stub)\\n'\n  exit 0\nfi\nexit 0\n",
         coverage_json.replace('\'', "'\"'\"'"),
-        coverage_toolchain = tooling.coverage_toolchain_arg(),
+        qa_nightly_toolchain = tooling.qa_nightly_toolchain_arg(),
         cargo_audit_version = tooling.cargo_audit_version,
         cargo_deny_version = tooling.cargo_deny_version,
         cargo_fuzz_version = tooling.cargo_fuzz_version,
@@ -501,8 +499,8 @@ fn with_test_environment<T>(
     repo_root_override: Option<&Path>,
     operation: impl FnOnce() -> T,
 ) -> T {
-    let _guard = PATH_LOCK
-        .get_or_init(|| Mutex::new(()))
+    let _guard = PROCESS_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let original_path = env::var_os("PATH").unwrap_or_default();
@@ -518,29 +516,33 @@ fn with_test_environment<T>(
         &bin_dir.join("shellcheck"),
         "#!/bin/sh\nprintf 'ShellCheck - test stub\\n'\n",
     );
+    write_executable(
+        &bin_dir.join("rustup"),
+        "#!/bin/sh\nif [ \"$1\" = \"component\" ] && [ \"$2\" = \"list\" ] && [ \"$3\" = \"--installed\" ]; then\n  printf 'miri (installed)\\n'\n  printf 'rust-src (installed)\\n'\n  exit 0\nfi\nif [ \"$1\" = \"--version\" ]; then\n  printf 'rustup 1.0.0 (test stub)\\n'\n  exit 0\nfi\nprintf 'rustup 1.0.0 (test stub)\\n'\n",
+    );
     // SAFETY: environment mutation is process-global and not thread-safe. This is safe only
-    // because PATH_LOCK is held for the entire mutation window, and every test that reads or
+    // because PROCESS_ENV_LOCK is held for the entire mutation window, and every test that reads or
     // writes PATH or TEST_REPO_ROOT_ENV (including through spawned commands) must acquire the
-    // same lock first. Adding a PATH-dependent test without PATH_LOCK breaks that invariant and
+    // same lock first. Adding a PATH-dependent test without PROCESS_ENV_LOCK breaks that invariant and
     // risks a data race through the shared process environment.
     unsafe { env::set_var("PATH", &updated_path) };
     if let Some(repo_root_override) = repo_root_override {
-        // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+        // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all PATH and
         // TEST_REPO_ROOT_ENV access for the current test process.
         unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root_override) };
     }
     let result = operation();
-    // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+    // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all PATH and
     // TEST_REPO_ROOT_ENV access for the current test process.
     unsafe { env::set_var("PATH", original_path) };
     match original_repo_root {
         Some(repo_root) => {
-            // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+            // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all PATH and
             // TEST_REPO_ROOT_ENV access for the current test process.
             unsafe { env::set_var(TEST_REPO_ROOT_ENV, repo_root) };
         }
         None => {
-            // SAFETY: same invariant as above; PATH_LOCK still serializes all PATH and
+            // SAFETY: same invariant as above; PROCESS_ENV_LOCK still serializes all PATH and
             // TEST_REPO_ROOT_ENV access for the current test process.
             unsafe { env::remove_var(TEST_REPO_ROOT_ENV) };
         }

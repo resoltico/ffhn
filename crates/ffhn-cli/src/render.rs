@@ -103,10 +103,9 @@ fn render_run_summary(stdout: &mut (impl Write + ?Sized), report: &RunReport) ->
             }
             writeln!(
                 stdout,
-                "Extraction: kind={}, match={}, output={}, candidates={}, selected={}, duration={} ms",
+                "Extraction: kind={}, match={}, candidates={}, selected={}, duration={} ms",
                 extraction.selection_kind().as_str(),
                 extraction.selection_match().as_str(),
-                extraction.output_kind().as_str(),
                 extraction.candidate_count(),
                 extraction.selected_candidate_index(),
                 extraction.duration_ms()
@@ -183,8 +182,8 @@ fn render_status_summary(
     if let Some(current) = report.current_snapshot() {
         writeln!(
             stdout,
-            "Current snapshot: canonical={}, outer={}, captured_at={}",
-            current.canonical_text_sha256(),
+            "Current snapshot: compare={}, outer={}, captured_at={}",
+            current.compare_digest_sha256(),
             current.outer_html_sha256(),
             current.captured_at()
         )?;
@@ -337,12 +336,14 @@ mod tests {
     use serde_json::json;
     use sha2::{Digest, Sha256};
 
-    fn parse_run_report(document: &str) -> RunReport {
-        serde_json::from_str(document).expect("run report json")
-    }
-
     fn parse_run_report_value(value: Value) -> RunReport {
         serde_json::from_value(value).expect("run report json")
+    }
+
+    fn parse_run_report_object(value: Value) -> RunReport {
+        parse_run_report_value(with_valid_run_report_digest(
+            value.as_object().cloned().expect("run report object"),
+        ))
     }
 
     fn parse_status_report(value: serde_json::Value) -> StatusReport {
@@ -351,6 +352,163 @@ mod tests {
 
     fn parse_batch_report(value: serde_json::Value) -> BatchRunReport {
         serde_json::from_value(value).expect("batch report json")
+    }
+
+    fn changed_run_report() -> RunReport {
+        parse_run_report_object(json!({
+            "schema_name": "ffhn.run_report",
+            "schema_version": 4,
+            "target_id": "payload_target",
+            "display_name": "Payload Target",
+            "run_started_at": "2026-05-14T15:24:54.420145Z",
+            "run_finished_at": "2026-05-14T15:24:54.426475Z",
+            "run_mode": "live",
+            "result": { "kind": "changed" },
+            "compare_basis": "text",
+            "previous_compare_digest_sha256": "ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5",
+            "current_compare_digest_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
+            "baseline_phase_before_run": "has_baseline",
+            "baseline_phase_after_run": "has_baseline",
+            "fetch": {
+                "engine": "file",
+                "final_url": "file:///Users/erst/Tools/ffhn/tmp/seed-refresh/source.html",
+                "http_status": null,
+                "content_type": null,
+                "bytes_read": 55,
+                "duration_ms": 0
+            },
+            "extraction": {
+                "compare_source_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
+                "outer_html_sha256": "c028a2183b5d2f7b48e7415a5616ec4b72c9ef78f8c79afbc92ddf68db706541",
+                "selection_kind": "css_selector",
+                "selection_match": "single",
+                "candidate_count": 1,
+                "selected_candidate_index": 1,
+                "warning_codes": [],
+                "duration_ms": 1
+            },
+            "compare": {
+                "canonicalizers": ["trim"],
+                "duration_ms": 0
+            },
+            "change": {
+                "kind": "changed",
+                "previous_compare_bytes": 12,
+                "current_compare_bytes": 15,
+                "previous_compare_line_count": 1,
+                "current_compare_line_count": 1,
+                "common_prefix_lines": 0,
+                "common_suffix_lines": 0,
+                "changed_region": {
+                    "previous_start_line": 1,
+                    "previous_line_count": 1,
+                    "current_start_line": 1,
+                    "current_line_count": 1,
+                    "previous_excerpt": "Payload Seed",
+                    "current_excerpt": "Payload Changed",
+                    "previous_excerpt_sha256": "ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5",
+                    "current_excerpt_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424"
+                }
+            },
+            "persist": {
+                "state_commit_duration_ms": 1,
+                "state_commit": { "status": "written" },
+                "last_run_write_duration_ms": 0,
+                "last_run_write": { "status": "written" }
+            }
+        }))
+    }
+
+    fn dry_run_initialized_run_report(target_id: &str) -> RunReport {
+        parse_run_report_object(json!({
+            "schema_name": "ffhn.run_report",
+            "schema_version": 4,
+            "target_id": target_id,
+            "display_name": target_id,
+            "run_started_at": "2026-05-14T15:15:43.155502Z",
+            "run_finished_at": "2026-05-14T15:15:43.158166Z",
+            "run_mode": "dry_run",
+            "result": { "kind": "initialized" },
+            "compare_basis": "text",
+            "current_compare_digest_sha256": "703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d",
+            "baseline_phase_before_run": "never_succeeded",
+            "baseline_phase_after_run": "never_succeeded",
+            "fetch": {
+                "engine": "file",
+                "final_url": "file:///private/var/folders/45/5nz735_d4_zgwrvy4fb4xz340000gn/T/tmp.195RIPoa8f/src/source_changed.html",
+                "http_status": null,
+                "content_type": null,
+                "bytes_read": 43,
+                "duration_ms": 0
+            },
+            "extraction": {
+                "compare_source_sha256": "703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d",
+                "outer_html_sha256": "fc3fa5f17bbf31ef2b6824e3d356850b7f822812d72512729db4794dba83dfda",
+                "selection_kind": "css_selector",
+                "selection_match": "single",
+                "candidate_count": 1,
+                "selected_candidate_index": 1,
+                "warning_codes": [],
+                "duration_ms": 1
+            },
+            "compare": {
+                "canonicalizers": [],
+                "duration_ms": 0
+            },
+            "change": {
+                "kind": "initialized",
+                "current_compare_bytes": 4,
+                "current_compare_line_count": 1,
+                "common_prefix_lines": 0,
+                "common_suffix_lines": 0,
+                "changed_region": {
+                    "previous_start_line": 1,
+                    "previous_line_count": 0,
+                    "current_start_line": 1,
+                    "current_line_count": 1,
+                    "current_excerpt": "Beta",
+                    "current_excerpt_sha256": "703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d"
+                }
+            },
+            "persist": {
+                "state_commit_duration_ms": 0,
+                "state_commit": { "status": "not_attempted" },
+                "last_run_write_duration_ms": 0,
+                "last_run_write": { "status": "not_attempted" }
+            }
+        }))
+    }
+
+    fn dry_run_batch_report() -> BatchRunReport {
+        let demo_a = serde_json::to_value(dry_run_initialized_run_report("demo-a"))
+            .expect("demo-a run report");
+        let demo_b = serde_json::to_value(dry_run_initialized_run_report("demo-b"))
+            .expect("demo-b run report");
+        parse_batch_report(json!({
+            "schema_name": "ffhn.batch_run_report",
+            "schema_version": 4,
+            "run_mode": "dry_run",
+            "watch_root": "/var/folders/45/5nz735_d4_zgwrvy4fb4xz340000gn/T/tmp.195RIPoa8f/watch-batch",
+            "requested_targets": ["demo-a", "demo-b"],
+            "run_started_at": "2026-05-14T15:15:43.154874Z",
+            "run_finished_at": "2026-05-14T15:15:43.158661Z",
+            "max_concurrency": 1,
+            "entries": [
+                { "target_id": "demo-a", "run_report": demo_a },
+                { "target_id": "demo-b", "run_report": demo_b }
+            ],
+            "outcome_counts": {
+                "initialized": 2,
+                "changed": 0,
+                "unchanged": 0,
+                "failed_transient": 0,
+                "failed_permanent": 0,
+                "skipped_disabled": 0,
+                "persist_failure": 0,
+                "notification_failure": 0,
+                "fatal_error": 0
+            }
+        }))
     }
 
     fn with_valid_run_report_digest(mut map: serde_json::Map<String, Value>) -> Value {
@@ -405,29 +563,48 @@ mod tests {
 
     #[test]
     fn run_summary_renders_reportable_failure_partial_and_disabled_shapes() {
-        let changed_report = parse_run_report(include_str!(
-            "../../../fuzz/corpus/state_and_report_json_documents/run_report_changed.seed"
-        ));
-        let fetch_failure_report = parse_run_report(
-            r#"{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"c7f77e35d6d0f2f9ba992e6bf39790a971cb9131343d889466a5fe3b2b06a793","target_id":"demo","display_name":"Demo","run_started_at":"2026-05-14T15:35:59.759681Z","run_finished_at":"2026-05-14T15:35:59.764345Z","run_mode":"live","result":{"kind":"failed_transient","cause":"fetch_http_server_error","error_detail":{"kind":"contract","message":"HTTP request returned status 500","path":"http://127.0.0.1:53237/"}},"compare_basis":"canonical_text_sha256","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"http","final_url":"http://127.0.0.1:53237/","http_status":500,"content_type":"text/html","bytes_read":null,"duration_ms":2},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"not_attempted"},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}}"#,
-        );
-        let persist_failure_report = parse_run_report(
-            r#"{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"c1dcaf5d68bf45e25a00d1a5be74b51fd43ebe165a2e56f32184bad0e7972d93","target_id":"demo","display_name":"Demo","run_started_at":"2026-05-14T15:41:43.353707Z","run_finished_at":"2026-05-14T15:41:43.360033Z","run_mode":"live","result":{"kind":"failed_transient","cause":"persist_error","error_detail":{"kind":"io","message":"Is a directory (os error 21)","path":"/Users/erst/Tools/ffhn/tmp/render-fixture-capture-current/watch/demo/state.json"}},"compare_basis":"canonical_text_sha256","current_compare_digest_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"http","final_url":"http://127.0.0.1:53349/","http_status":200,"content_type":"text/html; charset=utf-8","bytes_read":31,"duration_ms":3},"extraction":{"comparison_input_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","outer_html_sha256":"116fc675d792391f14e2f8877730c76018d070210bb279064c2ed69416c3a149","selection_kind":"css_selector","selection_match":"single","output_kind":"outer_html","candidate_count":1,"selected_candidate_index":1,"warning_codes":[],"duration_ms":0},"compare":{"canonicalizers":["trim"],"duration_ms":0},"change":{"kind":"initialized","current_text_bytes":5,"current_line_count":1,"common_prefix_lines":0,"common_suffix_lines":0,"changed_region":{"previous_start_line":1,"previous_line_count":0,"current_start_line":1,"current_line_count":1,"current_excerpt":"Hello","current_excerpt_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969"}},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"failed","error":{"kind":"io","message":"Is a directory (os error 21)","path":"/Users/erst/Tools/ffhn/tmp/render-fixture-capture-current/watch/demo/state.json"}},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}}"#,
-        );
-        let disabled_report = parse_run_report(
-            r#"{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"f3c67f10f22573a6cf7a26e8b845b6a705b0406146798480fa523e6a2b3c4ac7","target_id":"demo","display_name":"Demo","run_started_at":"2026-05-14T15:35:59.777966Z","run_finished_at":"2026-05-14T15:35:59.77834Z","run_mode":"live","result":{"kind":"skipped_disabled"},"compare_basis":"canonical_text_sha256","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","persist":{"state_commit_duration_ms":0,"state_commit":{"status":"written"},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}}"#,
-        );
+        let changed_report = changed_run_report();
+        let fetch_failure_report = parse_run_report_object(json!({
+            "schema_name":"ffhn.run_report",
+            "schema_version":4,
+            "target_id":"demo",
+            "display_name":"Demo",
+            "run_started_at":"2026-05-14T15:35:59.759681Z",
+            "run_finished_at":"2026-05-14T15:35:59.764345Z",
+            "run_mode":"live",
+            "result":{"kind":"failed_transient","cause":"fetch_http_server_error","error_detail":{"kind":"contract","message":"HTTP request returned status 500","path":"http://127.0.0.1:53237/"}},"compare_basis":"text","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"http","final_url":"http://127.0.0.1:53237/","http_status":500,"content_type":"text/html","bytes_read":null,"duration_ms":2},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"not_attempted"},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}
+        }));
+        let persist_failure_report = parse_run_report_object(json!({
+            "schema_name":"ffhn.run_report",
+            "schema_version":4,
+            "target_id":"demo",
+            "display_name":"Demo",
+            "run_started_at":"2026-05-14T15:41:43.353707Z",
+            "run_finished_at":"2026-05-14T15:41:43.360033Z",
+            "run_mode":"live",
+            "result":{"kind":"failed_transient","cause":"persist_error","error_detail":{"kind":"io","message":"Is a directory (os error 21)","path":"/Users/erst/Tools/ffhn/tmp/render-fixture-capture-current/watch/demo/state.json"}},"compare_basis":"text","current_compare_digest_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"http","final_url":"http://127.0.0.1:53349/","http_status":200,"content_type":"text/html; charset=utf-8","bytes_read":31,"duration_ms":3},"extraction":{"compare_source_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","outer_html_sha256":"116fc675d792391f14e2f8877730c76018d070210bb279064c2ed69416c3a149","selection_kind":"css_selector","selection_match":"single","candidate_count":1,"selected_candidate_index":1,"warning_codes":[],"duration_ms":0},"compare":{"canonicalizers":["trim"],"duration_ms":0},"change":{"kind":"initialized","current_compare_bytes":5,"current_compare_line_count":1,"common_prefix_lines":0,"common_suffix_lines":0,"changed_region":{"previous_start_line":1,"previous_line_count":0,"current_start_line":1,"current_line_count":1,"current_excerpt":"Hello","current_excerpt_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969"}},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"failed","error":{"kind":"io","message":"Is a directory (os error 21)","path":"/Users/erst/Tools/ffhn/tmp/render-fixture-capture-current/watch/demo/state.json"}},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}
+        }));
+        let disabled_report = parse_run_report_object(json!({
+            "schema_name":"ffhn.run_report",
+            "schema_version":4,
+            "target_id":"demo",
+            "display_name":"Demo",
+            "run_started_at":"2026-05-14T15:35:59.777966Z",
+            "run_finished_at":"2026-05-14T15:35:59.77834Z",
+            "run_mode":"live",
+            "result":{"kind":"skipped_disabled"},"compare_basis":"text","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","persist":{"state_commit_duration_ms":0,"state_commit":{"status":"written"},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}
+        }));
         let reportable_without_final_url = parse_run_report_value(with_valid_run_report_digest(
             json!({
                 "schema_name": "ffhn.run_report",
-                "schema_version": 3,
+                "schema_version": 4,
                 "target_id": "payload_target",
                 "display_name": "Payload Target",
                 "run_started_at": "2026-05-14T15:24:54.420145Z",
                 "run_finished_at": "2026-05-14T15:24:54.426475Z",
                 "run_mode": "live",
                 "result": { "kind": "changed" },
-                "compare_basis": "canonical_text_sha256",
+                "compare_basis": "text",
                 "previous_compare_digest_sha256": "ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5",
                 "current_compare_digest_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
                 "baseline_phase_before_run": "has_baseline",
@@ -441,12 +618,10 @@ mod tests {
                     "duration_ms": 0
                 },
                 "extraction": {
-                    "comparison_input_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
+                    "compare_source_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
                     "outer_html_sha256": "c028a2183b5d2f7b48e7415a5616ec4b72c9ef78f8c79afbc92ddf68db706541",
                     "selection_kind": "css_selector",
-                    "selection_match": "single",
-                    "output_kind": "outer_html",
-                    "candidate_count": 1,
+                    "selection_match": "single",                    "candidate_count": 1,
                     "selected_candidate_index": 1,
                     "warning_codes": [],
                     "duration_ms": 1
@@ -457,10 +632,10 @@ mod tests {
                 },
                 "change": {
                     "kind": "changed",
-                    "previous_text_bytes": 12,
-                    "current_text_bytes": 15,
-                    "previous_line_count": 1,
-                    "current_line_count": 1,
+                    "previous_compare_bytes": 12,
+                    "current_compare_bytes": 15,
+                    "previous_compare_line_count": 1,
+                    "current_compare_line_count": 1,
                     "common_prefix_lines": 0,
                     "common_suffix_lines": 0,
                     "changed_region": {
@@ -488,7 +663,7 @@ mod tests {
         let partial_extraction_report = parse_run_report_value(with_valid_run_report_digest(
             json!({
                 "schema_name": "ffhn.run_report",
-                "schema_version": 3,
+                "schema_version": 4,
                 "target_id": "payload_target",
                 "display_name": "Payload Target",
                 "run_started_at": "2026-05-14T15:24:54.420145Z",
@@ -502,7 +677,7 @@ mod tests {
                         "message": "compare stage failed"
                     }
                 },
-                "compare_basis": "canonical_text_sha256",
+                "compare_basis": "text",
                 "previous_compare_digest_sha256": "ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5",
                 "baseline_phase_before_run": "has_baseline",
                 "baseline_phase_after_run": "has_baseline",
@@ -515,12 +690,10 @@ mod tests {
                     "duration_ms": 0
                 },
                 "extraction": {
-                    "comparison_input_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
+                    "compare_source_sha256": "079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424",
                     "outer_html_sha256": "c028a2183b5d2f7b48e7415a5616ec4b72c9ef78f8c79afbc92ddf68db706541",
                     "selection_kind": "css_selector",
-                    "selection_match": "single",
-                    "output_kind": "outer_html",
-                    "candidate_count": 1,
+                    "selection_match": "single",                    "candidate_count": 1,
                     "selected_candidate_index": 1,
                     "warning_codes": [],
                     "duration_ms": 1
@@ -543,7 +716,7 @@ mod tests {
         let no_display_name_report = parse_run_report_value(with_valid_run_report_digest(
             json!({
                 "schema_name": "ffhn.run_report",
-                "schema_version": 3,
+                "schema_version": 4,
                 "target_id": "demo",
                 "run_started_at": "2026-05-14T15:35:59.759681Z",
                 "run_finished_at": "2026-05-14T15:35:59.764345Z",
@@ -556,7 +729,7 @@ mod tests {
                         "message": "target contract validation failed"
                     }
                 },
-                "compare_basis": "canonical_text_sha256",
+                "compare_basis": "text",
                 "baseline_phase_before_run": "never_succeeded",
                 "baseline_phase_after_run": "never_succeeded",
                 "persist": {
@@ -573,7 +746,7 @@ mod tests {
         let partial_compare_report = parse_run_report_value(with_valid_run_report_digest(
             json!({
                 "schema_name": "ffhn.run_report",
-                "schema_version": 3,
+                "schema_version": 4,
                 "target_id": "demo",
                 "display_name": "Demo",
                 "run_started_at": "2026-05-14T15:41:43.353707Z",
@@ -588,7 +761,7 @@ mod tests {
                         "path": "/Users/erst/Tools/ffhn/tmp/render-fixture-capture-current/watch/demo/state.json"
                     }
                 },
-                "compare_basis": "canonical_text_sha256",
+                "compare_basis": "text",
                 "current_compare_digest_sha256": "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
                 "baseline_phase_before_run": "never_succeeded",
                 "baseline_phase_after_run": "never_succeeded",
@@ -601,12 +774,10 @@ mod tests {
                     "duration_ms": 3
                 },
                 "extraction": {
-                    "comparison_input_sha256": "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
+                    "compare_source_sha256": "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
                     "outer_html_sha256": "116fc675d792391f14e2f8877730c76018d070210bb279064c2ed69416c3a149",
                     "selection_kind": "css_selector",
-                    "selection_match": "single",
-                    "output_kind": "outer_html",
-                    "candidate_count": 1,
+                    "selection_match": "single",                    "candidate_count": 1,
                     "selected_candidate_index": 1,
                     "warning_codes": [],
                     "duration_ms": 0
@@ -694,9 +865,10 @@ mod tests {
         assert!(rendered.contains("Outcome: failed_transient (persist_error)"));
         assert!(rendered.contains("Fetch: engine=http, bytes=31, duration=3 ms"));
         assert!(
-            rendered.contains("Extraction: kind=css_selector, match=single, output=outer_html")
+            rendered
+                .contains("Extraction: kind=css_selector, match=single, candidates=1, selected=1")
         );
-        assert!(rendered.contains("Compare: basis=canonical_text_sha256"));
+        assert!(rendered.contains("Compare: basis=text"));
         assert!(rendered.contains("Change: kind=initialized"));
         assert!(rendered.contains("Persist: state_commit=failed"));
 
@@ -743,19 +915,19 @@ mod tests {
     fn status_summary_renders_ready_and_unavailable_contracts() {
         let ready_report = parse_status_report(json!({
             "schema_name": "ffhn.status_report",
-            "schema_version": 4,
+            "schema_version": 5,
             "target_id": "demo",
             "display_name": "Demo",
             "enabled": true,
             "status": {
                 "kind": "ready",
                 "current_snapshot": {
-                    "canonical_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "compare_digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "outer_html_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     "captured_at": "2026-05-14T15:00:00Z"
                 },
                 "snapshot_history": [{
-                    "canonical_text_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "compare_digest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                     "outer_html_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                     "captured_at": "2026-05-14T14:59:00Z"
                 }]
@@ -763,7 +935,7 @@ mod tests {
         }));
         let unavailable_report = parse_status_report(json!({
             "schema_name": "ffhn.status_report",
-            "schema_version": 4,
+            "schema_version": 5,
             "target_id": "demo",
             "status": {
                 "kind": "unavailable_target",
@@ -783,7 +955,7 @@ mod tests {
         assert!(rendered.contains("Enabled: true"));
         assert!(rendered.contains("Status: ready"));
         assert!(rendered.contains("Baseline phase: has_baseline"));
-        assert!(rendered.contains("Current snapshot: canonical="));
+        assert!(rendered.contains("Current snapshot: compare="));
         assert!(rendered.contains("Snapshot history: 1"));
 
         let mut stdout = Vec::new();
@@ -797,21 +969,16 @@ mod tests {
 
     #[test]
     fn json_and_pretty_renderers_emit_machine_documents_with_trailing_newlines() {
-        let run_report = parse_run_report(include_str!(
-            "../../../fuzz/corpus/state_and_report_json_documents/run_report_changed.seed"
-        ));
+        let run_report = changed_run_report();
         let status_report = parse_status_report(json!({
             "schema_name": "ffhn.status_report",
-            "schema_version": 4,
+            "schema_version": 5,
             "target_id": "demo",
             "display_name": "Demo",
             "enabled": true,
             "status": { "kind": "pending" }
         }));
-        let batch_report: BatchRunReport = serde_json::from_str(include_str!(
-            "../../../fuzz/corpus/state_and_report_json_documents/batch_report.seed"
-        ))
-        .expect("batch report json");
+        let batch_report = dry_run_batch_report();
 
         let mut stdout = Vec::new();
         render_run_report(&mut stdout, &run_report, OutputFormat::JsonPretty).expect("render");
@@ -851,17 +1018,11 @@ mod tests {
 
     #[test]
     fn batch_summary_renders_success_entries_and_fatal_entries() {
-        let dry_run_batch: BatchRunReport = serde_json::from_str(include_str!(
-            "../../../fuzz/corpus/state_and_report_json_documents/batch_report.seed"
-        ))
-        .expect("batch report json");
-        let changed_run: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../fuzz/corpus/state_and_report_json_documents/run_report_changed.seed"
-        ))
-        .expect("run report json");
+        let dry_run_batch = dry_run_batch_report();
+        let changed_run = serde_json::to_value(changed_run_report()).expect("run report json");
         let mixed_batch = parse_batch_report(json!({
             "schema_name": "ffhn.batch_run_report",
-            "schema_version": 3,
+            "schema_version": 4,
             "run_mode": "live",
             "watch_root": "/tmp/ffhn/watch-root",
             "requested_targets": ["payload_target", "fatal_target"],
@@ -896,7 +1057,7 @@ mod tests {
         }));
         let fatal_without_path = parse_batch_report(json!({
             "schema_name": "ffhn.batch_run_report",
-            "schema_version": 3,
+            "schema_version": 4,
             "run_mode": "live",
             "watch_root": "/tmp/ffhn/watch-root",
             "requested_targets": ["fatal_target"],

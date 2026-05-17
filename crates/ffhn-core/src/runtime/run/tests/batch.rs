@@ -22,11 +22,14 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
         content_type: "text/html; charset=utf-8",
         body: "<html><body><main>After</main></body></html>",
     });
-    write_target(
+    let changed_target = target_document("changed", true, url, "main", SelectionMatch::Single);
+    write_target(&changed_paths, &changed_target);
+    write_snapshot_state(
         &changed_paths,
-        &target_document("changed", true, url, "main", SelectionMatch::Single),
+        &changed_target,
+        "before",
+        "<main>Before</main>",
     );
-    write_snapshot_state(&changed_paths, "before", "<main>Before</main>");
 
     let unchanged_paths = TargetPaths::new(watch_root, "unchanged");
     let (url, unchanged_handle) = serve_once(TestResponse {
@@ -34,11 +37,14 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
         content_type: "text/html; charset=utf-8",
         body: "<html><body><main>Same</main></body></html>",
     });
-    write_target(
+    let unchanged_target = target_document("unchanged", true, url, "main", SelectionMatch::Single);
+    write_target(&unchanged_paths, &unchanged_target);
+    write_snapshot_state(
         &unchanged_paths,
-        &target_document("unchanged", true, url, "main", SelectionMatch::Single),
+        &unchanged_target,
+        "Same",
+        "<main>Same</main>",
     );
-    write_snapshot_state(&unchanged_paths, "Same", "<main>Same</main>");
 
     let transient_paths = TargetPaths::new(watch_root, "transient");
     let (url, transient_handle) = serve_once(TestResponse {

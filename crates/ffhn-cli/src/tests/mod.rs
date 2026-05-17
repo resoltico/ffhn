@@ -114,7 +114,7 @@ fn write_named_http_target(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "{declared_target_id}"
 display_name = "{dir_name}"
 enabled = {enabled}
@@ -136,12 +136,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),
@@ -163,7 +162,7 @@ fn write_named_file_target(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "{declared_target_id}"
 display_name = "{dir_name}"
 enabled = {enabled}
@@ -180,12 +179,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),

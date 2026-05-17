@@ -1,5 +1,7 @@
 use super::super::schema::{STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION};
-use super::super::validate::{parse_timestamp, validate_identity, validate_timestamp};
+use super::super::validate::{
+    parse_timestamp, validate_identity, validate_sha256, validate_timestamp,
+};
 use super::*;
 
 impl StateDocument {
@@ -16,6 +18,7 @@ impl StateDocument {
             self.schema_version,
             STATE_SCHEMA_VERSION,
         )?;
+        validate_sha256(&self.monitoring_contract_digest_sha256)?;
         self.baseline.validate()?;
         self.last_run
             .as_ref()

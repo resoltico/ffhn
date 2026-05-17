@@ -1,18 +1,21 @@
 use htmlcut_core::interop::v1::{
     ByteRange as HtmlcutByteRange, CssSelectorText, DelimiterBoundaryRetention,
     DelimiterBoundaryText, DelimiterMode as HtmlcutDelimiterMode, HtmlInput, HttpUrl,
-    InteropResult, Output, OutputKind as HtmlcutOutputKind, Plan, PlanStrategy,
-    RegexFlag as HtmlcutRegexFlag, Rendering, SelectedMatchMetadata, Selection, SelectionMode,
-    StrategyKind, TextWhitespace,
+    InteropResult, Output, Plan, PlanStrategy, RegexFlag as HtmlcutRegexFlag, Rendering,
+    SelectedMatchMetadata, Selection, SelectionMode, StrategyKind, TextWhitespace,
 };
 use url::Url;
 
+use crate::model::CompareConfig;
 use crate::{
-    CoreError, DelimiterMode, OutputKind, RegexFlag, SelectionConfig, SelectionEvidence,
+    CompareBasis, CoreError, DelimiterMode, RegexFlag, SelectionConfig, SelectionEvidence,
     SelectionKind, SelectionMatch, SelectionModeConfig, SelectionRange, TargetId, WhitespaceMode,
 };
 
-pub(crate) fn build_htmlcut_plan(selection: &SelectionConfig) -> Result<Plan, CoreError> {
+pub(crate) fn build_htmlcut_plan(
+    selection: &SelectionConfig,
+    compare: &CompareConfig,
+) -> Result<Plan, CoreError> {
     let strategy = match selection {
         SelectionConfig::CssSelector { selector, .. } => PlanStrategy::css_selector(
             CssSelectorText::new(selector.clone())
@@ -46,18 +49,18 @@ pub(crate) fn build_htmlcut_plan(selection: &SelectionConfig) -> Result<Plan, Co
         SelectionModeConfig::Nth { index } => Selection::nth(*index),
     };
 
-    let output = match selection.output_kind() {
-        OutputKind::Text => Output::text(),
-        OutputKind::InnerHtml => Output::inner_html(),
-        OutputKind::OuterHtml => Output::outer_html(),
+    let output = match compare.basis {
+        CompareBasis::Text => Output::text(),
+        CompareBasis::InnerHtml => Output::inner_html(),
+        CompareBasis::OuterHtml => Output::outer_html(),
     };
 
     let rendering = Rendering::new(
-        match selection.whitespace_mode() {
+        match compare.whitespace.unwrap_or(WhitespaceMode::Preserve) {
             WhitespaceMode::Preserve => TextWhitespace::Rendered,
             WhitespaceMode::Normalize => TextWhitespace::Normalize,
         },
-        selection.rewrite_urls(),
+        compare.rewrite_urls,
     );
 
     Ok(Plan::new(strategy, selection_mode, output, rendering))
@@ -105,19 +108,6 @@ pub(crate) fn map_selection_mode(result: &InteropResult) -> Result<SelectionMatc
         SelectionMode::All => Err(CoreError::htmlcut_interop(
             "FFHN does not support HTMLCut selection_mode = all",
         )),
-    }
-}
-
-pub(crate) fn map_output_kind(kind: HtmlcutOutputKind) -> Result<OutputKind, CoreError> {
-    match kind {
-        HtmlcutOutputKind::Text => Ok(OutputKind::Text),
-        HtmlcutOutputKind::InnerHtml => Ok(OutputKind::InnerHtml),
-        HtmlcutOutputKind::OuterHtml => Ok(OutputKind::OuterHtml),
-        HtmlcutOutputKind::SelectedHtml
-        | HtmlcutOutputKind::Attribute
-        | HtmlcutOutputKind::Structured => Err(CoreError::htmlcut_interop(format!(
-            "FFHN does not support HTMLCut output kind {kind}"
-        ))),
     }
 }
 
@@ -182,13 +172,12 @@ mod tests {
             }),
             selection: crate::SelectionConfig::CssSelector {
                 selection_mode: crate::SelectionModeConfig::Single,
-                output: crate::OutputKind::OuterHtml,
-                whitespace: crate::WhitespaceMode::Normalize,
-                rewrite_urls: false,
                 selector: "main".to_owned(),
             },
             compare: crate::CompareConfig {
-                basis: crate::CompareBasis::CanonicalTextSha256,
+                basis: crate::CompareBasis::Text,
+                whitespace: Some(crate::WhitespaceMode::Normalize),
+                rewrite_urls: false,
                 canonicalization: Vec::new(),
             },
             storage: Default::default(),
@@ -199,9 +188,67 @@ mod tests {
     }
 
     #[test]
+    fn ffhn_htmlcut_interop_contract_remains_miri_sound() {
+        let target: TargetDocument = toml::from_str(
+            r#"
+schema_name = "ffhn.target"
+schema_version = 4
+target_id = "demo"
+display_name = "Demo"
+enabled = true
+
+[target]
+kind = "http"
+source_url = "https://example.com/page"
+
+[fetch]
+engine = "http"
+method = "GET"
+timeout_ms = 15000
+max_bytes = 2000000
+user_agent = "ffhn/test"
+follow_redirects = true
+accept = "text/html"
+
+[selection]
+kind = "css_selector"
+selector = "main > article a[href]"
+match = "single"
+
+[compare]
+basis = "outer_html"
+rewrite_urls = true
+canonicalization = []
+"#,
+        )
+        .expect("target toml");
+        target.validate().expect("validated target");
+
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("plan");
+        prepare_plan(&plan).expect("prepared plan");
+        let target_id = crate::TargetId::new("demo").expect("target id");
+        let input = build_htmlcut_input(
+            &target_id,
+            "<main><article><a href=\"guide.html\">Guide</a></article></main>".to_owned(),
+            &Url::parse("https://example.com/docs/index.html").expect("final url"),
+        )
+        .expect("input");
+
+        let result = execute_plan(&input, &plan).expect("execute plan");
+        result.validate().expect("validated result");
+        assert_eq!(result.candidate_count, 1);
+        assert_eq!(
+            result.selected_matches[0].outer_html_output,
+            "<a href=\"https://example.com/docs/guide.html\">Guide</a>"
+        );
+    }
+
+    #[test]
     fn build_htmlcut_plan_supports_css_selector_targets() {
         let target = target_with_css();
-        let plan = build_htmlcut_plan(target.selection_config()).expect("css plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("css plan");
         prepare_plan(&plan).expect("valid css plan");
     }
 
@@ -212,9 +259,6 @@ mod tests {
             selection_mode: crate::SelectionModeConfig::Nth {
                 index: std::num::NonZeroUsize::new(1).expect("non-zero index"),
             },
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: crate::DelimiterMode::Regex,
@@ -222,8 +266,15 @@ mod tests {
             include_end: true,
             flags: vec![crate::RegexFlag::CaseInsensitive],
         };
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
 
-        let plan = build_htmlcut_plan(target.selection_config()).expect("delimiter plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("delimiter plan");
         prepare_plan(&plan).expect("valid delimiter plan");
     }
 
@@ -232,9 +283,6 @@ mod tests {
         let mut target = target_with_css();
         target.selection = crate::SelectionConfig::DelimiterPair {
             selection_mode: crate::SelectionModeConfig::First,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: crate::DelimiterMode::Literal,
@@ -242,40 +290,52 @@ mod tests {
             include_end: false,
             flags: Vec::new(),
         };
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
 
-        let plan = build_htmlcut_plan(target.selection_config()).expect("literal delimiter plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("literal delimiter plan");
         prepare_plan(&plan).expect("valid literal delimiter plan");
     }
 
     #[test]
-    fn build_htmlcut_plan_covers_first_match_and_output_variants() {
+    fn build_htmlcut_plan_covers_first_match_and_compare_projection_variants() {
         let mut target = target_with_css();
         target.selection = crate::SelectionConfig::CssSelector {
             selection_mode: crate::SelectionModeConfig::First,
-            output: crate::OutputKind::InnerHtml,
-            whitespace: crate::WhitespaceMode::Preserve,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         };
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::InnerHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
 
-        let plan = build_htmlcut_plan(target.selection_config()).expect("first-match plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("first-match plan");
         prepare_plan(&plan).expect("valid first-match plan");
 
-        target.selection = crate::SelectionConfig::CssSelector {
-            selection_mode: crate::SelectionModeConfig::First,
-            output: crate::OutputKind::Text,
-            whitespace: crate::WhitespaceMode::Preserve,
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::Text,
+            whitespace: Some(crate::WhitespaceMode::Preserve),
             rewrite_urls: false,
-            selector: "main".to_owned(),
+            canonicalization: Vec::new(),
         };
-        let plan = build_htmlcut_plan(target.selection_config()).expect("text plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("text plan");
         prepare_plan(&plan).expect("valid text plan");
     }
 
     #[test]
     fn mapping_helpers_reflect_htmlcut_result_vocabulary() {
         let target = target_with_css();
-        let plan = build_htmlcut_plan(target.selection_config()).expect("plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("plan");
         let source = HtmlInput::new("demo".to_owned(), "<main>Hello</main>".to_owned())
             .expect("source")
             .with_input_base_url(HttpUrl::parse("https://example.com/page").expect("base url"));
@@ -302,9 +362,6 @@ mod tests {
             selection_mode: crate::SelectionModeConfig::Nth {
                 index: std::num::NonZeroUsize::new(1).expect("non-zero index"),
             },
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: crate::DelimiterMode::Regex,
@@ -316,8 +373,15 @@ mod tests {
                 crate::RegexFlag::SwapGreed,
             ],
         };
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
 
-        let plan = build_htmlcut_plan(target.selection_config()).expect("delimiter plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("delimiter plan");
         let source =
             HtmlInput::new("demo".to_owned(), "BEGIN\nValue\nEND".to_owned()).expect("source");
         let result = execute_plan(&source, &plan).expect("delimiter result");
@@ -333,12 +397,16 @@ mod tests {
         let mut target = target_with_css();
         target.selection = crate::SelectionConfig::CssSelector {
             selection_mode: crate::SelectionModeConfig::First,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         };
-        let plan = build_htmlcut_plan(target.selection_config()).expect("first plan");
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("first plan");
         let source = HtmlInput::new(
             "demo".to_owned(),
             "<main>One</main><main>Two</main>".to_owned(),
@@ -364,22 +432,33 @@ mod tests {
     }
 
     #[test]
-    fn map_output_kind_reflects_htmlcut_output_vocabulary() {
+    fn compare_basis_controls_the_htmlcut_output_projection() {
+        let target = target_with_css();
+        let text_plan =
+            build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+                .expect("text plan");
+        let source =
+            HtmlInput::new("demo".to_owned(), "<main>Hello</main>".to_owned()).expect("source");
+        let text_result = execute_plan(&source, &text_plan).expect("text result");
+        assert_eq!(text_result.selected_matches[0].text_output, "Hello");
+
+        let mut html_target = target_with_css();
+        html_target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
+        let html_plan = build_htmlcut_plan(
+            html_target.selection_config(),
+            html_target.compare_config_internal(),
+        )
+        .expect("html plan");
+        let html_result = execute_plan(&source, &html_plan).expect("html result");
         assert_eq!(
-            map_output_kind(HtmlcutOutputKind::Text).expect("text output kind"),
-            OutputKind::Text
+            html_result.selected_matches[0].outer_html_output,
+            "<main>Hello</main>"
         );
-        assert_eq!(
-            map_output_kind(HtmlcutOutputKind::InnerHtml).expect("inner-html output kind"),
-            OutputKind::InnerHtml
-        );
-        assert_eq!(
-            map_output_kind(HtmlcutOutputKind::OuterHtml).expect("outer-html output kind"),
-            OutputKind::OuterHtml
-        );
-        assert!(map_output_kind(HtmlcutOutputKind::SelectedHtml).is_err());
-        assert!(map_output_kind(HtmlcutOutputKind::Attribute).is_err());
-        assert!(map_output_kind(HtmlcutOutputKind::Structured).is_err());
     }
 
     #[test]
@@ -410,9 +489,6 @@ mod tests {
         let mut target = target_with_css();
         target.selection = crate::SelectionConfig::DelimiterPair {
             selection_mode: crate::SelectionModeConfig::Single,
-            output: crate::OutputKind::OuterHtml,
-            whitespace: crate::WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: crate::DelimiterMode::Literal,
@@ -420,8 +496,15 @@ mod tests {
             include_end: false,
             flags: Vec::new(),
         };
+        target.compare = crate::CompareConfig {
+            basis: crate::CompareBasis::OuterHtml,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        };
 
-        let plan = build_htmlcut_plan(target.selection_config()).expect("delimiter plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("delimiter plan");
         let source =
             HtmlInput::new("demo".to_owned(), "BEGIN Value END".to_owned()).expect("source");
         let result = execute_plan(&source, &plan).expect("delimiter result");
@@ -456,14 +539,18 @@ mod tests {
         let target = TargetDocument {
             selection: crate::SelectionConfig::CssSelector {
                 selection_mode: crate::SelectionModeConfig::Single,
-                output: crate::OutputKind::OuterHtml,
-                whitespace: crate::WhitespaceMode::Normalize,
-                rewrite_urls: true,
                 selector: "a".to_owned(),
+            },
+            compare: crate::CompareConfig {
+                basis: crate::CompareBasis::OuterHtml,
+                whitespace: None,
+                rewrite_urls: true,
+                canonicalization: Vec::new(),
             },
             ..target_with_css()
         };
-        let plan = build_htmlcut_plan(target.selection_config()).expect("plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("plan");
         let input = build_htmlcut_input(
             &target.target_id,
             "<a href=\"guide.html\">Guide</a>".to_owned(),
@@ -494,14 +581,18 @@ mod tests {
         let target = TargetDocument {
             selection: crate::SelectionConfig::CssSelector {
                 selection_mode: crate::SelectionModeConfig::Single,
-                output: crate::OutputKind::OuterHtml,
-                whitespace: crate::WhitespaceMode::Normalize,
-                rewrite_urls: true,
                 selector: "a".to_owned(),
+            },
+            compare: crate::CompareConfig {
+                basis: crate::CompareBasis::OuterHtml,
+                whitespace: None,
+                rewrite_urls: true,
+                canonicalization: Vec::new(),
             },
             ..target_with_css()
         };
-        let plan = build_htmlcut_plan(target.selection_config()).expect("plan");
+        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
+            .expect("plan");
         let input = build_htmlcut_input(
             &target.target_id,
             "<base href=\"https://example.com/docs/\"><a href=\"guide.html\">Guide</a>".to_owned(),

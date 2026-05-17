@@ -16,6 +16,11 @@ impl StateDocument {
         self.target_id.as_str()
     }
 
+    /// Returns the monitoring-contract digest that owns the stored baseline.
+    pub fn monitoring_contract_digest_sha256(&self) -> &str {
+        &self.monitoring_contract_digest_sha256
+    }
+
     /// Returns the persisted baseline state.
     pub const fn baseline(&self) -> &StoredBaseline {
         &self.baseline

@@ -1,4 +1,13 @@
 use super::*;
+use crate::CoreError;
+
+#[derive(serde::Serialize)]
+struct MonitoringContract<'a> {
+    target: &'a TargetSource,
+    fetch: &'a FetchConfig,
+    selection: &'a SelectionConfig,
+    compare: &'a CompareConfig,
+}
 
 impl TargetSource {
     /// Returns the target-kind discriminator.
@@ -225,28 +234,6 @@ impl SelectionConfig {
             | Self::DelimiterPair { selection_mode, .. } => selection_mode,
         }
     }
-
-    pub(crate) const fn output_kind(&self) -> OutputKind {
-        match self {
-            Self::CssSelector { output, .. } | Self::DelimiterPair { output, .. } => *output,
-        }
-    }
-
-    pub(crate) const fn whitespace_mode(&self) -> WhitespaceMode {
-        match self {
-            Self::CssSelector { whitespace, .. } | Self::DelimiterPair { whitespace, .. } => {
-                *whitespace
-            }
-        }
-    }
-
-    pub(crate) const fn rewrite_urls(&self) -> bool {
-        match self {
-            Self::CssSelector { rewrite_urls, .. } | Self::DelimiterPair { rewrite_urls, .. } => {
-                *rewrite_urls
-            }
-        }
-    }
 }
 
 impl CanonicalizerSpec {
@@ -380,22 +367,13 @@ impl TargetDocument {
         match &self.selection {
             SelectionConfig::CssSelector {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 selector,
             } => SelectionConfigView::CssSelector(CssSelectorSelectionView {
                 selection_mode,
-                output: *output,
-                whitespace: *whitespace,
-                rewrite_urls: *rewrite_urls,
                 selector,
             }),
             SelectionConfig::DelimiterPair {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 start,
                 end,
                 mode,
@@ -404,9 +382,6 @@ impl TargetDocument {
                 flags,
             } => SelectionConfigView::DelimiterPair(DelimiterPairSelectionView {
                 selection_mode,
-                output: *output,
-                whitespace: *whitespace,
-                rewrite_urls: *rewrite_urls,
                 start,
                 end,
                 mode: *mode,
@@ -433,21 +408,6 @@ impl TargetDocument {
     /// Returns the one-based candidate index when the selection mode is `nth`.
     pub const fn selection_index(&self) -> Option<usize> {
         self.selection.selection_mode().raw_parts().1
-    }
-
-    /// Returns the output payload kind.
-    pub const fn selection_output(&self) -> OutputKind {
-        self.selection.output_kind()
-    }
-
-    /// Returns the extraction-time whitespace mode.
-    pub const fn selection_whitespace(&self) -> WhitespaceMode {
-        self.selection.whitespace_mode()
-    }
-
-    /// Returns whether FFHN rewrites discovered URLs during extraction.
-    pub const fn selection_rewrite_urls(&self) -> bool {
-        self.selection.rewrite_urls()
     }
 
     /// Returns the CSS selector when the selection kind is `css_selector`.
@@ -511,6 +471,16 @@ impl TargetDocument {
         self.compare.basis
     }
 
+    /// Returns the text whitespace mode when the compare basis is `text`.
+    pub const fn compare_whitespace(&self) -> Option<WhitespaceMode> {
+        self.compare.whitespace
+    }
+
+    /// Returns whether FFHN rewrites discovered URLs before comparison.
+    pub const fn compare_rewrite_urls(&self) -> bool {
+        self.compare.rewrite_urls
+    }
+
     /// Returns the ordered canonicalization pipeline.
     pub fn compare_canonicalization(&self) -> &[CanonicalizerSpec] {
         &self.compare.canonicalization
@@ -547,6 +517,19 @@ impl TargetDocument {
 
     pub(crate) const fn selection_config(&self) -> &SelectionConfig {
         &self.selection
+    }
+
+    pub(crate) const fn compare_config_internal(&self) -> &CompareConfig {
+        &self.compare
+    }
+
+    pub(crate) fn monitoring_contract_digest_sha256(&self) -> Result<String, CoreError> {
+        crate::stable_json::stable_digest(&MonitoringContract {
+            target: &self.target,
+            fetch: &self.fetch,
+            selection: &self.selection,
+            compare: &self.compare,
+        })
     }
 
     #[cfg(test)]
@@ -686,21 +669,6 @@ impl<'a> CssSelectorSelectionView<'a> {
         self.selection_mode.view()
     }
 
-    /// Returns the output payload kind.
-    pub const fn output_kind(self) -> OutputKind {
-        self.output
-    }
-
-    /// Returns the extraction-time whitespace mode.
-    pub const fn whitespace_mode(self) -> WhitespaceMode {
-        self.whitespace
-    }
-
-    /// Returns whether FFHN rewrites discovered URLs during extraction.
-    pub const fn rewrite_urls(self) -> bool {
-        self.rewrite_urls
-    }
-
     /// Returns the CSS selector query.
     pub fn selector(self) -> &'a str {
         self.selector
@@ -711,21 +679,6 @@ impl<'a> DelimiterPairSelectionView<'a> {
     /// Returns the candidate-selection mode.
     pub const fn selection_mode(self) -> SelectionModeView {
         self.selection_mode.view()
-    }
-
-    /// Returns the output payload kind.
-    pub const fn output_kind(self) -> OutputKind {
-        self.output
-    }
-
-    /// Returns the extraction-time whitespace mode.
-    pub const fn whitespace_mode(self) -> WhitespaceMode {
-        self.whitespace
-    }
-
-    /// Returns whether FFHN rewrites discovered URLs during extraction.
-    pub const fn rewrite_urls(self) -> bool {
-        self.rewrite_urls
     }
 
     /// Returns the start delimiter.
@@ -763,6 +716,16 @@ impl<'a> CompareConfigView<'a> {
     /// Returns the compare basis.
     pub const fn basis(self) -> CompareBasis {
         self.0.basis
+    }
+
+    /// Returns the text whitespace mode when the compare basis is `text`.
+    pub const fn whitespace(self) -> Option<WhitespaceMode> {
+        self.0.whitespace
+    }
+
+    /// Returns whether FFHN rewrites discovered URLs before comparison.
+    pub const fn rewrite_urls(self) -> bool {
+        self.0.rewrite_urls
     }
 
     /// Returns the ordered canonicalization pipeline.

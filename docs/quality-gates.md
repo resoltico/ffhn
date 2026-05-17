@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-05-15"
+updated: "2026-05-16"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
-  questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
+  keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
+  questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
 # Quality Gates
@@ -18,10 +18,11 @@ FFHN keeps its exact Rust toolchain pins in two canonical files:
 1. [../rust-toolchain.toml](../rust-toolchain.toml) owns the default stable workspace toolchain
 2. [../tooling/rust-tooling.env](../tooling/rust-tooling.env) owns the full maintainer toolchain and QA-tool version set
 
-The pinned coverage/nightly toolchain exists for two reasons:
+The pinned QA nightly toolchain exists for three reasons:
 
-1. `cargo +<coverage-toolchain> llvm-cov --branch` is required for the maintained branch-coverage gate
-2. manual `cargo-fuzz` runs require nightly sanitizer flags
+1. `cargo +<qa-nightly-toolchain> miri test` is required for the maintained FFHN-to-HTMLCut strict-provenance proof
+2. `cargo +<qa-nightly-toolchain> llvm-cov --branch` is required for the maintained branch-coverage gate
+3. manual `cargo-fuzz` runs require nightly sanitizer flags
 
 Neither the CLI nor the packaged public release builds require nightly.
 
@@ -49,6 +50,12 @@ Coverage-only:
 
 ```bash
 cargo xtask coverage
+```
+
+Miri-only:
+
+```bash
+cargo xtask miri
 ```
 
 Artifact inventory:
@@ -97,21 +104,22 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 4. `shellcheck` over the same shell scripts
 5. `cargo fmt --check`
 6. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
-7. `cargo xtask audit`
-8. `cargo xtask audit --file fuzz/Cargo.lock`
-9. `cargo deny check advisories bans licenses sources`
-10. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with isolated managed `target` and `build` scratch roots
-11. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
-12. `cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings`
-13. `cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz`
-14. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
-15. `cargo test --workspace --doc --all-features --locked`
-16. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked`
-17. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
-18. the dist-profile `ffhn` binary at the active Cargo target root (FFHN configures `../.ffhn-artifacts/target/dist/ffhn` by default, or `${CARGO_TARGET_DIR}/dist/ffhn` when overridden) with `--version`
-19. `cargo xtask coverage`
-20. `cargo xtask hygiene clean --mode safe`
-21. a final hygiene verification pass
+7. `cargo xtask miri`
+8. `cargo xtask audit`
+9. `cargo xtask audit --file fuzz/Cargo.lock`
+10. `cargo deny check advisories bans licenses sources`
+11. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with isolated managed `target` and `build` scratch roots
+12. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
+13. `cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings`
+14. `cargo +<qa-nightly-toolchain> fuzz check --fuzz-dir fuzz`
+15. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
+16. `cargo test --workspace --doc --all-features --locked`
+17. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked`
+18. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
+19. the dist-profile `ffhn` binary at the active Cargo target root (FFHN configures `../.ffhn-artifacts/target/dist/ffhn` by default, or `${CARGO_TARGET_DIR}/dist/ffhn` when overridden) with `--version`
+20. `cargo xtask coverage`
+21. `cargo xtask hygiene clean --mode safe`
+22. a final hygiene verification pass
 
 Dependency freshness is intentionally separate from the required correctness gate. FFHN keeps the
 freshness signal in [../.github/workflows/dependency-freshness.yml](../.github/workflows/dependency-freshness.yml),
@@ -129,6 +137,10 @@ image contract and the actual Dev Container client path through a helper image d
 already-built contributor image, while
 `./scripts/run-devcontainer-check.sh` is the maintained way to prove that the committed
 contributor image can carry the full `./check.sh` gate from a cold shell environment.
+After a successful validation pass, the validator promotes that exact contributor image into the
+canonical local tag `ffhn-devcontainer:local`, so `FFHN_DEVCONTAINER_SKIP_BUILD=1
+./scripts/run-devcontainer-check.sh` reuses the image that was just proven instead of whichever
+older tag happened to exist locally.
 
 The contributor-container workflow keeps Cargo caches plus FFHN's managed artifact roots on named
 Docker volumes. That avoids relying on heavy Rust build output written through the repository bind
@@ -157,7 +169,7 @@ GitHub CI also runs a dedicated contributor-devcontainer gate on Linux to keep t
 
 A `devcontainer-changes` detection job computes a git diff of the PR's changed files against those paths before the gate is evaluated. When no relevant files changed, `contributor-devcontainer-gate` is skipped. The aggregate `Check` required-status job uses `if: always()` and explicit failure detection so that a skipped devcontainer gate does not block merge; only a *failed* or *cancelled* gate prevents `Check` from succeeding. A skipped result is a correct, intended outcome, not a gap.
 
-Those workflows install the same pinned stable and coverage toolchains declared in [../tooling/rust-tooling.env](../tooling/rust-tooling.env) rather than following moving channels, and they wrap `rustup` setup in retries so transient runner bootstrap failures do not masquerade as product regressions.
+Those workflows install the same pinned stable and QA nightly toolchains declared in [../tooling/rust-tooling.env](../tooling/rust-tooling.env) rather than following moving channels, and they wrap `rustup` setup in retries so transient runner bootstrap failures do not masquerade as product regressions.
 
 The semver lane treats the current workspace version as an unreleased major line until a matching local Git tag `vX.Y.Z` exists. That keeps release-branch checks correct after the changelog is dated but before the public tag is pushed.
 FFHN's managed artifact layout keeps normal Cargo output outside the repository tree by default, and the semver lane narrows its own scratch further into isolated managed `semver-checks` directories under that layout. The final dist smoke and the coverage JSON path follow the same maintained artifact policy, while still honoring explicit `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` overrides when a caller intentionally relocates them.
@@ -167,7 +179,7 @@ FFHN's managed artifact layout keeps normal Cargo output outside the repository 
 The coverage gate:
 
 1. starts from a clean `cargo llvm-cov` workspace
-2. runs `cargo +nightly llvm-cov --branch --workspace --all-targets --all-features --locked`
+2. runs `cargo +<qa-nightly-toolchain> llvm-cov --branch --workspace --all-targets --all-features --locked`
 3. scores every maintained non-test Rust source file under `crates/ffhn-core/src`, `crates/ffhn-cli/src`, and `xtask/src`
 4. deduplicates duplicate branch spans emitted by Rust lowering before scoring
 5. treats LLVM segments as line ranges rather than single-point hits, so multiline statements are scored correctly and module-barrel files with no instrumentable regions do not fail as fake misses

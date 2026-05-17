@@ -1,1 +1,32 @@
-{"schema_name":"ffhn.batch_run_report","schema_version":3,"run_mode":"live","watch_root":"/tmp/ffhn/watch-root","requested_targets":["fatal_target"],"run_started_at":"2026-05-14T10:15:30Z","run_finished_at":"2026-05-14T10:15:31Z","max_concurrency":1,"entries":[{"target_id":"fatal_target","fatal_error":{"kind":"internal","message":"internal invariant failure"}}],"outcome_counts":{"initialized":0,"changed":0,"unchanged":0,"failed_transient":0,"failed_permanent":0,"skipped_disabled":0,"persist_failure":0,"notification_failure":0,"fatal_error":1}}
+{
+  "entries": [
+    {
+      "fatal_error": {
+        "kind": "internal",
+        "message": "internal invariant failure"
+      },
+      "target_id": "fatal_target"
+    }
+  ],
+  "max_concurrency": 1,
+  "outcome_counts": {
+    "changed": 0,
+    "failed_permanent": 0,
+    "failed_transient": 0,
+    "fatal_error": 1,
+    "initialized": 0,
+    "notification_failure": 0,
+    "persist_failure": 0,
+    "skipped_disabled": 0,
+    "unchanged": 0
+  },
+  "requested_targets": [
+    "fatal_target"
+  ],
+  "run_finished_at": "2026-05-17T10:15:31Z",
+  "run_mode": "live",
+  "run_started_at": "2026-05-17T10:15:30Z",
+  "schema_name": "ffhn.batch_run_report",
+  "schema_version": 4,
+  "watch_root": "/tmp/ffhn/watch-root"
+}

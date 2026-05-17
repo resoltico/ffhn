@@ -43,12 +43,12 @@ pub use model::{
     FileTargetSourceView, HttpFetchConfigView, HttpMethod, HttpTargetSourceView,
     LAST_RUN_SNAPSHOT_SCHEMA_NAME, LAST_RUN_SNAPSHOT_SCHEMA_VERSION, LastRunRecord,
     LastRunSnapshot, NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-    NotificationDeliveryStatus, NotificationPayload, NotificationRouteView, OutputKind,
-    PersistWriteStatus, ProcessErrorDetail, ProcessErrorKind, RUN_REPORT_SCHEMA_NAME,
-    RUN_REPORT_SCHEMA_VERSION, RegexFlag, RelativeArtifactPath, ReportableRunBodyView, RunBodyView,
-    RunChangeRegion, RunChangeSection, RunCompareView, RunExtractionSection, RunFailureCause,
-    RunFetchView, RunMode, RunNotificationDeliveryView, RunOutcome, RunPersistView, RunReport,
-    RunResult, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
+    NotificationDeliveryStatus, NotificationPayload, NotificationRouteView, PersistWriteStatus,
+    ProcessErrorDetail, ProcessErrorKind, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
+    RegexFlag, RelativeArtifactPath, ReportableRunBodyView, RunBodyView, RunChangeRegion,
+    RunChangeSection, RunCompareView, RunExtractionSection, RunFailureCause, RunFetchView, RunMode,
+    RunNotificationDeliveryView, RunOutcome, RunPersistView, RunReport, RunResult,
+    STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
     STATUS_REPORT_SCHEMA_VERSION, SelectionConfigView, SelectionEvidence, SelectionKind,
     SelectionMatch, SelectionModeView, SelectionRange, SnapshotDigestSummary, SnapshotReference,
     SnapshotSlot, StateDocument, StatusReport, StatusSummary, StoredBaseline,
@@ -144,7 +144,7 @@ mod tests {
             target_dir.join("target.toml"),
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -166,12 +166,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 
 [[compare.canonicalization]]
 kind = "trim"

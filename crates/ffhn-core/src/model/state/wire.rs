@@ -9,6 +9,7 @@ struct RawStateDocument {
     schema_name: String,
     schema_version: u32,
     target_id: String,
+    monitoring_contract_digest_sha256: String,
     baseline: StoredBaseline,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_run: Option<LastRunRecord>,
@@ -24,6 +25,7 @@ impl TryFrom<RawStateDocument> for StateDocument {
             schema_name: raw.schema_name,
             schema_version: raw.schema_version,
             target_id: raw.target_id.try_into()?,
+            monitoring_contract_digest_sha256: raw.monitoring_contract_digest_sha256,
             baseline: raw.baseline,
             last_run: raw.last_run,
             extensions: raw.extensions,
@@ -39,6 +41,7 @@ impl From<&StateDocument> for RawStateDocument {
             schema_name: document.schema_name.clone(),
             schema_version: document.schema_version,
             target_id: document.target_id.as_str().to_owned(),
+            monitoring_contract_digest_sha256: document.monitoring_contract_digest_sha256.clone(),
             baseline: document.baseline.clone(),
             last_run: document.last_run.clone(),
             extensions: document.extensions.clone(),

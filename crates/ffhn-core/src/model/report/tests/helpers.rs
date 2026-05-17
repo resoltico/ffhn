@@ -6,8 +6,8 @@ use url::Url;
 fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges() {
     let mut change = valid_run_report().change.expect("change");
     validate_run_change_section(&RunChangeSection {
-        current_text_bytes: 0,
-        current_line_count: 0,
+        current_compare_bytes: 0,
+        current_compare_line_count: 0,
         changed_region: None,
         ..change.clone()
     })
@@ -15,8 +15,8 @@ fn helper_validators_cover_valid_notification_failures_and_excerpt_digest_edges(
 
     validate_run_change_section(&RunChangeSection {
         changed_region: None,
-        previous_text_bytes: Some(0),
-        previous_line_count: Some(0),
+        previous_compare_bytes: Some(0),
+        previous_compare_line_count: Some(0),
         ..change.clone()
     })
     .expect("change without region");

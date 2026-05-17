@@ -6,9 +6,8 @@ use url::Url;
 use super::{
     CanonicalizerSpec, CompareBasis, CompareConfig, Extensions, FetchConfig, FetchEngine,
     FileFetchConfig, NetworkFetchConfig, NotificationAdapter, NotificationEndpoint,
-    NotificationRoute, OutputKind, RegexFlag, RunOutcome, SelectionConfig, SelectionKind,
-    SelectionMatch, SelectionModeConfig, StorageConfig, TargetDocument, TargetKind, TargetSource,
-    WhitespaceMode,
+    NotificationRoute, RegexFlag, RunOutcome, SelectionConfig, SelectionKind, SelectionMatch,
+    SelectionModeConfig, StorageConfig, TargetDocument, TargetKind, TargetSource, WhitespaceMode,
 };
 use crate::{CoreError, DelimiterMode, HttpMethod};
 
@@ -245,9 +244,6 @@ struct RawSelectionConfig {
     selection_match: SelectionMatch,
     #[serde(skip_serializing_if = "Option::is_none")]
     index: Option<usize>,
-    output: OutputKind,
-    whitespace: WhitespaceMode,
-    rewrite_urls: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     selector: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -286,9 +282,6 @@ impl TryFrom<RawSelectionConfig> for SelectionConfig {
 
                 Ok(Self::CssSelector {
                     selection_mode,
-                    output: raw.output,
-                    whitespace: raw.whitespace,
-                    rewrite_urls: raw.rewrite_urls,
                     selector: raw
                         .selector
                         .ok_or_else(|| CoreError::contract("selection.selector is required"))?,
@@ -303,9 +296,6 @@ impl TryFrom<RawSelectionConfig> for SelectionConfig {
 
                 Ok(Self::DelimiterPair {
                     selection_mode,
-                    output: raw.output,
-                    whitespace: raw.whitespace,
-                    rewrite_urls: raw.rewrite_urls,
                     start: raw
                         .start
                         .ok_or_else(|| CoreError::contract("selection.start is required"))?,
@@ -333,9 +323,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
         match selection {
             SelectionConfig::CssSelector {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 selector,
             } => {
                 let (selection_match, index) = selection_mode.raw_parts();
@@ -343,9 +330,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
                     kind: SelectionKind::CssSelector,
                     selection_match,
                     index,
-                    output: *output,
-                    whitespace: *whitespace,
-                    rewrite_urls: *rewrite_urls,
                     selector: Some(selector.clone()),
                     start: None,
                     end: None,
@@ -357,9 +341,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
             }
             SelectionConfig::DelimiterPair {
                 selection_mode,
-                output,
-                whitespace,
-                rewrite_urls,
                 start,
                 end,
                 mode,
@@ -372,9 +353,6 @@ impl From<&SelectionConfig> for RawSelectionConfig {
                     kind: SelectionKind::DelimiterPair,
                     selection_match,
                     index,
-                    output: *output,
-                    whitespace: *whitespace,
-                    rewrite_urls: *rewrite_urls,
                     selector: None,
                     start: Some(start.clone()),
                     end: Some(end.clone()),
@@ -441,6 +419,11 @@ impl From<&CanonicalizerSpec> for RawCanonicalizerSpec {
 #[serde(deny_unknown_fields)]
 struct RawCompareConfig {
     basis: CompareBasis,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    whitespace: Option<WhitespaceMode>,
+    #[serde(default)]
+    rewrite_urls: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     canonicalization: Vec<RawCanonicalizerSpec>,
 }
 
@@ -448,6 +431,8 @@ impl From<RawCompareConfig> for CompareConfig {
     fn from(raw: RawCompareConfig) -> Self {
         Self {
             basis: raw.basis,
+            whitespace: raw.whitespace,
+            rewrite_urls: raw.rewrite_urls,
             canonicalization: raw
                 .canonicalization
                 .into_iter()
@@ -461,6 +446,8 @@ impl From<&CompareConfig> for RawCompareConfig {
     fn from(compare: &CompareConfig) -> Self {
         Self {
             basis: compare.basis,
+            whitespace: compare.whitespace,
+            rewrite_urls: compare.rewrite_urls,
             canonicalization: compare
                 .canonicalization
                 .iter()

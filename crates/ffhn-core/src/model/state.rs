@@ -50,6 +50,8 @@ pub struct StateDocument {
     pub(crate) schema_version: u32,
     /// Target id.
     pub(crate) target_id: TargetId,
+    /// Digest of the monitoring contract that owns the stored baseline.
+    pub(crate) monitoring_contract_digest_sha256: String,
     /// Current baseline state.
     pub(crate) baseline: StoredBaseline,
     /// Most recent attempted live run when one exists.

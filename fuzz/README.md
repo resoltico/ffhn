@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: FUZZING
-updated: "2026-05-14"
+updated: "2026-05-16"
 route:
   keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
   questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]
@@ -25,7 +25,7 @@ cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz
 Manual live fuzzing:
 
 1. requires `cargo-fuzz`
-2. requires the pinned coverage/nightly toolchain from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
+2. requires the pinned QA nightly toolchain from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
 3. should normally be run from `fuzz/`
 4. will write rebuildable Cargo output under FFHN's managed sibling artifact roots plus campaign outputs under `fuzz/artifacts/`, and may extend corpora if you do not clean up afterward
 
@@ -66,19 +66,19 @@ The table below names the main maintained source files each harness exercises; i
 From the repository root:
 
 ```bash
-COVERAGE_TOOLCHAIN="$(sed -n 's/^RUST_COVERAGE_TOOLCHAIN=//p' tooling/rust-tooling.env)"
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz target_toml_documents fuzz/corpus/target_toml_documents -- -runs=200
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz state_and_report_json_documents fuzz/corpus/state_and_report_json_documents -- -runs=200
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run --fuzz-dir fuzz dry_run_file_targets fuzz/corpus/dry_run_file_targets -- -runs=200
+QA_NIGHTLY_TOOLCHAIN="$(sed -n 's/^RUST_QA_NIGHTLY_TOOLCHAIN=//p' tooling/rust-tooling.env)"
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz target_toml_documents fuzz/corpus/target_toml_documents -- -runs=200
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz state_and_report_json_documents fuzz/corpus/state_and_report_json_documents -- -runs=200
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz dry_run_file_targets fuzz/corpus/dry_run_file_targets -- -runs=200
 ```
 
 From inside `fuzz/`:
 
 ```bash
-COVERAGE_TOOLCHAIN="$(sed -n 's/^RUST_COVERAGE_TOOLCHAIN=//p' ../tooling/rust-tooling.env)"
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run target_toml_documents corpus/target_toml_documents -- -runs=200
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run state_and_report_json_documents corpus/state_and_report_json_documents -- -runs=200
-cargo +"${COVERAGE_TOOLCHAIN}" fuzz run dry_run_file_targets corpus/dry_run_file_targets -- -runs=200
+QA_NIGHTLY_TOOLCHAIN="$(sed -n 's/^RUST_QA_NIGHTLY_TOOLCHAIN=//p' ../tooling/rust-tooling.env)"
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run target_toml_documents corpus/target_toml_documents -- -runs=200
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run state_and_report_json_documents corpus/state_and_report_json_documents -- -runs=200
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run dry_run_file_targets corpus/dry_run_file_targets -- -runs=200
 ```
 
 Those commands are the maintained seed-smoke path because they:

@@ -55,50 +55,54 @@ pub(crate) fn validate_batch_request_contract(
 }
 
 pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(), CoreError> {
-    let previous_line_count = change.previous_line_count.unwrap_or(0);
+    let previous_compare_line_count = change.previous_compare_line_count.unwrap_or(0);
 
     match change.kind {
         ChangeKind::Initialized => {
-            if change.previous_text_bytes.is_some() || change.previous_line_count.is_some() {
+            if change.previous_compare_bytes.is_some()
+                || change.previous_compare_line_count.is_some()
+            {
                 return Err(CoreError::contract(
-                    "run_report.change initialized must not carry previous text counts",
+                    "run_report.change initialized must not carry previous compare-value counts",
                 ));
             }
         }
         ChangeKind::Changed | ChangeKind::Unchanged => {
-            if change.previous_text_bytes.is_none() || change.previous_line_count.is_none() {
+            if change.previous_compare_bytes.is_none()
+                || change.previous_compare_line_count.is_none()
+            {
                 return Err(CoreError::contract(
-                    "run_report.change changed and unchanged must carry previous text counts",
+                    "run_report.change changed and unchanged must carry previous compare-value counts",
                 ));
             }
         }
     }
 
-    if change.current_line_count == 0 && change.current_text_bytes > 0 {
+    if change.current_compare_line_count == 0 && change.current_compare_bytes > 0 {
         return Err(CoreError::contract(
-            "run_report.change current_line_count must be positive when text exists",
+            "run_report.change current_compare_line_count must be positive when compare text exists",
         ));
     }
-    if let Some(previous_line_count) = change.previous_line_count
-        && change.previous_text_bytes.unwrap_or(0) > 0
-        && previous_line_count == 0
+    if let Some(previous_compare_line_count) = change.previous_compare_line_count
+        && change.previous_compare_bytes.unwrap_or(0) > 0
+        && previous_compare_line_count == 0
     {
         return Err(CoreError::contract(
-            "run_report.change previous_line_count must be positive when previous text exists",
+            "run_report.change previous_compare_line_count must be positive when previous compare text exists",
         ));
     }
 
-    if change.common_prefix_lines > previous_line_count
-        || change.common_prefix_lines > change.current_line_count
+    if change.common_prefix_lines > previous_compare_line_count
+        || change.common_prefix_lines > change.current_compare_line_count
     {
         return Err(CoreError::contract(
             "run_report.change common_prefix_lines must fit within both sides",
         ));
     }
 
-    let previous_remaining = previous_line_count.saturating_sub(change.common_prefix_lines);
+    let previous_remaining = previous_compare_line_count.saturating_sub(change.common_prefix_lines);
     let current_remaining = change
-        .current_line_count
+        .current_compare_line_count
         .saturating_sub(change.common_prefix_lines);
     if change.common_suffix_lines > previous_remaining
         || change.common_suffix_lines > current_remaining
@@ -110,9 +114,10 @@ pub(super) fn validate_run_change_section(change: &RunChangeSection) -> Result<(
 
     if let Some(region) = &change.changed_region {
         let expected_previous_region =
-            previous_line_count - change.common_prefix_lines - change.common_suffix_lines;
-        let expected_current_region =
-            change.current_line_count - change.common_prefix_lines - change.common_suffix_lines;
+            previous_compare_line_count - change.common_prefix_lines - change.common_suffix_lines;
+        let expected_current_region = change.current_compare_line_count
+            - change.common_prefix_lines
+            - change.common_suffix_lines;
         if region.previous_start_line != change.common_prefix_lines + 1
             || region.current_start_line != change.common_prefix_lines + 1
         {
@@ -199,10 +204,10 @@ mod tests {
     fn valid_change() -> RunChangeSection {
         RunChangeSection {
             kind: ChangeKind::Changed,
-            previous_text_bytes: Some(6),
-            current_text_bytes: 7,
-            previous_line_count: Some(3),
-            current_line_count: 3,
+            previous_compare_bytes: Some(6),
+            current_compare_bytes: 7,
+            previous_compare_line_count: Some(3),
+            current_compare_line_count: 3,
             common_prefix_lines: 1,
             common_suffix_lines: 1,
             changed_region: Some(RunChangeRegion {
@@ -228,10 +233,10 @@ mod tests {
 
         let valid_initialized = RunChangeSection {
             kind: ChangeKind::Initialized,
-            previous_text_bytes: None,
-            previous_line_count: None,
-            current_text_bytes: 7,
-            current_line_count: 3,
+            previous_compare_bytes: None,
+            previous_compare_line_count: None,
+            current_compare_bytes: 7,
+            current_compare_line_count: 3,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,
@@ -246,45 +251,45 @@ mod tests {
 
         let initialized_with_previous = RunChangeSection {
             kind: ChangeKind::Initialized,
-            previous_text_bytes: Some(1),
-            previous_line_count: Some(1),
+            previous_compare_bytes: Some(1),
+            previous_compare_line_count: Some(1),
             ..valid_change()
         };
         assert!(validate_run_change_section(&initialized_with_previous).is_err());
 
         let initialized_with_only_previous_lines = RunChangeSection {
             kind: ChangeKind::Initialized,
-            previous_text_bytes: None,
-            previous_line_count: Some(1),
+            previous_compare_bytes: None,
+            previous_compare_line_count: Some(1),
             ..valid_change()
         };
         assert!(validate_run_change_section(&initialized_with_only_previous_lines).is_err());
 
         let changed_without_previous = RunChangeSection {
-            previous_text_bytes: None,
-            previous_line_count: None,
+            previous_compare_bytes: None,
+            previous_compare_line_count: None,
             ..valid_change()
         };
         assert!(validate_run_change_section(&changed_without_previous).is_err());
 
         let changed_without_previous_line_count = RunChangeSection {
-            previous_text_bytes: Some(6),
-            previous_line_count: None,
+            previous_compare_bytes: Some(6),
+            previous_compare_line_count: None,
             ..valid_change()
         };
         assert!(validate_run_change_section(&changed_without_previous_line_count).is_err());
 
         let zero_current_lines = RunChangeSection {
-            current_text_bytes: 1,
-            current_line_count: 0,
+            current_compare_bytes: 1,
+            current_compare_line_count: 0,
             changed_region: None,
             ..valid_change()
         };
         assert!(validate_run_change_section(&zero_current_lines).is_err());
 
         let zero_previous_lines = RunChangeSection {
-            previous_text_bytes: Some(1),
-            previous_line_count: Some(0),
+            previous_compare_bytes: Some(1),
+            previous_compare_line_count: Some(0),
             changed_region: None,
             ..valid_change()
         };
@@ -298,8 +303,8 @@ mod tests {
         assert!(validate_run_change_section(&too_large_prefix).is_err());
 
         let prefix_exceeds_current_only = RunChangeSection {
-            previous_line_count: Some(5),
-            current_line_count: 3,
+            previous_compare_line_count: Some(5),
+            current_compare_line_count: 3,
             common_prefix_lines: 4,
             changed_region: None,
             ..valid_change()
@@ -315,8 +320,8 @@ mod tests {
         assert!(validate_run_change_section(&too_large_suffix).is_err());
 
         let suffix_exceeds_current_only = RunChangeSection {
-            previous_line_count: Some(5),
-            current_line_count: 3,
+            previous_compare_line_count: Some(5),
+            current_compare_line_count: 3,
             common_prefix_lines: 1,
             common_suffix_lines: 3,
             changed_region: None,

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
 
 use crate::app::refresh_semver_baseline;
@@ -36,6 +37,8 @@ use crate::plan::{
 };
 use crate::tooling::{RustTooling, parse_rust_tooling};
 
+pub(crate) static PROCESS_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 fn with_test_artifact_roots<T>(repo_root: &Path, operation: impl FnOnce() -> T) -> T {
     with_cargo_artifact_root_overrides(
         repo_root.join(".managed-artifacts").join("target"),
@@ -57,7 +60,7 @@ fn write_repo_scaffold(repo_root: &Path) {
         "RUST_WORKSPACE_EDITION=2024\n\
 RUST_WORKSPACE_RUST_VERSION=1.95\n\
 RUST_STABLE_TOOLCHAIN=1.95.0\n\
-RUST_COVERAGE_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.1\n\
 CARGO_DENY_VERSION=0.19.4\n\
@@ -119,7 +122,7 @@ fn sample_tooling() -> RustTooling {
         "RUST_WORKSPACE_EDITION=2024\n\
 RUST_WORKSPACE_RUST_VERSION=1.95\n\
 RUST_STABLE_TOOLCHAIN=1.95.0\n\
-RUST_COVERAGE_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.1\n\
 CARGO_DENY_VERSION=0.19.4\n\
@@ -156,7 +159,7 @@ fn parse_rust_tooling_rejects_invalid_and_empty_assignments() {
 RUST_WORKSPACE_EDITION=2024\n\
 RUST_WORKSPACE_RUST_VERSION=1.95\n\
 RUST_STABLE_TOOLCHAIN=1.95.0\n\
-RUST_COVERAGE_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 CARGO_AUDIT_VERSION=0.22.1\n\
 CARGO_DENY_VERSION=0.19.4\n\
 CARGO_FUZZ_VERSION=0.13.1\n\

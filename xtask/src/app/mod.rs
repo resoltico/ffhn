@@ -31,6 +31,7 @@ Examples:
   cargo xtask audit --file fuzz/Cargo.lock
   cargo xtask semver-check
   cargo xtask coverage
+  cargo xtask miri
   cargo xtask hygiene report
   cargo xtask hygiene clean --mode rebuildable
   cargo xtask refresh-semver-baseline --git-ref vX.Y.Z";
@@ -69,6 +70,11 @@ enum Task {
         long_about = "Run the curated 100% line-and-branch coverage gate plus its prerequisite checks without rerunning the broader maintainer gate."
     )]
     Coverage,
+    #[command(
+        about = "Run only the maintained FFHN-to-HTMLCut strict-provenance Miri proof.",
+        long_about = "Run only the maintained FFHN-to-HTMLCut strict-provenance Miri proof that exercises FFHN's HTMLCut selector-validation and selector-execution boundary under the pinned nightly QA toolchain."
+    )]
+    Miri,
     #[command(
         about = "Inspect or repair the repository artifact hygiene policy.",
         long_about = "Inspect or repair the maintained repository artifact hygiene policy, including managed Cargo artifact roots, repo-local scratch, and accidental legacy target trees."
@@ -128,6 +134,7 @@ where
         Task::Audit(args) => check::run_audit(&repo_root, args.file.as_deref()),
         Task::SemverCheck => check::run_semver_check(&repo_root),
         Task::Coverage => check::run_coverage(&repo_root),
+        Task::Miri => check::run_miri(&repo_root),
         Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),
         Task::RefreshSemverBaseline(args) => {
             semver::refresh_semver_baseline(&repo_root, &args.git_ref)

@@ -123,8 +123,8 @@ GitHub Actions also emits build provenance attestations for the source archives,
 
 The maintained release scripts are:
 
-1. [`validate-devcontainer.sh`](../scripts/validate-devcontainer.sh): build and smoke the committed contributor container, then prove the actual Dev Container client path against the committed `devcontainer.json`
-2. [`run-devcontainer-check.sh`](../scripts/run-devcontainer-check.sh): build or reuse the committed contributor container image and run the full `./check.sh` gate inside it with the canonical persistent cache volumes
+1. [`validate-devcontainer.sh`](../scripts/validate-devcontainer.sh): build and smoke the committed contributor container, prove the actual Dev Container client path against the committed `devcontainer.json`, and promote the validated image to the canonical local contributor tag
+2. [`run-devcontainer-check.sh`](../scripts/run-devcontainer-check.sh): build or reuse the canonical contributor container image and run the full `./check.sh` gate inside it with the canonical persistent cache volumes
 3. [`build-release-source-archives.sh`](../scripts/build-release-source-archives.sh): build the maintained source zip and source tarball into `dist/`
 4. [`build-release-artifact.sh`](../scripts/build-release-artifact.sh): build one packaged `ffhn` standalone artifact into `dist/`
 5. [`build-release-checksums.sh`](../scripts/build-release-checksums.sh): assemble the single checksum manifest for the maintained asset inventory once `dist/` is complete

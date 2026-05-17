@@ -1,1 +1,103 @@
-{"schema_name":"ffhn.batch_run_report","schema_version":3,"run_mode":"dry_run","watch_root":"/var/folders/45/5nz735_d4_zgwrvy4fb4xz340000gn/T/tmp.195RIPoa8f/watch-batch","requested_targets":["demo-a","demo-b"],"run_started_at":"2026-05-14T15:15:43.154874Z","run_finished_at":"2026-05-14T15:15:43.158661Z","max_concurrency":1,"entries":[{"target_id":"demo-a","run_report":{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"08e39c112ed2e791c61af16e830258c392e6f296b7ee01fdcd35ba68133988d8","target_id":"demo-a","display_name":"demo-a","run_started_at":"2026-05-14T15:15:43.155502Z","run_finished_at":"2026-05-14T15:15:43.158166Z","run_mode":"dry_run","result":{"kind":"initialized"},"compare_basis":"canonical_text_sha256","current_compare_digest_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"file","final_url":"file:///private/var/folders/45/5nz735_d4_zgwrvy4fb4xz340000gn/T/tmp.195RIPoa8f/src/source_changed.html","http_status":null,"content_type":null,"bytes_read":43,"duration_ms":0},"extraction":{"comparison_input_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d","outer_html_sha256":"fc3fa5f17bbf31ef2b6824e3d356850b7f822812d72512729db4794dba83dfda","selection_kind":"css_selector","selection_match":"single","output_kind":"outer_html","candidate_count":1,"selected_candidate_index":1,"warning_codes":[],"duration_ms":1},"compare":{"canonicalizers":[],"duration_ms":0},"change":{"kind":"initialized","current_text_bytes":4,"current_line_count":1,"common_prefix_lines":0,"common_suffix_lines":0,"changed_region":{"previous_start_line":1,"previous_line_count":0,"current_start_line":1,"current_line_count":1,"current_excerpt":"Beta","current_excerpt_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d"}},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"not_attempted"},"last_run_write_duration_ms":0,"last_run_write":{"status":"not_attempted"}}}},{"target_id":"demo-b","run_report":{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"5d2cc8fd5b180cd3dbd115a5a45d7dc1ba9c4afdf3ac6846a35fdb123d32a615","target_id":"demo-b","display_name":"demo-b","run_started_at":"2026-05-14T15:15:43.158369Z","run_finished_at":"2026-05-14T15:15:43.158592Z","run_mode":"dry_run","result":{"kind":"initialized"},"compare_basis":"canonical_text_sha256","current_compare_digest_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d","baseline_phase_before_run":"never_succeeded","baseline_phase_after_run":"never_succeeded","fetch":{"engine":"file","final_url":"file:///private/var/folders/45/5nz735_d4_zgwrvy4fb4xz340000gn/T/tmp.195RIPoa8f/src/source_changed.html","http_status":null,"content_type":null,"bytes_read":43,"duration_ms":0},"extraction":{"comparison_input_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d","outer_html_sha256":"fc3fa5f17bbf31ef2b6824e3d356850b7f822812d72512729db4794dba83dfda","selection_kind":"css_selector","selection_match":"single","output_kind":"outer_html","candidate_count":1,"selected_candidate_index":1,"warning_codes":[],"duration_ms":0},"compare":{"canonicalizers":[],"duration_ms":0},"change":{"kind":"initialized","current_text_bytes":4,"current_line_count":1,"common_prefix_lines":0,"common_suffix_lines":0,"changed_region":{"previous_start_line":1,"previous_line_count":0,"current_start_line":1,"current_line_count":1,"current_excerpt":"Beta","current_excerpt_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d"}},"persist":{"state_commit_duration_ms":0,"state_commit":{"status":"not_attempted"},"last_run_write_duration_ms":0,"last_run_write":{"status":"not_attempted"}}}}],"outcome_counts":{"initialized":2,"changed":0,"unchanged":0,"failed_transient":0,"failed_permanent":0,"skipped_disabled":0,"persist_failure":0,"notification_failure":0,"fatal_error":0}}
+{
+  "entries": [
+    {
+      "run_report": {
+        "baseline_phase_after_run": "never_succeeded",
+        "baseline_phase_before_run": "never_succeeded",
+        "change": {
+          "changed_region": {
+            "current_excerpt": "Beta",
+            "current_excerpt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "current_line_count": 1,
+            "current_start_line": 1,
+            "previous_line_count": 0,
+            "previous_start_line": 1
+          },
+          "common_prefix_lines": 0,
+          "common_suffix_lines": 0,
+          "current_compare_bytes": 4,
+          "current_compare_line_count": 1,
+          "kind": "initialized"
+        },
+        "compare": {
+          "canonicalizers": [
+            "trim"
+          ],
+          "duration_ms": 0
+        },
+        "compare_basis": "text",
+        "current_compare_digest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "display_name": "demo-a",
+        "extraction": {
+          "candidate_count": 1,
+          "compare_source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "duration_ms": 1,
+          "outer_html_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "selected_candidate_index": 1,
+          "selection_kind": "css_selector",
+          "selection_match": "single",
+          "warning_codes": []
+        },
+        "fetch": {
+          "bytes_read": 43,
+          "content_type": null,
+          "duration_ms": 0,
+          "engine": "file",
+          "final_url": "file:///tmp/ffhn/source_changed.html",
+          "http_status": null
+        },
+        "persist": {
+          "last_run_write": {
+            "status": "not_attempted"
+          },
+          "last_run_write_duration_ms": 0,
+          "state_commit": {
+            "status": "not_attempted"
+          },
+          "state_commit_duration_ms": 0
+        },
+        "result": {
+          "kind": "initialized"
+        },
+        "run_finished_at": "2026-05-17T12:00:01Z",
+        "run_mode": "dry_run",
+        "run_report_digest_sha256": "a7502c674e03362465e3eabea13511f092700ca02ddd7961841f865d74b6cddd",
+        "run_started_at": "2026-05-17T12:00:00Z",
+        "schema_name": "ffhn.run_report",
+        "schema_version": 4,
+        "target_id": "demo-a"
+      },
+      "target_id": "demo-a"
+    },
+    {
+      "fatal_error": {
+        "kind": "io",
+        "message": "permission denied",
+        "path": "/tmp/ffhn/watch-batch/demo-b/target.toml"
+      },
+      "target_id": "demo-b"
+    }
+  ],
+  "max_concurrency": 1,
+  "outcome_counts": {
+    "changed": 0,
+    "failed_permanent": 0,
+    "failed_transient": 0,
+    "fatal_error": 1,
+    "initialized": 1,
+    "notification_failure": 0,
+    "persist_failure": 0,
+    "skipped_disabled": 0,
+    "unchanged": 0
+  },
+  "requested_targets": [
+    "demo-a",
+    "demo-b"
+  ],
+  "run_finished_at": "2026-05-17T12:00:02Z",
+  "run_mode": "dry_run",
+  "run_started_at": "2026-05-17T12:00:00Z",
+  "schema_name": "ffhn.batch_run_report",
+  "schema_version": 4,
+  "watch_root": "/tmp/ffhn/watch-batch"
+}

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
-    BaselinePhase, ChangeKind, CompareBasis, Extensions, FetchEngine, OutputKind,
-    PersistWriteStatus, ProcessErrorDetail, RunChangeRegion, RunChangeSection, RunCompareSection,
-    RunExtractionSection, RunFetchSection, RunMode, RunNotificationDelivery, RunPersistSection,
-    RunReport, RunResult, SelectionKind, SelectionMatch,
+    BaselinePhase, ChangeKind, CompareBasis, Extensions, FetchEngine, PersistWriteStatus,
+    ProcessErrorDetail, RunChangeRegion, RunChangeSection, RunCompareSection, RunExtractionSection,
+    RunFetchSection, RunMode, RunNotificationDelivery, RunPersistSection, RunReport, RunResult,
+    SelectionKind, SelectionMatch,
 };
 use crate::CoreError;
 
@@ -48,11 +48,10 @@ impl From<&RunFetchSection> for RawRunFetchSection {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRunExtractionSection {
-    comparison_input_sha256: String,
+    compare_source_sha256: String,
     outer_html_sha256: String,
     selection_kind: SelectionKind,
     selection_match: SelectionMatch,
-    output_kind: OutputKind,
     candidate_count: usize,
     selected_candidate_index: usize,
     warning_codes: Vec<String>,
@@ -62,11 +61,10 @@ struct RawRunExtractionSection {
 impl From<RawRunExtractionSection> for RunExtractionSection {
     fn from(raw: RawRunExtractionSection) -> Self {
         Self {
-            comparison_input_sha256: raw.comparison_input_sha256,
+            compare_source_sha256: raw.compare_source_sha256,
             outer_html_sha256: raw.outer_html_sha256,
             selection_kind: raw.selection_kind,
             selection_match: raw.selection_match,
-            output_kind: raw.output_kind,
             candidate_count: raw.candidate_count,
             selected_candidate_index: raw.selected_candidate_index,
             warning_codes: raw.warning_codes,
@@ -78,11 +76,10 @@ impl From<RawRunExtractionSection> for RunExtractionSection {
 impl From<&RunExtractionSection> for RawRunExtractionSection {
     fn from(section: &RunExtractionSection) -> Self {
         Self {
-            comparison_input_sha256: section.comparison_input_sha256.clone(),
+            compare_source_sha256: section.compare_source_sha256.clone(),
             outer_html_sha256: section.outer_html_sha256.clone(),
             selection_kind: section.selection_kind,
             selection_match: section.selection_match,
-            output_kind: section.output_kind,
             candidate_count: section.candidate_count,
             selected_candidate_index: section.selected_candidate_index,
             warning_codes: section.warning_codes.clone(),
@@ -229,11 +226,11 @@ impl From<&RunChangeRegion> for RawRunChangeRegion {
 struct RawRunChangeSection {
     kind: ChangeKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    previous_text_bytes: Option<usize>,
-    current_text_bytes: usize,
+    previous_compare_bytes: Option<usize>,
+    current_compare_bytes: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    previous_line_count: Option<usize>,
-    current_line_count: usize,
+    previous_compare_line_count: Option<usize>,
+    current_compare_line_count: usize,
     common_prefix_lines: usize,
     common_suffix_lines: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,10 +241,10 @@ impl From<RawRunChangeSection> for RunChangeSection {
     fn from(raw: RawRunChangeSection) -> Self {
         Self {
             kind: raw.kind,
-            previous_text_bytes: raw.previous_text_bytes,
-            current_text_bytes: raw.current_text_bytes,
-            previous_line_count: raw.previous_line_count,
-            current_line_count: raw.current_line_count,
+            previous_compare_bytes: raw.previous_compare_bytes,
+            current_compare_bytes: raw.current_compare_bytes,
+            previous_compare_line_count: raw.previous_compare_line_count,
+            current_compare_line_count: raw.current_compare_line_count,
             common_prefix_lines: raw.common_prefix_lines,
             common_suffix_lines: raw.common_suffix_lines,
             changed_region: raw.changed_region.map(RunChangeRegion::from),
@@ -259,10 +256,10 @@ impl From<&RunChangeSection> for RawRunChangeSection {
     fn from(section: &RunChangeSection) -> Self {
         Self {
             kind: section.kind,
-            previous_text_bytes: section.previous_text_bytes,
-            current_text_bytes: section.current_text_bytes,
-            previous_line_count: section.previous_line_count,
-            current_line_count: section.current_line_count,
+            previous_compare_bytes: section.previous_compare_bytes,
+            current_compare_bytes: section.current_compare_bytes,
+            previous_compare_line_count: section.previous_compare_line_count,
+            current_compare_line_count: section.current_compare_line_count,
             common_prefix_lines: section.common_prefix_lines,
             common_suffix_lines: section.common_suffix_lines,
             changed_region: section

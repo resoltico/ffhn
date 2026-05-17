@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::{
     CompareBasis, CompareConfig, FetchConfig, FetchEngine, FileFetchConfig, HttpMethod,
-    NetworkFetchConfig, OutputKind, SelectionConfig, SelectionModeConfig, TargetDocument, TargetId,
+    NetworkFetchConfig, SelectionConfig, SelectionModeConfig, TargetDocument, TargetId,
     TargetSource, WhitespaceMode,
 };
 
@@ -88,13 +88,12 @@ fn target_for(url: Url) -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
@@ -120,13 +119,12 @@ fn file_target_for(path: &Path) -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),

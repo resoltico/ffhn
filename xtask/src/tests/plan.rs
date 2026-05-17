@@ -86,6 +86,10 @@ fn check_plan_includes_all_strict_gates() {
     );
     assert!(plan.iter().any(|spec| spec.args == ["xtask", "audit"]));
     assert!(plan.iter().any(|spec| {
+        spec.args == ["xtask", "miri"]
+            && spec.artifact_layout == CommandArtifactLayout::ManagedWorkspace
+    }));
+    assert!(plan.iter().any(|spec| {
         spec.args == ["fmt", "--check"]
             && spec.artifact_layout == CommandArtifactLayout::ManagedWorkspace
     }));

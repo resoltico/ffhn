@@ -10,6 +10,9 @@ use crate::coverage::{
     read_coverage_report, tracked_files,
 };
 use crate::hygiene::{HygieneCleanMode, clean_hygiene, ensure_hygiene, prepare_artifact_layout};
+use crate::miri::{
+    miri_command, miri_preflight_failures, miri_preflight_message, miri_probe_command,
+};
 use crate::model::{CommandArtifactLayout, CommandSpec, DynResult};
 use crate::plan::{
     check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_build_dir,
@@ -83,7 +86,7 @@ pub(crate) fn run_semver_check(repo_root: &Path) -> DynResult<()> {
 
 pub(crate) fn run_coverage(repo_root: &Path) -> DynResult<()> {
     let tooling = rust_tooling(repo_root)?;
-    ensure_toolchain_available(&tooling.coverage_toolchain)?;
+    ensure_toolchain_available(&tooling.qa_nightly_toolchain)?;
     ensure_cargo_subcommand(
         CargoQaToolSpec {
             package_name: "cargo-llvm-cov",
@@ -93,6 +96,20 @@ pub(crate) fn run_coverage(repo_root: &Path) -> DynResult<()> {
         bootstrap_hint(),
     )?;
     run_coverage_with_tooling(repo_root, &tooling)
+}
+
+pub(crate) fn run_miri(repo_root: &Path) -> DynResult<()> {
+    let tooling = rust_tooling(repo_root)?;
+    ensure_toolchain_available(&tooling.qa_nightly_toolchain)?;
+    ensure_miri_prerequisites(repo_root, &tooling)?;
+    clean_hygiene(repo_root, HygieneCleanMode::Safe)?;
+    prepare_artifact_layout(repo_root, CommandArtifactLayout::ManagedWorkspace)?;
+    ensure_hygiene(repo_root)?;
+    let result = run_spec(repo_root, &miri_command(&tooling));
+    let cleanup = clean_hygiene(repo_root, HygieneCleanMode::Safe);
+    result?;
+    cleanup?;
+    ensure_hygiene(repo_root)
 }
 
 pub(crate) fn run_audit(repo_root: &Path, lockfile: Option<&Path>) -> DynResult<()> {
@@ -167,7 +184,8 @@ fn preflight_full_check(repo_root: &Path) -> DynResult<RustTooling> {
         "Install shellcheck for your platform.",
     )?;
     ensure_toolchain_available(&tooling.stable_toolchain)?;
-    ensure_toolchain_available(&tooling.coverage_toolchain)?;
+    ensure_toolchain_available(&tooling.qa_nightly_toolchain)?;
+    ensure_miri_prerequisites(repo_root, &tooling)?;
     for tool in tooling.cargo_qa_tools() {
         ensure_cargo_subcommand(tool, bootstrap_hint())?;
     }
@@ -271,6 +289,47 @@ fn bootstrap_hint() -> &'static str {
     "Run `./scripts/bootstrap-rust-tools.sh install-all` to install FFHN's pinned Rust toolchains and QA tools."
 }
 
+fn ensure_miri_prerequisites(repo_root: &Path, tooling: &RustTooling) -> DynResult<()> {
+    ensure_command_exists(
+        "rustup",
+        &["--version"],
+        "Install rustup before running FFHN's maintained Miri proof.",
+    )?;
+    let installed_components_output = Command::new("rustup")
+        .args([
+            "component",
+            "list",
+            "--installed",
+            "--toolchain",
+            &tooling.qa_nightly_toolchain,
+        ])
+        .output()
+        .map_err(|error| format!("failed to query rustup nightly components: {error}"))?;
+    if !installed_components_output.status.success() {
+        return Err(format!(
+            "failed to query rustup nightly components for `{}`. {}",
+            tooling.qa_nightly_toolchain,
+            bootstrap_hint()
+        )
+        .into());
+    }
+    let installed_components =
+        String::from_utf8(installed_components_output.stdout).map_err(|error| {
+            format!(
+                "rustup component list returned non-UTF-8 output for `{}`: {error}",
+                tooling.qa_nightly_toolchain
+            )
+        })?;
+
+    let miri_binary_runs = run_spec(repo_root, &miri_probe_command(tooling)).is_ok();
+    let failures = miri_preflight_failures(&installed_components, miri_binary_runs);
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    Err(miri_preflight_message(tooling, &failures).into())
+}
+
 fn audit_spec(lockfile: Option<&Path>) -> CommandSpec {
     let mut args = vec!["audit".to_owned()];
     if let Some(lockfile) = lockfile {
@@ -361,6 +420,10 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    use crate::tests::PROCESS_ENV_LOCK;
+    #[cfg(unix)]
+    use std::env;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
@@ -381,6 +444,25 @@ mod tests {
     #[cfg(not(windows))]
     fn unsuccessful_probe_command() -> (&'static str, &'static [&'static str]) {
         ("/bin/sh", &["-c", "exit 7"])
+    }
+
+    #[cfg(unix)]
+    fn sample_tooling() -> RustTooling {
+        crate::tooling::parse_rust_tooling(
+            "RUST_WORKSPACE_EDITION=2024\n\
+RUST_WORKSPACE_RUST_VERSION=1.95\n\
+RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+\n\
+CARGO_AUDIT_VERSION=0.22.1\n\
+CARGO_DENY_VERSION=0.19.4\n\
+CARGO_FUZZ_VERSION=0.13.1\n\
+CARGO_LLVM_COV_VERSION=0.8.5\n\
+CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_OUTDATED_VERSION=0.19.0\n\
+CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+        )
+        .expect("parse tooling")
     }
 
     #[test]
@@ -525,5 +607,162 @@ mod tests {
         assert!(non_success.to_string().contains(&format!(
             "required command `{program}` exited unsuccessfully while probing availability"
         )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn ensure_miri_prerequisites_reports_missing_components() {
+        let _guard = PROCESS_ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let repo_root = tempdir().expect("repo_root");
+        let bin_dir = tempdir().expect("bin_dir");
+        let original_path = env::var_os("PATH").unwrap_or_default();
+        let mut updated_path = std::ffi::OsString::from(bin_dir.path());
+        updated_path.push(":");
+        updated_path.push(&original_path);
+
+        write_executable(
+            bin_dir.path(),
+            "rustup",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'rustup 1.0.0 (test stub)\\n'\n  exit 0\nfi\nif [ \"$1\" = \"component\" ] && [ \"$2\" = \"list\" ] && [ \"$3\" = \"--installed\" ]; then\n  printf 'rust-src (installed)\\n'\n  exit 0\nfi\nexit 0\n",
+        );
+        write_executable(
+            bin_dir.path(),
+            "cargo",
+            "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-05-11\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  printf 'miri 0.1.0 (test stub)\\n'\n  exit 0\nfi\nexit 0\n",
+        );
+
+        // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", &updated_path) };
+        let error = ensure_miri_prerequisites(repo_root.path(), &sample_tooling())
+            .expect_err("missing components should fail");
+        // SAFETY: PROCESS_ENV_LOCK still serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", original_path) };
+
+        assert!(
+            error
+                .to_string()
+                .contains("rustup component add miri --toolchain nightly-2026-05-11")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn ensure_miri_prerequisites_reports_broken_miri_binaries() {
+        let _guard = PROCESS_ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let repo_root = tempdir().expect("repo_root");
+        let bin_dir = tempdir().expect("bin_dir");
+        let original_path = env::var_os("PATH").unwrap_or_default();
+        let mut updated_path = std::ffi::OsString::from(bin_dir.path());
+        updated_path.push(":");
+        updated_path.push(&original_path);
+
+        write_executable(
+            bin_dir.path(),
+            "rustup",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'rustup 1.0.0 (test stub)\\n'\n  exit 0\nfi\nif [ \"$1\" = \"component\" ] && [ \"$2\" = \"list\" ] && [ \"$3\" = \"--installed\" ]; then\n  printf 'miri (installed)\\n'\n  printf 'rust-src (installed)\\n'\n  exit 0\nfi\nexit 0\n",
+        );
+        write_executable(
+            bin_dir.path(),
+            "cargo",
+            "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-05-11\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  exit 7\nfi\nexit 0\n",
+        );
+
+        // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", &updated_path) };
+        let error = ensure_miri_prerequisites(repo_root.path(), &sample_tooling())
+            .expect_err("broken miri probe should fail");
+        // SAFETY: PROCESS_ENV_LOCK still serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", original_path) };
+
+        assert!(
+            error
+                .to_string()
+                .contains("cargo +nightly-2026-05-11 miri --version")
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("rustup toolchain uninstall nightly-2026-05-11")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn ensure_miri_prerequisites_reports_component_query_failure() {
+        let _guard = PROCESS_ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let repo_root = tempdir().expect("repo_root");
+        let bin_dir = tempdir().expect("bin_dir");
+        let original_path = env::var_os("PATH").unwrap_or_default();
+        let mut updated_path = std::ffi::OsString::from(bin_dir.path());
+        updated_path.push(":");
+        updated_path.push(&original_path);
+
+        write_executable(
+            bin_dir.path(),
+            "rustup",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'rustup 1.0.0 (test stub)\\n'\n  exit 0\nfi\nif [ \"$1\" = \"component\" ] && [ \"$2\" = \"list\" ] && [ \"$3\" = \"--installed\" ]; then\n  exit 9\nfi\nexit 0\n",
+        );
+        write_executable(bin_dir.path(), "cargo", "#!/bin/sh\nexit 0\n");
+
+        // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", &updated_path) };
+        let error = ensure_miri_prerequisites(repo_root.path(), &sample_tooling())
+            .expect_err("unsuccessful rustup component query should fail");
+        // SAFETY: PROCESS_ENV_LOCK still serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", original_path) };
+
+        assert!(
+            error
+                .to_string()
+                .contains("failed to query rustup nightly components for `nightly-2026-05-11`")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn ensure_miri_prerequisites_reports_non_utf8_component_output() {
+        let _guard = PROCESS_ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let repo_root = tempdir().expect("repo_root");
+        let bin_dir = tempdir().expect("bin_dir");
+        let original_path = env::var_os("PATH").unwrap_or_default();
+        let mut updated_path = std::ffi::OsString::from(bin_dir.path());
+        updated_path.push(":");
+        updated_path.push(&original_path);
+
+        write_executable(
+            bin_dir.path(),
+            "rustup",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'rustup 1.0.0 (test stub)\\n'\n  exit 0\nfi\nif [ \"$1\" = \"component\" ] && [ \"$2\" = \"list\" ] && [ \"$3\" = \"--installed\" ]; then\n  printf '\\377'\n  exit 0\nfi\nexit 0\n",
+        );
+        write_executable(bin_dir.path(), "cargo", "#!/bin/sh\nexit 0\n");
+
+        // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", &updated_path) };
+        let error = ensure_miri_prerequisites(repo_root.path(), &sample_tooling())
+            .expect_err("non-UTF-8 rustup component output should fail");
+        // SAFETY: PROCESS_ENV_LOCK still serializes process-environment mutation in this module.
+        unsafe { env::set_var("PATH", original_path) };
+
+        assert!(
+            error.to_string().contains(
+                "rustup component list returned non-UTF-8 output for `nightly-2026-05-11`"
+            )
+        );
     }
 }

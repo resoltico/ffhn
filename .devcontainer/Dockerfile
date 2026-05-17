@@ -59,7 +59,7 @@ RUN export CARGO_HOME=/usr/local/cargo \
     && . /usr/local/share/ffhn/rust-tooling.env \
     && rustup target add x86_64-unknown-linux-musl --toolchain "${RUST_STABLE_TOOLCHAIN}" \
     && rustc +"${RUST_STABLE_TOOLCHAIN}" --version >/dev/null \
-    && rustc +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null \
+    && rustc +"${RUST_QA_NIGHTLY_TOOLCHAIN}" --version >/dev/null \
     && cargo --version >/dev/null \
     && cargo nextest --version >/dev/null \
     && cargo audit --version >/dev/null \

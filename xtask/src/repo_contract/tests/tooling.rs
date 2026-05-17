@@ -60,7 +60,8 @@ fn rust_tooling_manifest_owns_the_repo_toolchain_and_qa_versions() {
     assert!(bootstrap.contains("ffhn_scrub_ambient_native_toolchain_env()"));
     assert!(!bootstrap.contains("common.sh"));
     assert!(bootstrap.contains("install-stable-toolchain"));
-    assert!(bootstrap.contains("install-coverage-toolchain"));
+    assert!(bootstrap.contains("install-qa-nightly-toolchain"));
+    assert!(bootstrap.contains("--component miri --component rust-src"));
     assert!(bootstrap.contains("install-cross-platform-qa-tools"));
 
     let ci = fs::read_to_string(repo_root.join(".github/workflows/ci.yml"))

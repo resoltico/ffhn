@@ -33,6 +33,39 @@ pub(super) fn live_state_failure_reason(
     }
 }
 
+pub(super) fn finish_incompatible_baseline_report(
+    paths: &TargetPaths,
+    target: &TargetDocument,
+    state: &StateLoad,
+    run_started_at: &str,
+    options: RunOptions,
+    error_detail: crate::ProcessErrorDetail,
+) -> Result<RunReport, CoreError> {
+    finish_report(
+        paths,
+        Some(target),
+        build_run_report(RunReportDraft {
+            target_id: target.target_id.clone(),
+            display_name: Some(target.display_name.clone()),
+            run_started_at: run_started_at.to_owned(),
+            run_mode: options.mode,
+            result: RunResult::FailedPermanent {
+                cause: RunFailureCause::BaselineIncompatible,
+                error_detail,
+            },
+            compare_basis: target.compare.basis,
+            lifecycle: RunReportLifecycle::from_state_snapshot(state, None),
+            sections: RunReportSections::default(),
+            persist: RunPersistSection::from_writes(
+                0,
+                PersistWriteStatus::NotAttempted,
+                0,
+                PersistWriteStatus::NotAttempted,
+            ),
+        }),
+    )
+}
+
 pub(super) fn finish_lock_unavailable_report(
     paths: &TargetPaths,
     target: &TargetDocument,

@@ -400,7 +400,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ffhn-cli"
-version = "7.0.0"
+version = "8.0.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "ffhn-core"
-version = "7.0.0"
+version = "8.0.0"
 dependencies = [
  "encoding_rs",
  "fs2",
@@ -549,8 +549,8 @@ dependencies = [
 
 [[package]]
 name = "htmlcut-core"
-version = "10.0.0"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v10.0.0#874358efd6cbd458a125bbb5231a495e8ce76d45"
+version = "10.1.0"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v10.1.0#45c4d2ab11788b22f2ae457f9029629e71dec1c5"
 dependencies = [
  "ego-tree",
  "regex",
@@ -1396,8 +1396,6 @@ dependencies = [
 [[package]]
 name = "servo_arc"
 version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -1517,8 +1515,6 @@ dependencies = [
 [[package]]
 name = "tendril"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4790fc369d5a530f4b544b094e31388b9b3a37c0f4652ade4505945f5660d24"
 dependencies = [
  "new_debug_unreachable",
  "utf-8",
@@ -2147,7 +2143,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "7.0.0"
+version = "8.0.0"
 dependencies = [
  "assert_cmd",
  "clap",

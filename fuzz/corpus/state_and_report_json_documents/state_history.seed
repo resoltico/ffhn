@@ -1,1 +1,33 @@
-{"baseline":{"current_snapshot":{"canonical_text_path":"snapshots/current/canonical.txt","canonical_text_sha256":"703390318bd55aef50b7823d2b90a846debff99e6e3d401a24a921b733912a6d","captured_at":"2026-05-06T01:37:57.503078Z","extraction_record_path":"snapshots/current/extraction.json","outer_html_path":"snapshots/current/outer.html","outer_html_sha256":"fc3fa5f17bbf31ef2b6824e3d356850b7f822812d72512729db4794dba83dfda","slot":"current"},"kind":"ready","snapshot_history":[{"canonical_text_path":"snapshots/history/20260506t013757490709z-b1a96dd646bc/canonical.txt","canonical_text_sha256":"b1a96dd646bccaa24cef7a3db22a6f995f05658f4f1c3272913e258c03e6fb24","captured_at":"2026-05-06T01:37:57.490709Z","extraction_record_path":"snapshots/history/20260506t013757490709z-b1a96dd646bc/extraction.json","outer_html_path":"snapshots/history/20260506t013757490709z-b1a96dd646bc/outer.html","outer_html_sha256":"914b1b1fd63c1078b44ca67b60e78a49a61eafedfcf73febd376373ca572922a","slot":"history"}]},"last_run":{"outcome":"changed","run_at":"2026-05-06T01:37:57.501062Z"},"schema_name":"ffhn.state","schema_version":3,"target_id":"demo-run"}
+{
+  "baseline": {
+    "current_snapshot": {
+      "captured_at": "2026-05-17T11:59:00Z",
+      "compare_digest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "compare_path": "snapshots/current/compare.txt",
+      "extraction_record_path": "snapshots/current/extraction.json",
+      "outer_html_path": "snapshots/current/outer.html",
+      "outer_html_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "slot": "current"
+    },
+    "kind": "ready",
+    "snapshot_history": [
+      {
+        "captured_at": "2026-05-17T11:58:00Z",
+        "compare_digest_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "compare_path": "snapshots/history/20260517t115800z-bbbbbbbbbbbb/compare.txt",
+        "extraction_record_path": "snapshots/history/20260517t115800z-bbbbbbbbbbbb/extraction.json",
+        "outer_html_path": "snapshots/history/20260517t115800z-bbbbbbbbbbbb/outer.html",
+        "outer_html_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "slot": "history"
+      }
+    ]
+  },
+  "last_run": {
+    "outcome": "changed",
+    "run_at": "2026-05-17T12:10:01Z"
+  },
+  "monitoring_contract_digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_name": "ffhn.state",
+  "schema_version": 4,
+  "target_id": "demo-run"
+}

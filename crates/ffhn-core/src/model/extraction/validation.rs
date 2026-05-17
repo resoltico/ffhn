@@ -13,8 +13,9 @@ impl ExtractionRecord {
     /// evidence, or timestamp violates FFHN's frozen extraction-record contract.
     pub fn validate(&self) -> Result<(), CoreError> {
         validate_extraction_record_identity(&self.schema_name, self.schema_version)?;
-        validate_sha256(&self.comparison_input_sha256)?;
+        validate_sha256(&self.compare_source_sha256)?;
         validate_sha256(&self.outer_html_sha256)?;
+        validate_sha256(&self.monitoring_contract_digest_sha256)?;
         if self.candidate_count == 0 || self.selected_candidate_index == 0 {
             return Err(CoreError::contract(
                 "ffhn.extraction_record candidate counts must be positive",
@@ -88,7 +89,7 @@ impl SnapshotReference {
     /// Returns [`CoreError`] when the stored digests or capture timestamp violate FFHN's frozen
     /// snapshot-reference contract.
     pub fn validate(&self) -> Result<(), CoreError> {
-        validate_sha256(&self.canonical_text_sha256)?;
+        validate_sha256(&self.compare_digest_sha256)?;
         validate_sha256(&self.outer_html_sha256)?;
         validate_timestamp(&self.captured_at)
     }

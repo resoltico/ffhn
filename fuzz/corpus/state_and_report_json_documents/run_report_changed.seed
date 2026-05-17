@@ -1,1 +1,71 @@
-{"schema_name":"ffhn.run_report","schema_version":3,"run_report_digest_sha256":"31df18240c024f974292f72a8bfdc1979df76dc9fbe2ffa2e0ca5e9e2a140abf","target_id":"payload_target","display_name":"Payload Target","run_started_at":"2026-05-14T15:24:54.420145Z","run_finished_at":"2026-05-14T15:24:54.426475Z","run_mode":"live","result":{"kind":"changed"},"compare_basis":"canonical_text_sha256","previous_compare_digest_sha256":"ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5","current_compare_digest_sha256":"079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424","baseline_phase_before_run":"has_baseline","baseline_phase_after_run":"has_baseline","fetch":{"engine":"file","final_url":"file:///Users/erst/Tools/ffhn/tmp/seed-refresh/source.html","http_status":null,"content_type":null,"bytes_read":55,"duration_ms":0},"extraction":{"comparison_input_sha256":"079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424","outer_html_sha256":"c028a2183b5d2f7b48e7415a5616ec4b72c9ef78f8c79afbc92ddf68db706541","selection_kind":"css_selector","selection_match":"single","output_kind":"outer_html","candidate_count":1,"selected_candidate_index":1,"warning_codes":[],"duration_ms":1},"compare":{"canonicalizers":["trim"],"duration_ms":0},"change":{"kind":"changed","previous_text_bytes":12,"current_text_bytes":15,"previous_line_count":1,"current_line_count":1,"common_prefix_lines":0,"common_suffix_lines":0,"changed_region":{"previous_start_line":1,"previous_line_count":1,"current_start_line":1,"current_line_count":1,"previous_excerpt":"Payload Seed","current_excerpt":"Payload Changed","previous_excerpt_sha256":"ee8abdc0db68120327dc6674b651c44f17e6df9769b233f7528fe1f52479f3a5","current_excerpt_sha256":"079522f2e24f6e98341baf703990cf8a79bce55eaaab8c70bd73e2f840c1c424"}},"persist":{"state_commit_duration_ms":1,"state_commit":{"status":"written"},"last_run_write_duration_ms":0,"last_run_write":{"status":"written"}}}
+{
+  "baseline_phase_after_run": "has_baseline",
+  "baseline_phase_before_run": "has_baseline",
+  "change": {
+    "changed_region": {
+      "current_excerpt": "Payload Changed",
+      "current_excerpt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "current_line_count": 1,
+      "current_start_line": 1,
+      "previous_excerpt": "Payload Seed",
+      "previous_excerpt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "previous_line_count": 1,
+      "previous_start_line": 1
+    },
+    "common_prefix_lines": 0,
+    "common_suffix_lines": 0,
+    "current_compare_bytes": 15,
+    "current_compare_line_count": 1,
+    "kind": "changed",
+    "previous_compare_bytes": 12,
+    "previous_compare_line_count": 1
+  },
+  "compare": {
+    "canonicalizers": [
+      "trim"
+    ],
+    "duration_ms": 0
+  },
+  "compare_basis": "text",
+  "current_compare_digest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "display_name": "Payload Target",
+  "extraction": {
+    "candidate_count": 1,
+    "compare_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "duration_ms": 1,
+    "outer_html_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "selected_candidate_index": 1,
+    "selection_kind": "css_selector",
+    "selection_match": "single",
+    "warning_codes": []
+  },
+  "fetch": {
+    "bytes_read": 55,
+    "content_type": null,
+    "duration_ms": 0,
+    "engine": "file",
+    "final_url": "file:///Users/erst/Tools/ffhn/tmp/seed-refresh/source.html",
+    "http_status": null
+  },
+  "persist": {
+    "last_run_write": {
+      "status": "written"
+    },
+    "last_run_write_duration_ms": 1,
+    "state_commit": {
+      "status": "written"
+    },
+    "state_commit_duration_ms": 1
+  },
+  "previous_compare_digest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "result": {
+    "kind": "changed"
+  },
+  "run_finished_at": "2026-05-17T12:10:01Z",
+  "run_mode": "live",
+  "run_report_digest_sha256": "054f966de94bc7ffd43abed64f3b5f97668fd0077cc998e810c7949790e5e160",
+  "run_started_at": "2026-05-17T12:10:00Z",
+  "schema_name": "ffhn.run_report",
+  "schema_version": 4,
+  "target_id": "payload_target"
+}

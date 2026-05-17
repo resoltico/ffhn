@@ -33,9 +33,9 @@ impl RunFetchSection {
 }
 
 impl RunExtractionSection {
-    /// Returns the comparison-input digest.
-    pub fn comparison_input_sha256(&self) -> &str {
-        &self.comparison_input_sha256
+    /// Returns the compare-source digest.
+    pub fn compare_source_sha256(&self) -> &str {
+        &self.compare_source_sha256
     }
 
     /// Returns the persisted outer-HTML digest.
@@ -51,11 +51,6 @@ impl RunExtractionSection {
     /// Returns the selection mode.
     pub const fn selection_match(&self) -> SelectionMatch {
         self.selection_match
-    }
-
-    /// Returns the output kind.
-    pub const fn output_kind(&self) -> OutputKind {
-        self.output_kind
     }
 
     /// Returns the total candidate count.
@@ -158,7 +153,7 @@ impl RunPersistSection {
 }
 
 impl RunChangeRegion {
-    /// Returns the one-based start line in the previous canonical text.
+    /// Returns the one-based start line in the previous compare value.
     pub const fn previous_start_line(&self) -> usize {
         self.previous_start_line
     }
@@ -168,7 +163,7 @@ impl RunChangeRegion {
         self.previous_line_count
     }
 
-    /// Returns the one-based start line in the current canonical text.
+    /// Returns the one-based start line in the current compare value.
     pub const fn current_start_line(&self) -> usize {
         self.current_start_line
     }
@@ -205,24 +200,24 @@ impl RunChangeSection {
         self.kind
     }
 
-    /// Returns the previous canonical-text byte length when one exists.
-    pub const fn previous_text_bytes(&self) -> Option<usize> {
-        self.previous_text_bytes
+    /// Returns the previous compare-value byte length when one exists.
+    pub const fn previous_compare_bytes(&self) -> Option<usize> {
+        self.previous_compare_bytes
     }
 
-    /// Returns the current canonical-text byte length.
-    pub const fn current_text_bytes(&self) -> usize {
-        self.current_text_bytes
+    /// Returns the current compare-value byte length.
+    pub const fn current_compare_bytes(&self) -> usize {
+        self.current_compare_bytes
     }
 
-    /// Returns the previous canonical-text line count when one exists.
-    pub const fn previous_line_count(&self) -> Option<usize> {
-        self.previous_line_count
+    /// Returns the previous compare-value line count when one exists.
+    pub const fn previous_compare_line_count(&self) -> Option<usize> {
+        self.previous_compare_line_count
     }
 
-    /// Returns the current canonical-text line count.
-    pub const fn current_line_count(&self) -> usize {
-        self.current_line_count
+    /// Returns the current compare-value line count.
+    pub const fn current_compare_line_count(&self) -> usize {
+        self.current_compare_line_count
     }
 
     /// Returns the number of equal leading lines.

@@ -92,7 +92,7 @@ fn run_command_supports_dry_run_and_batch_rendering() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -109,12 +109,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),
@@ -200,8 +199,10 @@ fn run_and_status_commands_support_summary_and_pretty_json_output_formats() {
     assert!(stdout.contains("Outcome: initialized"));
     assert!(stdout.contains("Baseline phase: never_succeeded -> has_baseline"));
     assert!(stdout.contains("Fetch: engine=file"));
-    assert!(stdout.contains("Extraction: kind=css_selector, match=single, output=outer_html"));
-    assert!(stdout.contains("Compare: basis=canonical_text_sha256"));
+    assert!(
+        stdout.contains("Extraction: kind=css_selector, match=single, candidates=1, selected=1")
+    );
+    assert!(stdout.contains("Compare: basis=text"));
     assert!(stdout.contains("Change: kind=initialized"));
     assert!(stderr.is_empty());
 
@@ -781,7 +782,7 @@ fn status_and_writer_failures_cover_cli_fatal_paths() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -798,12 +799,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),

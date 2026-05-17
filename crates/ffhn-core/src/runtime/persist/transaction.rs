@@ -267,10 +267,10 @@ mod tests {
     fn snapshot_reference(slot: SnapshotSlot, name: &str) -> SnapshotReference {
         SnapshotReference {
             slot,
-            canonical_text_sha256: sha256_hex(name.as_bytes()),
+            compare_digest_sha256: sha256_hex(name.as_bytes()),
             outer_html_sha256: sha256_hex(format!("{name}-outer").as_bytes()),
             extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
-            canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+            compare_path: artifact_path(format!("snapshots/{name}/compare.txt")),
             outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
             captured_at: "2026-04-24T12:00:00Z".to_owned(),
         }
@@ -281,6 +281,8 @@ mod tests {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id: TargetId::new(target).expect("target id"),
+            monitoring_contract_digest_sha256:
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
             baseline: StoredBaseline::Pending,
             last_run: None,
             extensions: None,
@@ -345,9 +347,8 @@ mod tests {
         let staged_current_dir = paths.snapshots_dir().join(".current-stage-test");
         fs::create_dir_all(&current_dir).expect("create current dir");
         fs::create_dir_all(&staged_current_dir).expect("create staged dir");
-        fs::write(current_dir.join("canonical.txt"), "before").expect("write current snapshot");
-        fs::write(staged_current_dir.join("canonical.txt"), "after")
-            .expect("write staged snapshot");
+        fs::write(current_dir.join("compare.txt"), "before").expect("write current snapshot");
+        fs::write(staged_current_dir.join("compare.txt"), "after").expect("write staged snapshot");
 
         let error = with_rename_error_injected(
             &staged_current_dir,
@@ -358,7 +359,7 @@ mod tests {
 
         assert!(matches!(error, CoreError::Io { .. }));
         assert_eq!(
-            fs::read_to_string(current_dir.join("canonical.txt")).expect("restored current"),
+            fs::read_to_string(current_dir.join("compare.txt")).expect("restored current"),
             "before"
         );
         assert!(staged_current_dir.exists());
@@ -371,8 +372,7 @@ mod tests {
         let current_dir = paths.current_snapshot_dir();
         let staged_current_dir = paths.snapshots_dir().join(".current-stage-test");
         fs::create_dir_all(&staged_current_dir).expect("create staged dir");
-        fs::write(staged_current_dir.join("canonical.txt"), "after")
-            .expect("write staged snapshot");
+        fs::write(staged_current_dir.join("compare.txt"), "after").expect("write staged snapshot");
 
         let error = with_rename_error_injected(
             &staged_current_dir,
@@ -394,13 +394,13 @@ mod tests {
         let backup_current_dir = paths.snapshots_dir().join(".current-backup-test");
         fs::create_dir_all(&current_dir).expect("create current dir");
         fs::create_dir_all(&backup_current_dir).expect("create backup dir");
-        fs::write(current_dir.join("canonical.txt"), "staged").expect("write staged current");
-        fs::write(backup_current_dir.join("canonical.txt"), "before").expect("write backup");
+        fs::write(current_dir.join("compare.txt"), "staged").expect("write staged current");
+        fs::write(backup_current_dir.join("compare.txt"), "before").expect("write backup");
 
         rollback_current_swap(&paths, Some(&backup_current_dir)).expect("rollback current swap");
 
         assert_eq!(
-            fs::read_to_string(current_dir.join("canonical.txt")).expect("restored current"),
+            fs::read_to_string(current_dir.join("compare.txt")).expect("restored current"),
             "before"
         );
         assert!(!backup_current_dir.exists());
@@ -513,7 +513,7 @@ mod tests {
         let history_reference = snapshot_reference(SnapshotSlot::History, "history/archived");
         let staged_history_dir = paths.snapshots_dir().join(".history-stage-test");
         fs::create_dir_all(&staged_history_dir).expect("create staged history");
-        fs::write(staged_history_dir.join("canonical.txt"), "history").expect("write staged file");
+        fs::write(staged_history_dir.join("compare.txt"), "history").expect("write staged file");
 
         let plan = SnapshotPersistPlan {
             current_snapshot: None,

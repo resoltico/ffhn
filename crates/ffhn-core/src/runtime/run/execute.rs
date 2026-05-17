@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use htmlcut_core::interop::v1::{InteropDiagnosticLevel, execute_plan};
 
-use crate::canonical::{apply_canonicalizers, normalize_line_endings};
+use crate::canonical::apply_canonicalizers;
 use crate::fetch::{FetchFailure, fetch_target};
 use crate::stable_json::sha256_hex;
 use crate::time::elapsed_ms;
@@ -13,22 +13,24 @@ use crate::{
 };
 
 use super::super::interop::{
-    build_htmlcut_input, build_htmlcut_plan, build_selection_evidence, map_output_kind,
-    map_selection_mode, map_strategy_kind,
+    build_htmlcut_input, build_htmlcut_plan, build_selection_evidence, map_selection_mode,
+    map_strategy_kind,
 };
 use super::super::lock::{ExclusiveLockError, lock_shared, try_lock_exclusive};
 use super::super::persist::{SuccessfulPersistInput, persist_successful_run};
-use super::super::state::{load_state, prior_compare_digest, prior_valid_state};
+use super::super::state::{
+    load_state, monitoring_contract_incompatibility, prior_compare_digest, prior_valid_state,
+};
 use super::super::storage::now_utc;
 use super::super::target_load::{TargetLoad, load_target_document};
 use super::change::build_change_section;
 use super::failures::{
-    finish_disabled_target_report, finish_live_state_failure_report,
-    finish_lock_unavailable_report, live_state_failure_reason,
+    finish_disabled_target_report, finish_incompatible_baseline_report,
+    finish_live_state_failure_report, finish_lock_unavailable_report, live_state_failure_reason,
 };
 use super::outcome::{
-    failure_cause_for_htmlcut_error, required_outer_html, required_selected_match,
-    run_outcome_from_digests,
+    compare_source_for_basis, failure_cause_for_htmlcut_error, required_outer_html,
+    required_selected_match, run_outcome_from_digests,
 };
 use super::report_builder::{
     RunReportDraft, RunReportLifecycle, RunReportSections, build_run_report, successful_result,
@@ -97,6 +99,19 @@ pub(crate) fn run_once_with_options(
     };
 
     let state = load_state(paths);
+    if options.mode == RunMode::Live
+        && let Some(loaded) = prior_valid_state(&state)
+        && let Some(error_detail) = monitoring_contract_incompatibility(paths, &target, loaded)?
+    {
+        return finish_incompatible_baseline_report(
+            paths,
+            &target,
+            &state,
+            &run_started_at,
+            options,
+            error_detail,
+        );
+    }
     if let Some(failure_cause) = live_state_failure_reason(options, &state) {
         return finish_live_state_failure_report(
             paths,
@@ -136,7 +151,7 @@ pub(crate) fn run_once_with_options(
     };
 
     let extraction_started = Instant::now();
-    let plan = build_htmlcut_plan(target.selection_config())?;
+    let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())?;
     let source = build_htmlcut_input(&target.target_id, fetch.html.clone(), &fetch.final_url)?;
     let htmlcut_result = match execute_plan(&source, &plan) {
         Ok(result) => {
@@ -169,12 +184,11 @@ pub(crate) fn run_once_with_options(
 
     let selected_match = required_selected_match(&htmlcut_result)?;
     let selected_outer_html = required_outer_html(selected_match)?;
-    let comparison_input_text = normalize_line_endings(&selected_match.text_output);
-    let comparison_input_sha256 = sha256_hex(comparison_input_text.as_bytes());
+    let compare_source = compare_source_for_basis(selected_match, target.compare_basis())?;
+    let compare_source_sha256 = sha256_hex(compare_source.as_bytes());
     let outer_html_sha256 = sha256_hex(selected_outer_html.as_bytes());
     let selection_kind = map_strategy_kind(&htmlcut_result)?;
     let selection_match = map_selection_mode(&htmlcut_result)?;
-    let output_kind = map_output_kind(htmlcut_result.output.kind())?;
     let warning_codes = htmlcut_result
         .diagnostics
         .iter()
@@ -184,24 +198,24 @@ pub(crate) fn run_once_with_options(
     let extraction_record = ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-        comparison_input_sha256: comparison_input_sha256.clone(),
+        compare_source_sha256: compare_source_sha256.clone(),
         outer_html_sha256: outer_html_sha256.clone(),
         selection_kind,
         selection_match,
-        output_kind,
+        compare_basis: target.compare_basis(),
         candidate_count: htmlcut_result.candidate_count,
         selected_candidate_index: selected_match.candidate_index.get(),
         selection_evidence: build_selection_evidence(&selected_match.metadata),
         warning_codes: warning_codes.clone(),
         created_at: now_utc()?,
+        monitoring_contract_digest_sha256: target.monitoring_contract_digest_sha256()?,
         extensions: None,
     };
     extraction_record.validate()?;
 
     let compare_started = Instant::now();
-    let canonical_text =
-        apply_canonicalizers(&comparison_input_text, &target.compare.canonicalization)?;
-    let current_compare_digest_sha256 = sha256_hex(canonical_text.as_bytes());
+    let compare_value = apply_canonicalizers(&compare_source, target.compare_canonicalization())?;
+    let current_compare_digest_sha256 = sha256_hex(compare_value.as_bytes());
     let compare_duration_ms = elapsed_ms(&compare_started);
 
     let previous_compare_digest_sha256 = prior_compare_digest(&state);
@@ -212,17 +226,16 @@ pub(crate) fn run_once_with_options(
     let change_section = build_change_section(
         prior_valid_state(&state)
             .and_then(|loaded| loaded.current.as_ref())
-            .map(|snapshot| snapshot.canonical_text.as_str()),
-        &canonical_text,
+            .map(|snapshot| snapshot.compare_value.as_str()),
+        &compare_value,
         run_outcome,
     );
 
     let extraction_section = RunExtractionSection {
-        comparison_input_sha256,
+        compare_source_sha256,
         outer_html_sha256,
         selection_kind: extraction_record.selection_kind,
         selection_match: extraction_record.selection_match,
-        output_kind: extraction_record.output_kind,
         candidate_count: extraction_record.candidate_count,
         selected_candidate_index: extraction_record.selected_candidate_index,
         warning_codes,
@@ -247,7 +260,7 @@ pub(crate) fn run_once_with_options(
                 prior_state: &state,
                 run_started_at: &run_started_at,
                 run_outcome,
-                canonical_text: &canonical_text,
+                compare_value: &compare_value,
                 outer_html: &selected_outer_html,
                 extraction_record: &extraction_record,
             },

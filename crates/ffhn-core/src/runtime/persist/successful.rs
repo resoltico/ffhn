@@ -15,7 +15,7 @@ pub(crate) struct SuccessfulPersistInput<'a> {
     pub(crate) prior_state: &'a StateLoad,
     pub(crate) run_started_at: &'a str,
     pub(crate) run_outcome: RunOutcome,
-    pub(crate) canonical_text: &'a str,
+    pub(crate) compare_value: &'a str,
     pub(crate) outer_html: &'a str,
     pub(crate) extraction_record: &'a ExtractionRecord,
 }
@@ -32,7 +32,7 @@ pub(crate) fn persist_successful_run(
         RunOutcome::Initialized => {
             let (staged_current_dir, current_reference) = stage_current_snapshot(
                 paths,
-                input.canonical_text,
+                input.compare_value,
                 input.outer_html,
                 &extraction_json,
             )?;
@@ -49,7 +49,7 @@ pub(crate) fn persist_successful_run(
             paths,
             prior,
             history_limit,
-            input.canonical_text,
+            input.compare_value,
             input.outer_html,
             &extraction_json,
         )?,
@@ -67,6 +67,7 @@ pub(crate) fn persist_successful_run(
     };
 
     let state = PersistedState {
+        monitoring_contract_digest_sha256: input.target.monitoring_contract_digest_sha256()?,
         baseline: PersistedBaselineState::Ready {
             current_snapshot: plan
                 .current_snapshot
@@ -94,12 +95,12 @@ fn prepare_changed_snapshot_plan(
     paths: &TargetPaths,
     prior: Option<&super::super::state::LoadedState>,
     history_limit: usize,
-    canonical_text: &str,
+    compare_value: &str,
     outer_html: &str,
     extraction_json: &str,
 ) -> Result<SnapshotPersistPlan, CoreError> {
     let (staged_current_dir, current_reference) =
-        stage_current_snapshot(paths, canonical_text, outer_html, extraction_json)?;
+        stage_current_snapshot(paths, compare_value, outer_html, extraction_json)?;
     let staged_history_snapshots = prior
         .and_then(|state| state.current.as_ref())
         .map(|previous_current| stage_history_snapshot(paths, previous_current))

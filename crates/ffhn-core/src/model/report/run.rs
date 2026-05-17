@@ -35,16 +35,14 @@ pub(crate) struct RunFetchSection {
 /// Extraction subsection inside `ffhn.run_report`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunExtractionSection {
-    /// Comparison-input digest.
-    pub(crate) comparison_input_sha256: String,
+    /// Compare-source digest.
+    pub(crate) compare_source_sha256: String,
     /// Outer-HTML digest.
     pub(crate) outer_html_sha256: String,
     /// Strategy kind.
     pub(crate) selection_kind: SelectionKind,
     /// Selection mode.
     pub(crate) selection_match: SelectionMatch,
-    /// Output kind.
-    pub(crate) output_kind: OutputKind,
     /// Candidate count.
     pub(crate) candidate_count: usize,
     /// Selected candidate index.
@@ -129,17 +127,17 @@ pub(crate) struct RunPersistSection {
 /// One changed region summary inside `ffhn.run_report`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunChangeRegion {
-    /// One-based start line in the previous canonical text.
+    /// One-based start line in the previous compare value.
     pub(crate) previous_start_line: usize,
     /// Number of previous lines in the changed region.
     pub(crate) previous_line_count: usize,
-    /// One-based start line in the current canonical text.
+    /// One-based start line in the current compare value.
     pub(crate) current_start_line: usize,
     /// Number of current lines in the changed region.
     pub(crate) current_line_count: usize,
-    /// Compact excerpt from the previous canonical text when available.
+    /// Compact excerpt from the previous compare value when available.
     pub(crate) previous_excerpt: Option<String>,
-    /// Compact excerpt from the current canonical text when available.
+    /// Compact excerpt from the current compare value when available.
     pub(crate) current_excerpt: Option<String>,
     /// Digest of the previous excerpt when available.
     pub(crate) previous_excerpt_sha256: Option<String>,
@@ -152,14 +150,14 @@ pub struct RunChangeRegion {
 pub struct RunChangeSection {
     /// Change discriminator.
     pub(crate) kind: ChangeKind,
-    /// Previous canonical-text byte length.
-    pub(crate) previous_text_bytes: Option<usize>,
-    /// Current canonical-text byte length.
-    pub(crate) current_text_bytes: usize,
-    /// Previous canonical-text line count.
-    pub(crate) previous_line_count: Option<usize>,
-    /// Current canonical-text line count.
-    pub(crate) current_line_count: usize,
+    /// Previous compare-value byte length.
+    pub(crate) previous_compare_bytes: Option<usize>,
+    /// Current compare-value byte length.
+    pub(crate) current_compare_bytes: usize,
+    /// Previous compare-value line count.
+    pub(crate) previous_compare_line_count: Option<usize>,
+    /// Current compare-value line count.
+    pub(crate) current_compare_line_count: usize,
     /// Number of equal leading lines.
     pub(crate) common_prefix_lines: usize,
     /// Number of equal trailing lines.
@@ -392,7 +390,7 @@ impl RunReport {
             Url::parse(final_url)?;
         }
         if let Some(extraction) = &self.extraction {
-            validate_sha256(&extraction.comparison_input_sha256)?;
+            validate_sha256(&extraction.compare_source_sha256)?;
             validate_sha256(&extraction.outer_html_sha256)?;
             if extraction.candidate_count == 0 || extraction.selected_candidate_index == 0 {
                 return Err(CoreError::contract(

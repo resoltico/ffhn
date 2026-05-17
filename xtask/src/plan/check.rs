@@ -51,6 +51,10 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
+        CommandSpec::new("cargo", ["xtask", "miri"], false)
+            .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
+    );
+    plan.push(
         CommandSpec::new("cargo", ["xtask", "audit"], false)
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
@@ -111,7 +115,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
         CommandSpec::new(
             "cargo",
             [
-                &tooling.coverage_toolchain_arg(),
+                &tooling.qa_nightly_toolchain_arg(),
                 "fuzz",
                 "check",
                 "--fuzz-dir",

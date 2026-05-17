@@ -1,7 +1,7 @@
 use crate::CoreError;
 
 use super::{
-    Extensions, OutputKind, RelativeArtifactPath, SelectionKind, SelectionMatch, SnapshotSlot,
+    CompareBasis, Extensions, RelativeArtifactPath, SelectionKind, SelectionMatch, SnapshotSlot,
 };
 
 mod access;
@@ -53,16 +53,16 @@ pub struct ExtractionRecord {
     pub(crate) schema_name: String,
     /// Frozen schema version.
     pub(crate) schema_version: u32,
-    /// Digest of HTMLCut `text_output` after LF normalization.
-    pub(crate) comparison_input_sha256: String,
+    /// Digest of the selected compare-source projection after LF normalization.
+    pub(crate) compare_source_sha256: String,
     /// Digest of persisted `outer.html`.
     pub(crate) outer_html_sha256: String,
     /// Selection strategy kind.
     pub(crate) selection_kind: SelectionKind,
     /// Selection mode.
     pub(crate) selection_match: SelectionMatch,
-    /// Output kind.
-    pub(crate) output_kind: OutputKind,
+    /// Compare basis used to project the selected fragment.
+    pub(crate) compare_basis: CompareBasis,
     /// Total candidate count.
     pub(crate) candidate_count: usize,
     /// Selected one-based candidate index.
@@ -73,6 +73,8 @@ pub struct ExtractionRecord {
     pub(crate) warning_codes: Vec<String>,
     /// Record creation timestamp.
     pub(crate) created_at: String,
+    /// Digest of the monitoring contract that produced the snapshot.
+    pub(crate) monitoring_contract_digest_sha256: String,
     /// Reserved extensions.
     pub(crate) extensions: Extensions,
 }
@@ -82,14 +84,14 @@ pub struct ExtractionRecord {
 pub struct SnapshotReference {
     /// Slot discriminator.
     pub(crate) slot: SnapshotSlot,
-    /// Digest of persisted canonical artifact.
-    pub(crate) canonical_text_sha256: String,
+    /// Digest of persisted compare artifact.
+    pub(crate) compare_digest_sha256: String,
     /// Digest of persisted outer HTML artifact.
     pub(crate) outer_html_sha256: String,
     /// Relative extraction-record path.
     pub(crate) extraction_record_path: RelativeArtifactPath,
-    /// Relative canonical artifact path.
-    pub(crate) canonical_text_path: RelativeArtifactPath,
+    /// Relative compare artifact path.
+    pub(crate) compare_path: RelativeArtifactPath,
     /// Relative outer HTML artifact path.
     pub(crate) outer_html_path: RelativeArtifactPath,
     /// Capture timestamp.
