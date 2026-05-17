@@ -22,12 +22,9 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: None,
-            last_run_outcome: None,
-            last_reason_code: None,
-            current_snapshot: None,
-            snapshot_history: Vec::new(),
+            monitoring_contract_digest_sha256: DIGEST.to_owned(),
+            baseline: StoredBaseline::Pending,
+            last_run: None,
             extensions: None,
         },
     )
@@ -43,34 +40,29 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     );
     let report = run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry run");
     handle.join().expect("dry-run join");
-    assert_eq!(report.run_mode, RunMode::DryRun);
-    assert_eq!(report.run_outcome, RunOutcome::Initialized);
-    assert!(!report.persist.wrote_state());
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
+    assert!(!report.persist().committed_state());
     assert!(!paths.last_run_file().exists());
 
-    write_target(
-        &paths,
-        &target_document("demo", true, source_url, "main", SelectionMatch::Single),
-    );
-    write_snapshot_state(&paths, "hello", "<main>Hello</main>");
-    write_exact_text(
-        paths.target_dir().join("snapshots/current/outer.html"),
-        "<main>Tampered</main>",
-    )
-    .expect("tamper outer html");
     let (url, handle) = serve_once(TestResponse {
         status_line: "200 OK",
         content_type: "text/html; charset=utf-8",
         body: "<html><body><main>Hello</main></body></html>",
     });
-    write_target(
-        &paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
-    );
+    let target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
+    write_target(&paths, &target);
+    write_snapshot_state(&paths, &target, "hello", "<main>Hello</main>");
+    write_exact_text(
+        paths.target_dir().join("snapshots/current/outer.html"),
+        "<main>Tampered</main>",
+    )
+    .expect("tamper outer html");
+    write_target(&paths, &target);
     let integrity_dry_run = run_once_with_options(&paths, RunOptions::DRY_RUN)
         .expect("dry run with integrity mismatch");
     handle.join().expect("integrity join");
-    assert_eq!(integrity_dry_run.run_outcome, RunOutcome::Initialized);
+    assert_eq!(integrity_dry_run.run_outcome(), RunOutcome::Initialized);
 
     let (url, handle) = serve_once(TestResponse {
         status_line: "500 Internal Server Error",
@@ -84,32 +76,30 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     let fetch_failure =
         run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run fetch failure");
     handle.join().expect("fetch failure join");
-    assert_eq!(fetch_failure.run_outcome, RunOutcome::FailedTransient);
-    assert!(!fetch_failure.persist.wrote_state());
+    assert_eq!(fetch_failure.run_outcome(), RunOutcome::FailedTransient);
+    assert!(!fetch_failure.persist().committed_state());
 
     #[cfg(unix)]
     {
-        write_snapshot_state(&paths, "before", "<main>Before</main>");
-        let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
-        let original = metadata.permissions();
-        let mut denied = original.clone();
-        denied.set_mode(0o000);
-        std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
         let (url, handle) = serve_once(TestResponse {
             status_line: "200 OK",
             content_type: "text/html; charset=utf-8",
             body: "<html><body><main>Hello</main></body></html>",
         });
-        write_target(
-            &paths,
-            &target_document("demo", true, url, "main", SelectionMatch::Single),
-        );
+        let target = target_document("demo", true, url, "main", SelectionMatch::Single);
+        write_snapshot_state(&paths, &target, "before", "<main>Before</main>");
+        let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
+        let original = metadata.permissions();
+        let mut denied = original.clone();
+        denied.set_mode(0o000);
+        std::fs::set_permissions(paths.state_file(), denied).expect("deny state permissions");
+        write_target(&paths, &target);
         let unreadable_state =
             run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run unreadable");
         std::fs::set_permissions(paths.state_file(), original).expect("restore state permissions");
         handle.join().expect("unreadable state join");
-        assert_eq!(unreadable_state.run_outcome, RunOutcome::Initialized);
-        assert!(!unreadable_state.persist.wrote_state());
+        assert_eq!(unreadable_state.run_outcome(), RunOutcome::Initialized);
+        assert!(!unreadable_state.persist().committed_state());
     }
 
     let (url, handle) = serve_once(TestResponse {
@@ -124,8 +114,11 @@ fn run_once_dry_run_skips_live_only_state_failures_and_persistence() {
     let extraction_failure =
         run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run extraction failure");
     handle.join().expect("extraction join");
-    assert_eq!(extraction_failure.run_outcome, RunOutcome::FailedPermanent);
-    assert!(extraction_failure.fetch.is_some());
+    assert_eq!(
+        extraction_failure.run_outcome(),
+        RunOutcome::FailedPermanent
+    );
+    assert!(extraction_failure.fetch().is_some());
     assert!(!paths.last_run_file().exists());
 }
 
@@ -161,12 +154,44 @@ fn run_once_dry_run_waits_for_a_stable_locked_view() {
     let report = dry_run.join().expect("join dry run");
     response_handle.join().expect("join response server");
 
-    assert_eq!(report.run_mode, RunMode::DryRun);
-    assert_eq!(report.run_outcome, RunOutcome::Initialized);
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Initialized);
     assert!(paths.lock_dir().is_dir());
     assert!(paths.run_lock_file().is_file());
     assert!(!paths.state_file().exists());
     assert!(!paths.last_run_file().exists());
+}
+
+#[test]
+fn run_once_dry_run_ignores_incompatible_baselines_and_previews_the_new_target() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let baseline_target = target_document(
+        "demo",
+        true,
+        Url::parse("https://example.com/original").expect("url"),
+        "main",
+        SelectionMatch::Single,
+    );
+    write_target(&paths, &baseline_target);
+    write_snapshot_state(&paths, &baseline_target, "before", "<main>Before</main>");
+
+    let (url, handle) = serve_once(TestResponse {
+        status_line: "200 OK",
+        content_type: "text/html; charset=utf-8",
+        body: "<html><body><main>After</main></body></html>",
+    });
+    let preview_target = target_document("demo", true, url, "main", SelectionMatch::Single);
+    write_target(&paths, &preview_target);
+
+    let report = run_once_with_options(&paths, RunOptions::DRY_RUN).expect("dry-run preview");
+    handle.join().expect("preview join");
+    assert_eq!(report.run_mode(), RunMode::DryRun);
+    assert_eq!(report.run_outcome(), RunOutcome::Changed);
+    assert_eq!(report.failure_cause(), None);
+    assert!(report.fetch().is_some());
+    assert!(report.extraction().is_some());
+    assert!(!report.persist().committed_state());
 }
 
 #[test]

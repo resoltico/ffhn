@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
 use std::time::Instant;
 
@@ -7,7 +8,7 @@ use url::Url;
 use crate::canonical::normalize_line_endings;
 use crate::time::elapsed_ms;
 use crate::{
-    FetchEngine, FileFetchConfig, ProcessErrorDetail, ProcessErrorKind, ReasonCode,
+    FetchEngine, FileFetchConfig, ProcessErrorDetail, ProcessErrorKind, RunFailureCause,
     RunFetchSection, TargetDocument,
 };
 
@@ -17,11 +18,11 @@ pub(super) fn fetch_file_target(target: &TargetDocument) -> FetchResult<FetchSuc
     let started = Instant::now();
     let (fetch, path) = validated_file_input(target)?;
 
-    let bytes = match fs::read(path) {
+    let bytes = match read_limited_file_bytes(path, fetch.max_bytes) {
         Ok(bytes) => bytes,
         Err(_) => {
             return Err(Box::new(FetchFailure {
-                reason_code: ReasonCode::FetchSourceError,
+                failure_cause: RunFailureCause::FetchSourceError,
                 error_detail: ProcessErrorDetail::new(
                     ProcessErrorKind::Io,
                     "could not read configured file source",
@@ -42,7 +43,7 @@ pub(super) fn fetch_file_target(target: &TargetDocument) -> FetchResult<FetchSuc
 
     if bytes.len() > fetch.max_bytes {
         return Err(Box::new(FetchFailure {
-            reason_code: ReasonCode::FetchTooLarge,
+            failure_cause: RunFailureCause::FetchTooLarge,
             error_detail: ProcessErrorDetail::new(
                 ProcessErrorKind::Contract,
                 format!(
@@ -68,7 +69,7 @@ pub(super) fn fetch_file_target(target: &TargetDocument) -> FetchResult<FetchSuc
         Ok(text) => normalize_line_endings(text),
         Err(_) => {
             return Err(Box::new(FetchFailure {
-                reason_code: ReasonCode::FetchDecodeError,
+                failure_cause: RunFailureCause::FetchDecodeError,
                 error_detail: ProcessErrorDetail::new(
                     ProcessErrorKind::Contract,
                     "configured file source is not valid UTF-8 HTML text",
@@ -102,6 +103,28 @@ pub(super) fn fetch_file_target(target: &TargetDocument) -> FetchResult<FetchSuc
             duration_ms: elapsed_ms(&started),
         },
     })
+}
+
+fn read_limited_file_bytes(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let limit = max_bytes.saturating_add(1);
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let remaining = limit.saturating_sub(bytes.len());
+        if remaining == 0 {
+            break;
+        }
+        let read_len = buffer.len().min(remaining);
+        let read = file.read(&mut buffer[..read_len])?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
+
+    Ok(bytes)
 }
 
 fn validated_file_input(target: &TargetDocument) -> FetchResult<(&FileFetchConfig, &Path)> {

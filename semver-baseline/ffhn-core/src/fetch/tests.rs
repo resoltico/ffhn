@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::{
     CompareBasis, CompareConfig, FetchConfig, FetchEngine, FileFetchConfig, HttpMethod,
-    NetworkFetchConfig, OutputKind, SelectionConfig, SelectionModeConfig, TargetDocument, TargetId,
+    NetworkFetchConfig, SelectionConfig, SelectionModeConfig, TargetDocument, TargetId,
     TargetSource, WhitespaceMode,
 };
 
@@ -29,6 +29,19 @@ struct TestResponse {
     headers: Vec<(&'static str, String)>,
     body: Vec<u8>,
     delay_before_response_ms: u64,
+}
+
+fn serve_once_then_reset() -> (Url, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
+    let address = listener.local_addr().expect("server addr");
+    let url = Url::parse(&format!("http://{address}")).expect("server url");
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept connection");
+        let mut buf = [0u8; 2048];
+        let _ = stream.read(&mut buf);
+        // drop stream without sending any response — RST is sent, client gets IO error
+    });
+    (url, handle)
 }
 
 fn serve_once(response: TestResponse) -> (Url, thread::JoinHandle<()>) {
@@ -75,17 +88,17 @@ fn target_for(url: Url) -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -106,17 +119,17 @@ fn file_target_for(path: &Path) -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -162,7 +175,7 @@ fn fetch_target_rejects_http_error_unsupported_type_and_oversized_responses() {
     });
     let failure = fetch_target(&target_for(url)).expect_err("http error");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchHttpServerError);
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchHttpServerError);
     assert_eq!(failure.report.http_status, Some(500));
 
     let (url, handle) = serve_once(TestResponse {
@@ -176,7 +189,10 @@ fn fetch_target_rejects_http_error_unsupported_type_and_oversized_responses() {
     });
     let failure = fetch_target(&target_for(url)).expect_err("unsupported content type");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchUnsupportedContentType);
+    assert_eq!(
+        failure.failure_cause,
+        RunFailureCause::FetchUnsupportedContentType
+    );
 
     let (url, handle) = serve_once(TestResponse {
         status_line: "200 OK",
@@ -189,7 +205,7 @@ fn fetch_target_rejects_http_error_unsupported_type_and_oversized_responses() {
     });
     let failure = fetch_target(&target_for(url)).expect_err("too large by content-length");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchTooLarge);
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchTooLarge);
 
     let (url, handle) = serve_once(TestResponse {
         status_line: "200 OK",
@@ -203,7 +219,7 @@ fn fetch_target_rejects_http_error_unsupported_type_and_oversized_responses() {
     }
     let failure = fetch_target(&target).expect_err("too large while streaming");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchTooLarge);
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchTooLarge);
 }
 
 #[test]
@@ -219,18 +235,16 @@ fn fetch_target_rejects_decode_network_and_timeout_failures() {
     });
     let failure = fetch_target(&target_for(url)).expect_err("decode error");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchDecodeError);
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchDecodeError);
     assert_eq!(failure.report.bytes_read, Some(4));
 
-    let closed_listener = TcpListener::bind("127.0.0.1:0").expect("bind closed listener");
-    let closed_url = Url::parse(&format!(
-        "http://{}",
-        closed_listener.local_addr().expect("closed addr")
-    ))
-    .expect("closed url");
-    drop(closed_listener);
-    let failure = fetch_target(&target_for(closed_url)).expect_err("network error");
-    assert_eq!(failure.reason_code, ReasonCode::FetchNetworkError);
+    // Use a server that accepts then immediately resets rather than a dropped listener.
+    // A dropped TcpListener does not guarantee immediate ECONNREFUSED on Windows — the port can
+    // linger, causing the client to wait until the timeout fires instead of getting a network error.
+    let (reset_url, reset_handle) = serve_once_then_reset();
+    let failure = fetch_target(&target_for(reset_url)).expect_err("network error");
+    reset_handle.join().expect("reset server join");
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchNetworkError);
     assert!(failure.report.http_status.is_none());
 
     let (url, handle) = serve_once(TestResponse {
@@ -248,7 +262,7 @@ fn fetch_target_rejects_decode_network_and_timeout_failures() {
     }
     let failure = fetch_target(&target).expect_err("timeout");
     handle.join().expect("server join");
-    assert_eq!(failure.reason_code, ReasonCode::FetchTimeout);
+    assert_eq!(failure.failure_cause, RunFailureCause::FetchTimeout);
 }
 
 #[test]
@@ -258,7 +272,7 @@ fn fetch_target_rejects_invalid_direct_target_documents_without_panicking() {
         file_path: "/tmp/demo.html".to_owned(),
     };
     let failure = fetch_target(&missing_http_url).expect_err("missing http source url");
-    assert_eq!(failure.reason_code, ReasonCode::ConfigInvalid);
+    assert_eq!(failure.failure_cause, RunFailureCause::ConfigInvalid);
     assert_eq!(failure.report.engine, FetchEngine::Http);
     assert_eq!(failure.report.duration_ms, 0);
 
@@ -267,7 +281,7 @@ fn fetch_target_rejects_invalid_direct_target_documents_without_panicking() {
         source_url: Url::parse("file:///tmp/demo.html").expect("file url"),
     };
     let failure = fetch_target(&invalid_http_scheme).expect_err("non-http source url");
-    assert_eq!(failure.reason_code, ReasonCode::ConfigInvalid);
+    assert_eq!(failure.failure_cause, RunFailureCause::ConfigInvalid);
     assert_eq!(failure.report.engine, FetchEngine::Http);
 
     let mut missing_file_path = file_target_for(Path::new("/tmp/demo.html"));
@@ -275,12 +289,12 @@ fn fetch_target_rejects_invalid_direct_target_documents_without_panicking() {
         file_path: String::new(),
     };
     let failure = fetch_target(&missing_file_path).expect_err("missing file path");
-    assert_eq!(failure.reason_code, ReasonCode::ConfigInvalid);
+    assert_eq!(failure.failure_cause, RunFailureCause::ConfigInvalid);
     assert_eq!(failure.report.engine, FetchEngine::File);
 
     let relative_path_target = file_target_for(Path::new("relative.html"));
     let failure = fetch_target(&relative_path_target).expect_err("relative file path");
-    assert_eq!(failure.reason_code, ReasonCode::ConfigInvalid);
+    assert_eq!(failure.failure_cause, RunFailureCause::ConfigInvalid);
     assert_eq!(failure.report.engine, FetchEngine::File);
 }
 
@@ -314,11 +328,11 @@ fn helper_functions_cover_charset_size_and_error_mapping_edges() {
     );
     assert_eq!(
         read_limited_bytes(Cursor::new(b"toolong"), 3).expect_err("too large"),
-        ReasonCode::FetchTooLarge
+        RunFailureCause::FetchTooLarge
     );
     assert_eq!(
         read_limited_bytes(BrokenReader, 10).expect_err("io error"),
-        ReasonCode::FetchNetworkError
+        RunFailureCause::FetchNetworkError
     );
 
     assert_eq!(
@@ -327,11 +341,11 @@ fn helper_functions_cover_charset_size_and_error_mapping_edges() {
     );
     assert_eq!(
         decode_body(&[0x80], Some("text/html; charset=utf-8")).expect_err("invalid utf8"),
-        ReasonCode::FetchDecodeError
+        RunFailureCause::FetchDecodeError
     );
     assert_eq!(
         decode_body(b"demo", Some("text/html; charset=unknown")).expect_err("unknown charset"),
-        ReasonCode::FetchDecodeError
+        RunFailureCause::FetchDecodeError
     );
 
     assert_eq!(
@@ -350,42 +364,42 @@ fn helper_functions_cover_charset_size_and_error_mapping_edges() {
 
     assert_eq!(
         map_ureq_error(&ureq::Error::Timeout(ureq::Timeout::Global)),
-        ReasonCode::FetchTimeout
+        RunFailureCause::FetchTimeout
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::BodyExceedsLimit(5)),
-        ReasonCode::FetchTooLarge
+        RunFailureCause::FetchTooLarge
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::StatusCode(500)),
-        ReasonCode::FetchHttpServerError
+        RunFailureCause::FetchHttpServerError
     );
     assert_eq!(
         map_http_status_reason(404),
-        ReasonCode::FetchHttpClientError
+        RunFailureCause::FetchHttpClientError
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::ConnectionFailed),
-        ReasonCode::FetchNetworkError
+        RunFailureCause::FetchNetworkError
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::InvalidProxyUrl),
-        ReasonCode::FetchNetworkError
+        RunFailureCause::FetchNetworkError
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::TlsRequired),
-        ReasonCode::FetchNetworkError
+        RunFailureCause::FetchNetworkError
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::Decompress(
             "gzip",
             io::Error::other("invalid gzip stream")
         )),
-        ReasonCode::FetchDecodeError
+        RunFailureCause::FetchDecodeError
     );
     assert_eq!(
         map_ureq_error(&ureq::Error::Other(Box::new(io::Error::other("other")))),
-        ReasonCode::FetchNetworkError
+        RunFailureCause::FetchNetworkError
     );
     assert_eq!(
         parse_final_url_or_source(
@@ -410,7 +424,7 @@ fn fetch_target_covers_file_source_success_and_failure_modes() {
 
     let missing_path = temp.path().join("missing.html");
     let missing = fetch_target(&file_target_for(&missing_path)).expect_err("missing file");
-    assert_eq!(missing.reason_code, ReasonCode::FetchSourceError);
+    assert_eq!(missing.failure_cause, RunFailureCause::FetchSourceError);
     assert!(missing.report.bytes_read.is_none());
 
     let oversized_path = temp.path().join("oversized.html");
@@ -420,13 +434,16 @@ fn fetch_target_covers_file_source_success_and_failure_modes() {
         fetch.max_bytes = 8;
     }
     let oversized = fetch_target(&oversized_target).expect_err("oversized file");
-    assert_eq!(oversized.reason_code, ReasonCode::FetchTooLarge);
-    assert_eq!(oversized.report.bytes_read, Some(22));
+    assert_eq!(oversized.failure_cause, RunFailureCause::FetchTooLarge);
+    assert_eq!(oversized.report.bytes_read, Some(9));
 
     let invalid_utf8_path = temp.path().join("invalid.bin");
     std::fs::write(&invalid_utf8_path, [0xff, 0xfe, 0xfd]).expect("write invalid utf8");
     let invalid_utf8 =
         fetch_target(&file_target_for(&invalid_utf8_path)).expect_err("decode failure");
-    assert_eq!(invalid_utf8.reason_code, ReasonCode::FetchDecodeError);
+    assert_eq!(
+        invalid_utf8.failure_cause,
+        RunFailureCause::FetchDecodeError
+    );
     assert_eq!(invalid_utf8.report.bytes_read, Some(3));
 }

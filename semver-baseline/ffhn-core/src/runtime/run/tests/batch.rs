@@ -22,11 +22,14 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
         content_type: "text/html; charset=utf-8",
         body: "<html><body><main>After</main></body></html>",
     });
-    write_target(
+    let changed_target = target_document("changed", true, url, "main", SelectionMatch::Single);
+    write_target(&changed_paths, &changed_target);
+    write_snapshot_state(
         &changed_paths,
-        &target_document("changed", true, url, "main", SelectionMatch::Single),
+        &changed_target,
+        "before",
+        "<main>Before</main>",
     );
-    write_snapshot_state(&changed_paths, "before", "<main>Before</main>");
 
     let unchanged_paths = TargetPaths::new(watch_root, "unchanged");
     let (url, unchanged_handle) = serve_once(TestResponse {
@@ -34,11 +37,14 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
         content_type: "text/html; charset=utf-8",
         body: "<html><body><main>Same</main></body></html>",
     });
-    write_target(
+    let unchanged_target = target_document("unchanged", true, url, "main", SelectionMatch::Single);
+    write_target(&unchanged_paths, &unchanged_target);
+    write_snapshot_state(
         &unchanged_paths,
-        &target_document("unchanged", true, url, "main", SelectionMatch::Single),
+        &unchanged_target,
+        "Same",
+        "<main>Same</main>",
     );
-    write_snapshot_state(&unchanged_paths, "Same", "<main>Same</main>");
 
     let transient_paths = TargetPaths::new(watch_root, "transient");
     let (url, transient_handle) = serve_once(TestResponse {
@@ -114,7 +120,7 @@ fn run_batch_covers_all_outcome_buckets_and_fatal_errors() {
     assert_eq!(report.outcome_counts.failed_transient, 1);
     assert_eq!(report.outcome_counts.failed_permanent, 1, "{report:?}");
     assert_eq!(report.outcome_counts.skipped_disabled, 1);
-    assert_eq!(report.outcome_counts.persist_error, 0);
+    assert_eq!(report.outcome_counts.persist_failure, 0);
     assert_eq!(report.outcome_counts.fatal_error, 1);
     let fatal_entry = report
         .entries
@@ -243,7 +249,7 @@ fn run_batch_uses_bounded_worker_scheduling_instead_of_chunk_barriers() {
 }
 
 #[test]
-fn run_batch_counts_reports_with_reason_code_persist_error() {
+fn run_batch_counts_reports_with_persist_error_results() {
     let temp = tempdir().expect("tempdir");
     let watch_root = temp.path();
     let paths = TargetPaths::new(watch_root, "persist_error");
@@ -267,10 +273,13 @@ fn run_batch_counts_reports_with_reason_code_persist_error() {
     )
     .expect("batch report");
 
-    assert_eq!(report.outcome_counts.persist_error, 1);
+    assert_eq!(report.outcome_counts.persist_failure, 1);
     assert_eq!(report.outcome_counts.failed_transient, 1);
     let entry = report.entries.first().expect("entry");
     let run_report = entry.run_report.as_ref().expect("run report");
-    assert_eq!(run_report.reason_code, ReasonCode::PersistError);
-    assert!(run_report.persist.error().is_some());
+    assert_eq!(
+        run_report.failure_cause(),
+        Some(RunFailureCause::PersistError)
+    );
+    assert!(run_report.persist().error().is_some());
 }

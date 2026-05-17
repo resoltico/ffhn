@@ -9,32 +9,36 @@ pub(super) use super::super::change::{
     build_change_section, common_suffix_len, excerpt_from_lines, split_lines,
 };
 pub(super) use super::super::notifications::{
-    NotificationProcess, wait_for_notification_process, write_notification_payload_or_failure,
+    NotificationProcess, notification_time_remaining, recv_with_notification_deadline,
+    wait_for_notification_process, write_notification_payload_or_failure,
 };
 #[cfg(unix)]
 pub(super) use super::super::notifications::{
     deliver_notification, write_child_notification_payload_or_failure,
 };
 pub(super) use super::super::outcome::{
-    failure_run_outcome, reason_code_for_htmlcut_error, required_outer_html,
+    failure_cause_for_htmlcut_error, failure_run_outcome, required_outer_html,
     required_selected_match, run_outcome_from_digests,
 };
 pub(super) use super::super::reporting::finish_report;
 pub(super) use super::super::{RunOptions, run_batch, run_once, run_once_with_options};
 #[cfg(unix)]
-pub(super) use crate::NotificationHook;
+pub(super) use crate::NotificationRoute;
 pub(super) use crate::stable_json::sha256_hex;
 pub(super) use crate::{
-    ChangeKind, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
-    EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, FetchEngine,
-    HTMLCUT_INTEROP_PROFILE, HttpMethod, NetworkFetchConfig, OutputKind, PersistWriteStatus,
-    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ReasonCode, RelativeArtifactPath,
-    RunChangeSection, RunCompareSection, RunExtractionSection, RunFetchSection, RunMode,
-    RunOutcome, RunPersistSection, RunReport, SelectionConfig, SelectionKind, SelectionMatch,
-    SelectionModeConfig, SnapshotReference, SnapshotSlot, StatePhase, TargetDocument, TargetId,
-    TargetPaths, TargetSource, TargetStatus, WhitespaceMode,
+    BaselinePhase, ChangeKind, CompareBasis, CompareConfig, CoreError,
+    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig,
+    FetchEngine, HttpMethod, LastRunRecord, NetworkFetchConfig, PersistWriteStatus,
+    RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, RelativeArtifactPath, RunChangeSection,
+    RunCompareSection, RunExtractionSection, RunFailureCause, RunFetchSection, RunMode, RunOutcome,
+    RunPersistSection, RunReport, RunResult, SelectionConfig, SelectionEvidence, SelectionKind,
+    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StoredBaseline,
+    TargetDocument, TargetId, TargetPaths, TargetSource, WhitespaceMode,
 };
+#[cfg(unix)]
+pub(super) use crate::{NotificationAdapter, NotificationEndpoint};
 pub(super) use htmlcut_core::interop::v1::{ErrorCode, HtmlInput, execute_plan};
+#[cfg(unix)]
 pub(super) use serde_json::json;
 pub(super) use std::io::{Read, Write};
 pub(super) use std::net::TcpListener;
@@ -67,6 +71,39 @@ pub(super) fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
     RelativeArtifactPath::new(path).expect("relative artifact path")
 }
 
+#[cfg(unix)]
+pub(super) fn notification_route(
+    name: &str,
+    on: Vec<RunOutcome>,
+    _program: &str,
+    _args: Vec<&str>,
+    _timeout_ms: u64,
+) -> NotificationRoute {
+    NotificationRoute {
+        name: name.to_owned(),
+        on,
+        endpoint: name.to_owned(),
+    }
+}
+
+#[cfg(unix)]
+pub(super) fn notification_endpoint(
+    name: &str,
+    program: &str,
+    args: Vec<&str>,
+    timeout_ms: u64,
+) -> NotificationEndpoint {
+    NotificationEndpoint {
+        name: name.to_owned(),
+        adapter: NotificationAdapter::ProcessStdin {
+            program: program.to_owned(),
+            args: args.into_iter().map(str::to_owned).collect(),
+            timeout_ms,
+        },
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct TestResponse {
     pub(super) status_line: &'static str,
     pub(super) content_type: &'static str,
@@ -121,10 +158,23 @@ pub(super) fn noop_abort() {}
 
 pub(super) fn persist_section(
     duration_ms: u64,
-    state_write: PersistWriteStatus,
+    state_commit: PersistWriteStatus,
     last_run_write: PersistWriteStatus,
 ) -> RunPersistSection {
-    RunPersistSection::from_writes(duration_ms, state_write, last_run_write)
+    RunPersistSection::from_writes(
+        if state_commit.is_not_attempted() {
+            0
+        } else {
+            duration_ms
+        },
+        state_commit,
+        if last_run_write.is_not_attempted() {
+            0
+        } else {
+            duration_ms
+        },
+        last_run_write,
+    )
 }
 
 pub(super) fn live_success_report(target_name: &str) -> RunReport {
@@ -133,19 +183,16 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         run_report_digest_sha256: String::new(),
         target_id: target_id(target_name),
+        display_name: Some("Demo".to_owned()),
         run_started_at: "2026-04-05T10:15:30Z".to_owned(),
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: RunMode::Live,
-        run_outcome: RunOutcome::Changed,
-        reason_code: ReasonCode::Ok,
-        failure_class: None,
-        error_detail: None,
-        target_status_after_run: TargetStatus::Ready,
-        compare_basis: CompareBasis::CanonicalTextSha256,
+        result: RunResult::Changed,
+        compare_basis: CompareBasis::Text,
         previous_compare_digest_sha256: Some(DIGEST.to_owned()),
         current_compare_digest_sha256: Some(DIGEST.to_owned()),
-        state_phase_before_run: StatePhase::HasBaseline,
-        state_phase_after_run: StatePhase::HasBaseline,
+        baseline_phase_before_run: BaselinePhase::HasBaseline,
+        baseline_phase_after_run: BaselinePhase::HasBaseline,
         fetch: Some(RunFetchSection {
             engine: FetchEngine::Http,
             final_url: Some("https://example.com/final".to_owned()),
@@ -155,14 +202,10 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
             duration_ms: 12,
         }),
         extraction: Some(RunExtractionSection {
-            interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-            htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-            htmlcut_result_digest_sha256: DIGEST.to_owned(),
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: DIGEST.to_owned(),
-            strategy_kind: SelectionKind::CssSelector,
-            selection_mode: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
+            selection_kind: SelectionKind::CssSelector,
+            selection_match: SelectionMatch::Single,
             candidate_count: 1,
             selected_candidate_index: 1,
             warning_codes: Vec::new(),
@@ -174,10 +217,10 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
         }),
         change: Some(RunChangeSection {
             kind: ChangeKind::Changed,
-            previous_text_bytes: Some(6),
-            current_text_bytes: 7,
-            previous_line_count: Some(1),
-            current_line_count: 1,
+            previous_compare_bytes: Some(6),
+            current_compare_bytes: 7,
+            previous_compare_line_count: Some(1),
+            current_compare_line_count: 1,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,
@@ -195,21 +238,27 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
 }
 
 pub(super) fn serve_once(response: TestResponse) -> (Url, thread::JoinHandle<()>) {
+    serve_sequence(vec![response])
+}
+
+pub(super) fn serve_sequence(responses: Vec<TestResponse>) -> (Url, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
     let address = listener.local_addr().expect("server addr");
     let url = Url::parse(&format!("http://{address}")).expect("server url");
     let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept connection");
-        let mut request = [0u8; 2048];
-        let _ = stream.read(&mut request);
-        let raw = format!(
-            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-            response.status_line,
-            response.content_type,
-            response.body.len(),
-            response.body
-        );
-        let _ = stream.write_all(raw.as_bytes());
+        for response in responses {
+            let (mut stream, _) = listener.accept().expect("accept connection");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let raw = format!(
+                "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                response.status_line,
+                response.content_type,
+                response.body.len(),
+                response.body
+            );
+            let _ = stream.write_all(raw.as_bytes());
+        }
     });
     (url, handle)
 }
@@ -298,19 +347,25 @@ pub(super) fn target_document(
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: selector.to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
+}
+
+pub(super) fn monitoring_contract_digest(target: &TargetDocument) -> String {
+    target
+        .monitoring_contract_digest_sha256()
+        .expect("monitoring contract digest")
 }
 
 pub(super) fn write_target(paths: &TargetPaths, target: &TargetDocument) {
@@ -329,22 +384,25 @@ pub(super) fn snapshot_reference(
 ) -> SnapshotReference {
     SnapshotReference {
         slot,
-        canonical_text_sha256: sha256_hex(canonical.as_bytes()),
+        compare_digest_sha256: sha256_hex(canonical.as_bytes()),
         outer_html_sha256: sha256_hex(outer.as_bytes()),
         extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
-        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        compare_path: artifact_path(format!("snapshots/{name}/compare.txt")),
         outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
 }
 
-pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: &str) {
+pub(super) fn write_snapshot_state(
+    paths: &TargetPaths,
+    target: &TargetDocument,
+    canonical: &str,
+    outer: &str,
+) {
     let reference = snapshot_reference(SnapshotSlot::Current, "current", canonical, outer);
-    write_exact_text(
-        paths.target_dir().join(&reference.canonical_text_path),
-        canonical,
-    )
-    .expect("write canonical");
+    let monitoring_contract_digest = monitoring_contract_digest(target);
+    write_exact_text(paths.target_dir().join(&reference.compare_path), canonical)
+        .expect("write canonical");
     write_exact_text(paths.target_dir().join(&reference.outer_html_path), outer)
         .expect("write outer");
     write_json(
@@ -352,19 +410,20 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
         &ExtractionRecord {
             schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
             schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-            interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-            htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-            htmlcut_result_digest_sha256: DIGEST.to_owned(),
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: reference.outer_html_sha256.clone(),
-            strategy_kind: SelectionKind::CssSelector,
-            selection_mode: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
+            selection_kind: SelectionKind::CssSelector,
+            selection_match: SelectionMatch::Single,
+            compare_basis: CompareBasis::Text,
             candidate_count: 1,
             selected_candidate_index: 1,
-            match_metadata: json!({"selector": "main"}),
+            selection_evidence: SelectionEvidence::CssSelector {
+                path: "html > body > main".to_owned(),
+                tag_name: "main".to_owned(),
+            },
             warning_codes: Vec::new(),
             created_at: "2026-04-05T10:15:30Z".to_owned(),
+            monitoring_contract_digest_sha256: monitoring_contract_digest.clone(),
             extensions: None,
         },
     )
@@ -375,12 +434,16 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id(paths.target_id()),
-            state_phase: StatePhase::HasBaseline,
-            last_run_at: Some("2026-04-05T10:15:30Z".to_owned()),
-            last_run_outcome: Some(RunOutcome::Initialized),
-            last_reason_code: Some(ReasonCode::Ok),
-            current_snapshot: Some(reference),
-            snapshot_history: Vec::new(),
+            monitoring_contract_digest_sha256: monitoring_contract_digest,
+            baseline: StoredBaseline::Ready {
+                current_snapshot: reference,
+                snapshot_history: Vec::new(),
+            },
+            last_run: Some(LastRunRecord::new(
+                "2026-04-05T10:15:30Z".to_owned(),
+                RunOutcome::Initialized,
+                None,
+            )),
             extensions: None,
         },
     )

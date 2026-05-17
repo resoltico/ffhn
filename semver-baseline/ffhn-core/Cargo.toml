@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
+publish = false
 description = "Deterministic monitoring engine for FFHN."
 
 [dependencies]
@@ -14,6 +15,7 @@ encoding_rs.workspace = true
 fs2.workspace = true
 htmlcut-core.workspace = true
 regex.workspace = true
+scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -24,18 +26,16 @@ toml.workspace = true
 ureq.workspace = true
 url.workspace = true
 
-[dev-dependencies]
-tempfile.workspace = true
-
 [lints]
 workspace = true
 
 [workspace.dependencies]
-assert_cmd = "2.2.0"
+assert_cmd = "2.2.1"
 encoding_rs = "0.8.35"
 fs2 = "0.4.3"
 predicates = "3.1.4"
 regex = "1.12.3"
+scraper = "0.27.0"
 serde_json = "1.0.149"
 sha2 = "0.11.0"
 tempfile = "3.27.0"
@@ -44,17 +44,17 @@ toml = "1.1.2"
 
 [workspace.dependencies.clap]
 features = ["derive"]
-version = "4.6.0"
+version = "4.6.1"
 
 [workspace.dependencies.ffhn-core]
 path = "crates/ffhn-core"
-version = "6.0.0"
+version = "8.0.0"
 
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
 package = "htmlcut-core"
-tag = "v7.0.0"
-version = "7.0.0"
+tag = "v10.1.0"
+version = "10.1.0"
 
 [workspace.dependencies.serde]
 features = ["derive"]
@@ -62,7 +62,7 @@ version = "1.0.228"
 
 [workspace.dependencies.time]
 features = ["formatting", "parsing"]
-version = "0.3.44"
+version = "0.3.47"
 
 [workspace.dependencies.ureq]
 default-features = false
@@ -79,6 +79,8 @@ cast_possible_truncation = "warn"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
 
 [workspace.package]
 authors = ["Ervins Strauhmanis"]
@@ -88,4 +90,4 @@ homepage = "https://github.com/resoltico/ffhn"
 license = "MIT"
 repository = "https://github.com/resoltico/ffhn"
 rust-version = "1.95"
-version = "6.0.0"
+version = "8.0.0"

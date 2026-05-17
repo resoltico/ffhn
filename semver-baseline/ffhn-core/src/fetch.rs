@@ -2,7 +2,8 @@ use url::Url;
 
 use crate::model::TargetKind;
 use crate::{
-    FetchEngine, ProcessErrorDetail, ProcessErrorKind, ReasonCode, RunFetchSection, TargetDocument,
+    FetchEngine, ProcessErrorDetail, ProcessErrorKind, RunFailureCause, RunFetchSection,
+    TargetDocument,
 };
 
 mod file;
@@ -34,8 +35,8 @@ pub struct FetchSuccess {
 /// Structured fetch failure returned before extraction starts.
 #[derive(Clone, Debug)]
 pub struct FetchFailure {
-    /// FFHN reason code for the failure.
-    pub reason_code: ReasonCode,
+    /// FFHN run-failure cause for the failure.
+    pub failure_cause: RunFailureCause,
     /// Structured detail for the failure.
     pub error_detail: ProcessErrorDetail,
     /// Structured fetch report section.
@@ -54,7 +55,7 @@ pub fn fetch_target(target: &TargetDocument) -> FetchResult<FetchSuccess> {
 
 fn config_invalid_failure(engine: FetchEngine, duration_ms: u64) -> Box<FetchFailure> {
     Box::new(FetchFailure {
-        reason_code: ReasonCode::ConfigInvalid,
+        failure_cause: RunFailureCause::ConfigInvalid,
         error_detail: ProcessErrorDetail::new(
             ProcessErrorKind::Contract,
             "target fetch configuration is invalid for the selected target kind",

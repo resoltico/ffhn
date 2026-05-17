@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-use crate::{NotificationHook, RunNotificationDelivery, RunReport, TargetDocument};
+use crate::{NotificationRoute, RunNotificationDelivery, RunReport, TargetDocument};
 
 mod payload;
 mod process;
@@ -11,35 +11,43 @@ pub(super) use payload::write_child_notification_payload_or_failure;
 #[cfg(test)]
 pub(super) use payload::write_notification_payload_or_failure;
 #[cfg(test)]
-pub(super) use process::{NotificationProcess, wait_for_notification_process};
+pub(super) use process::{
+    NotificationProcess, notification_time_remaining, recv_with_notification_deadline,
+    wait_for_notification_process,
+};
 
 pub(super) fn dispatch_notifications(
     target: &TargetDocument,
     report: &RunReport,
 ) -> Vec<RunNotificationDelivery> {
     let hooks = target
-        .notifications
+        .notification_routes
         .iter()
-        .filter(|hook| hook.on.contains(&report.run_outcome))
+        .filter(|route| route.on.contains(&report.run_outcome()))
         .collect::<Vec<_>>();
 
     hooks
         .into_iter()
-        .map(|hook| deliver_notification(hook, target, report))
+        .map(|route| deliver_notification(route, target, report))
         .collect()
 }
 
 pub(super) fn deliver_notification(
-    hook: &NotificationHook,
+    route: &NotificationRoute,
     target: &TargetDocument,
     report: &RunReport,
 ) -> RunNotificationDelivery {
+    let endpoint = target
+        .notification_endpoints
+        .iter()
+        .find(|endpoint| endpoint.name() == route.endpoint())
+        .expect("validated notification route endpoint");
     let started = Instant::now();
-    let payload = match payload::serialize_notification_payload(hook, report) {
+    let payload = match payload::serialize_notification_payload(route, report) {
         Ok(payload) => payload,
         Err(error) => {
             return process::notification_failure(
-                &hook.name,
+                route.name(),
                 started,
                 false,
                 None,
@@ -47,18 +55,19 @@ pub(super) fn deliver_notification(
             );
         }
     };
-    let run_outcome = report.run_outcome.as_str();
-    let reason_code = report.reason_code.as_str();
-    let run_mode = report.run_mode.as_str();
+    let run_outcome = report.run_outcome().as_str();
+    let failure_cause = report.failure_cause().map(crate::RunFailureCause::as_str);
+    let run_mode = report.run_mode().as_str();
     let failure_class = report
-        .failure_class
+        .failure_class()
         .map(crate::FailureClass::as_str)
         .unwrap_or_default();
-    let mut child = match Command::new(&hook.program)
-        .args(&hook.args)
+    let adapter = endpoint.adapter();
+    let mut child = match Command::new(adapter.program())
+        .args(adapter.args())
         .env("FFHN_TARGET_ID", target.target_id.as_str())
         .env("FFHN_RUN_OUTCOME", run_outcome)
-        .env("FFHN_REASON_CODE", reason_code)
+        .env("FFHN_FAILURE_CAUSE", failure_cause.unwrap_or_default())
         .env("FFHN_RUN_MODE", run_mode)
         .env("FFHN_FAILURE_CLASS", failure_class)
         .stdin(Stdio::piped())
@@ -68,13 +77,18 @@ pub(super) fn deliver_notification(
     {
         Ok(child) => child,
         Err(error) => {
-            return process::notification_failure(&hook.name, started, false, None, error);
+            return process::notification_failure(route.name(), started, false, None, error);
         }
     };
 
     let stderr_capture = process::spawn_notification_stderr_capture(&mut child);
+    let timeout_ms = adapter.timeout_ms();
     match payload::write_child_notification_payload_or_failure(
-        &hook.name, started, &mut child, &payload,
+        route.name(),
+        started,
+        timeout_ms,
+        &mut child,
+        &payload,
     ) {
         Some(mut delivery) => {
             process::append_notification_stderr(
@@ -86,9 +100,9 @@ pub(super) fn deliver_notification(
         None => {
             let mut delivery = process::wait_for_notification_process(
                 &mut child,
-                &hook.name,
+                route.name(),
                 started,
-                hook.timeout_ms,
+                timeout_ms,
             );
             process::append_notification_stderr(
                 &mut delivery,

@@ -11,7 +11,8 @@ use super::super::validate::{
 use super::super::{CanonicalizerKind, DelimiterMode};
 use super::types::{
     CanonicalizerSpec, CompareConfig, FetchConfig, FileFetchConfig, NetworkFetchConfig,
-    NotificationHook, SelectionConfig, StorageConfig, TargetDocument, TargetSource,
+    NotificationAdapter, NotificationEndpoint, NotificationRoute, SelectionConfig, StorageConfig,
+    TargetDocument, TargetSource,
 };
 
 mod htmlcut;
@@ -36,10 +37,15 @@ impl TargetDocument {
         self.target.validate()?;
         self.fetch.validate_for_source(&self.target)?;
         self.storage.validate()?;
-        validate_unique_hook_names(&self.notifications)?;
-        for hook in &self.notifications {
-            hook.validate()?;
+        validate_unique_endpoint_names(&self.notification_endpoints)?;
+        validate_unique_route_names(&self.notification_routes)?;
+        for endpoint in &self.notification_endpoints {
+            endpoint.validate()?;
         }
+        for route in &self.notification_routes {
+            route.validate()?;
+        }
+        validate_route_endpoint_links(&self.notification_routes, &self.notification_endpoints)?;
 
         self.selection.validate()?;
         self.compare.validate()
@@ -121,42 +127,64 @@ impl StorageConfig {
     }
 }
 
-impl NotificationHook {
-    /// Validates one notification hook.
+impl NotificationRoute {
+    /// Validates one notification route.
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError`] when the hook label or program is empty, when the program path is not
-    /// absolute, when the trigger list is empty or duplicated, when any argument is empty, or when
-    /// the timeout is outside FFHN's supported range.
+    /// Returns [`CoreError`] when the route label is empty, when the trigger list is empty or
+    /// duplicated, or when the endpoint reference is empty.
     pub fn validate(&self) -> Result<(), CoreError> {
-        require_non_empty("notifications.name", &self.name)?;
-        require_non_empty("notifications.program", &self.program)?;
-        if !Path::new(&self.program).is_absolute() {
-            return Err(CoreError::contract(
-                "notifications.program must be an absolute path",
-            ));
-        }
+        require_non_empty("notification_routes.name", &self.name)?;
         if self.on.is_empty() {
             return Err(contract_error(
-                "notifications.on must list at least one run outcome",
+                "notification_routes.on must list at least one run outcome",
             ));
         }
         let mut seen = BTreeSet::new();
         for outcome in &self.on {
             if !seen.insert(outcome.as_str()) {
-                return Err(contract_error("notifications.on values must be unique"));
+                return Err(contract_error(
+                    "notification_routes.on values must be unique",
+                ));
             }
         }
-        for arg in &self.args {
-            require_non_empty("notifications.args entry", arg)?;
+        require_non_empty("notification_routes.endpoint", &self.endpoint)
+    }
+}
+
+impl NotificationEndpoint {
+    pub(crate) fn validate(&self) -> Result<(), CoreError> {
+        require_non_empty("notification_endpoints.name", &self.name)?;
+        self.adapter.validate()
+    }
+}
+
+impl NotificationAdapter {
+    fn validate(&self) -> Result<(), CoreError> {
+        match self {
+            Self::ProcessStdin {
+                program,
+                args,
+                timeout_ms,
+            } => {
+                require_non_empty("notification_endpoints.adapter.program", program)?;
+                if !Path::new(program).is_absolute() {
+                    return Err(CoreError::contract(
+                        "notification_endpoints.adapter.program must be an absolute path",
+                    ));
+                }
+                for arg in args {
+                    require_non_empty("notification_endpoints.adapter.args entry", arg)?;
+                }
+                if *timeout_ms < 100 || *timeout_ms > 60_000 {
+                    return Err(contract_error(
+                        "notification_endpoints.adapter.timeout_ms must be in 100..60000",
+                    ));
+                }
+                Ok(())
+            }
         }
-        if self.timeout_ms < 100 || self.timeout_ms > 60_000 {
-            return Err(contract_error(
-                "notifications.timeout_ms must be in 100..60000",
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -198,9 +226,26 @@ impl CompareConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError`] when any canonicalizer entry violates FFHN's compare-pipeline
-    /// contract.
+    /// Returns [`CoreError`] when the compare basis and rendering options are incompatible, or
+    /// when any canonicalizer entry violates FFHN's compare-pipeline contract.
     pub fn validate(&self) -> Result<(), CoreError> {
+        match self.basis {
+            crate::CompareBasis::Text => {
+                if self.whitespace.is_none() {
+                    return Err(CoreError::contract(
+                        "compare.whitespace is required when compare.basis = text",
+                    ));
+                }
+            }
+            crate::CompareBasis::InnerHtml | crate::CompareBasis::OuterHtml => {
+                if self.whitespace.is_some() {
+                    return Err(CoreError::contract(
+                        "compare.whitespace is only valid when compare.basis = text",
+                    ));
+                }
+            }
+        }
+
         for canonicalizer in &self.canonicalization {
             canonicalizer.validate()?;
         }
@@ -251,12 +296,42 @@ impl CanonicalizerSpec {
     }
 }
 
-fn validate_unique_hook_names(hooks: &[NotificationHook]) -> Result<(), CoreError> {
+fn validate_unique_route_names(routes: &[NotificationRoute]) -> Result<(), CoreError> {
     let mut names = BTreeSet::new();
-    for hook in hooks {
-        if !names.insert(hook.name.as_str()) {
+    for route in routes {
+        if !names.insert(route.name.as_str()) {
             return Err(CoreError::contract(
-                "notifications.name values must be unique",
+                "notification_routes.name values must be unique",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_unique_endpoint_names(endpoints: &[NotificationEndpoint]) -> Result<(), CoreError> {
+    let mut names = BTreeSet::new();
+    for endpoint in endpoints {
+        if !names.insert(endpoint.name.as_str()) {
+            return Err(CoreError::contract(
+                "notification_endpoints.name values must be unique",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_route_endpoint_links(
+    routes: &[NotificationRoute],
+    endpoints: &[NotificationEndpoint],
+) -> Result<(), CoreError> {
+    let endpoint_names = endpoints
+        .iter()
+        .map(|endpoint| endpoint.name.as_str())
+        .collect::<BTreeSet<_>>();
+    for route in routes {
+        if !endpoint_names.contains(route.endpoint.as_str()) {
+            return Err(CoreError::contract(
+                "notification_routes.endpoint must reference notification_endpoints.name",
             ));
         }
     }

@@ -1,29 +1,51 @@
 use super::*;
-use crate::{
-    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, HTMLCUT_INTEROP_PROFILE,
-};
+use crate::{EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+fn css_evidence() -> SelectionEvidence {
+    SelectionEvidence::CssSelector {
+        path: "html > body > main".to_owned(),
+        tag_name: "main".to_owned(),
+    }
+}
+
+fn delimiter_evidence() -> SelectionEvidence {
+    SelectionEvidence::DelimiterPair {
+        selected_range: SelectionRange {
+            start_byte: 10,
+            end_byte: 20,
+        },
+        inner_range: SelectionRange {
+            start_byte: 11,
+            end_byte: 19,
+        },
+        outer_range: SelectionRange {
+            start_byte: 8,
+            end_byte: 22,
+        },
+        include_start: true,
+        include_end: true,
+    }
+}
+
 fn valid_record() -> ExtractionRecord {
     ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-        interop_profile: HTMLCUT_INTEROP_PROFILE.to_owned(),
-        htmlcut_plan_digest_sha256: DIGEST.to_owned(),
-        htmlcut_result_digest_sha256: DIGEST.to_owned(),
-        comparison_input_sha256: DIGEST.to_owned(),
+        compare_source_sha256: DIGEST.to_owned(),
         outer_html_sha256: DIGEST.to_owned(),
-        strategy_kind: SelectionKind::CssSelector,
-        selection_mode: SelectionMatch::Single,
-        output_kind: OutputKind::OuterHtml,
+        selection_kind: SelectionKind::CssSelector,
+        selection_match: SelectionMatch::Single,
+        compare_basis: CompareBasis::Text,
         candidate_count: 1,
         selected_candidate_index: 1,
-        match_metadata: json!({"selector": "main"}),
+        selection_evidence: css_evidence(),
         warning_codes: vec!["warn".to_owned()],
         created_at: "2026-04-05T10:15:30Z".to_owned(),
+        monitoring_contract_digest_sha256: DIGEST.to_owned(),
         extensions: None,
     }
 }
@@ -31,6 +53,15 @@ fn valid_record() -> ExtractionRecord {
 #[test]
 fn extraction_record_validation_accepts_the_canonical_shape() {
     valid_record().validate().expect("record");
+
+    ExtractionRecord {
+        selection_kind: SelectionKind::DelimiterPair,
+        selection_match: SelectionMatch::First,
+        selection_evidence: delimiter_evidence(),
+        ..valid_record()
+    }
+    .validate()
+    .expect("delimiter record");
 }
 
 #[test]
@@ -43,46 +74,85 @@ fn extraction_and_snapshot_accessors_expose_the_public_contract() {
 
     assert_eq!(record.schema_name(), EXTRACTION_RECORD_SCHEMA_NAME);
     assert_eq!(record.schema_version(), EXTRACTION_RECORD_SCHEMA_VERSION);
-    assert_eq!(record.interop_profile(), HTMLCUT_INTEROP_PROFILE);
-    assert_eq!(record.htmlcut_plan_digest_sha256(), DIGEST);
-    assert_eq!(record.htmlcut_result_digest_sha256(), DIGEST);
-    assert_eq!(record.comparison_input_sha256(), DIGEST);
+    assert_eq!(record.compare_source_sha256(), DIGEST);
     assert_eq!(record.outer_html_sha256(), DIGEST);
-    assert_eq!(record.strategy_kind(), SelectionKind::CssSelector);
-    assert_eq!(record.selection_mode(), SelectionMatch::Single);
-    assert_eq!(record.output_kind(), OutputKind::OuterHtml);
+    assert_eq!(record.selection_kind(), SelectionKind::CssSelector);
+    assert_eq!(record.selection_match(), SelectionMatch::Single);
+    assert_eq!(record.compare_basis(), CompareBasis::Text);
     assert_eq!(record.candidate_count(), 1);
     assert_eq!(record.selected_candidate_index(), 1);
-    assert_eq!(record.match_metadata(), &json!({"selector": "main"}));
+    assert_eq!(
+        record.selection_evidence().kind(),
+        SelectionKind::CssSelector
+    );
     assert_eq!(record.warning_codes(), ["warn"]);
     assert_eq!(record.created_at(), "2026-04-05T10:15:30Z");
+    assert_eq!(record.monitoring_contract_digest_sha256(), DIGEST);
     assert_eq!(
         record.extensions().expect("extensions").get("demo"),
         Some(&json!({"kind": "ext"}))
     );
 
+    match record.selection_evidence() {
+        SelectionEvidence::CssSelector { path, tag_name } => {
+            assert_eq!(path, "html > body > main");
+            assert_eq!(tag_name, "main");
+        }
+        other => panic!("expected css evidence, got {other:?}"),
+    }
+
+    let delimiter_record = ExtractionRecord {
+        selection_kind: SelectionKind::DelimiterPair,
+        selection_match: SelectionMatch::First,
+        selection_evidence: delimiter_evidence(),
+        ..valid_record()
+    };
+    assert_eq!(
+        delimiter_record.selection_evidence().kind(),
+        SelectionKind::DelimiterPair
+    );
+    match delimiter_record.selection_evidence() {
+        SelectionEvidence::DelimiterPair {
+            selected_range,
+            inner_range,
+            outer_range,
+            include_start,
+            include_end,
+        } => {
+            assert_eq!(selected_range.start_byte(), 10);
+            assert_eq!(selected_range.end_byte(), 20);
+            assert_eq!(inner_range.start_byte(), 11);
+            assert_eq!(inner_range.end_byte(), 19);
+            assert_eq!(outer_range.start_byte(), 8);
+            assert_eq!(outer_range.end_byte(), 22);
+            assert!(*include_start);
+            assert!(*include_end);
+        }
+        other => panic!("expected delimiter evidence, got {other:?}"),
+    }
+
     let snapshot = SnapshotReference {
         slot: SnapshotSlot::Current,
-        canonical_text_sha256: DIGEST.to_owned(),
+        compare_digest_sha256: DIGEST.to_owned(),
         outer_html_sha256: DIGEST.to_owned(),
         extraction_record_path: RelativeArtifactPath::new("snapshots/current/extraction.json")
             .expect("relative path"),
-        canonical_text_path: RelativeArtifactPath::new("snapshots/current/canonical.txt")
+        compare_path: RelativeArtifactPath::new("snapshots/current/compare.txt")
             .expect("relative path"),
         outer_html_path: RelativeArtifactPath::new("snapshots/current/outer.html")
             .expect("relative path"),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     };
     assert_eq!(snapshot.slot(), SnapshotSlot::Current);
-    assert_eq!(snapshot.canonical_text_sha256(), DIGEST);
+    assert_eq!(snapshot.compare_digest_sha256(), DIGEST);
     assert_eq!(snapshot.outer_html_sha256(), DIGEST);
     assert_eq!(
         snapshot.extraction_record_path().as_str(),
         "snapshots/current/extraction.json"
     );
     assert_eq!(
-        snapshot.canonical_text_path().as_str(),
-        "snapshots/current/canonical.txt"
+        snapshot.compare_path().as_str(),
+        "snapshots/current/compare.txt"
     );
     assert_eq!(
         snapshot.outer_html_path().as_str(),
@@ -94,15 +164,15 @@ fn extraction_and_snapshot_accessors_expose_the_public_contract() {
 #[test]
 fn extraction_record_validation_rejects_invalid_contract_data() {
     let mut record = valid_record();
-    record.interop_profile = "other".to_owned();
+    record.compare_source_sha256 = "bad".to_owned();
     assert!(record.validate().is_err());
 
     let mut record = valid_record();
-    record.htmlcut_plan_digest_sha256 = "bad".to_owned();
+    record.outer_html_sha256 = "bad".to_owned();
     assert!(record.validate().is_err());
 
     let mut record = valid_record();
-    record.htmlcut_result_digest_sha256 = "bad".to_owned();
+    record.monitoring_contract_digest_sha256 = "bad".to_owned();
     assert!(record.validate().is_err());
 
     let mut record = valid_record();
@@ -118,7 +188,59 @@ fn extraction_record_validation_rejects_invalid_contract_data() {
     assert!(record.validate().is_err());
 
     let mut record = valid_record();
-    record.match_metadata = json!(["not", "an", "object"]);
+    record.selection_evidence = SelectionEvidence::DelimiterPair {
+        selected_range: SelectionRange {
+            start_byte: 0,
+            end_byte: 1,
+        },
+        inner_range: SelectionRange {
+            start_byte: 0,
+            end_byte: 1,
+        },
+        outer_range: SelectionRange {
+            start_byte: 0,
+            end_byte: 1,
+        },
+        include_start: false,
+        include_end: false,
+    };
+    assert!(record.validate().is_err());
+
+    let mut record = valid_record();
+    record.selection_kind = SelectionKind::DelimiterPair;
+    assert!(record.validate().is_err());
+
+    let mut record = ExtractionRecord {
+        selection_kind: SelectionKind::DelimiterPair,
+        selection_match: SelectionMatch::Nth,
+        selection_evidence: SelectionEvidence::DelimiterPair {
+            selected_range: SelectionRange {
+                start_byte: 10,
+                end_byte: 8,
+            },
+            inner_range: SelectionRange {
+                start_byte: 11,
+                end_byte: 19,
+            },
+            outer_range: SelectionRange {
+                start_byte: 8,
+                end_byte: 22,
+            },
+            include_start: true,
+            include_end: true,
+        },
+        ..valid_record()
+    };
+    assert!(record.validate().is_err());
+
+    record = ExtractionRecord {
+        selection_kind: SelectionKind::CssSelector,
+        selection_evidence: SelectionEvidence::CssSelector {
+            path: String::new(),
+            tag_name: "main".to_owned(),
+        },
+        ..valid_record()
+    };
     assert!(record.validate().is_err());
 
     let mut record = valid_record();
@@ -130,11 +252,11 @@ fn extraction_record_validation_rejects_invalid_contract_data() {
 fn snapshot_reference_validation_checks_digests_paths_and_timestamp() {
     SnapshotReference {
         slot: SnapshotSlot::Current,
-        canonical_text_sha256: DIGEST.to_owned(),
+        compare_digest_sha256: DIGEST.to_owned(),
         outer_html_sha256: DIGEST.to_owned(),
         extraction_record_path: RelativeArtifactPath::new("snapshots/current/extraction.json")
             .expect("relative path"),
-        canonical_text_path: RelativeArtifactPath::new("snapshots/current/canonical.txt")
+        compare_path: RelativeArtifactPath::new("snapshots/current/compare.txt")
             .expect("relative path"),
         outer_html_path: RelativeArtifactPath::new("snapshots/current/outer.html")
             .expect("relative path"),
@@ -147,10 +269,10 @@ fn snapshot_reference_validation_checks_digests_paths_and_timestamp() {
         serde_json::from_str::<SnapshotReference>(
             r#"{
                 "slot":"current",
-                "canonical_text_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "compare_digest_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "outer_html_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "extraction_record_path":"../escape",
-                "canonical_text_path":"snapshots/current/canonical.txt",
+                "compare_path":"snapshots/current/compare.txt",
                 "outer_html_path":"snapshots/current/outer.html",
                 "captured_at":"2026-04-05T10:15:30Z"
             }"#

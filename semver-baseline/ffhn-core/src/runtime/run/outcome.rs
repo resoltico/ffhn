@@ -1,7 +1,7 @@
 use htmlcut_core::interop::v1::{ErrorCode, InteropResult, SelectedMatch};
 
 use crate::canonical::normalize_line_endings;
-use crate::{CoreError, FailureClass, RunOutcome};
+use crate::{CompareBasis, CoreError, RunFailureCause, RunOutcome};
 
 pub(super) fn required_selected_match(result: &InteropResult) -> Result<&SelectedMatch, CoreError> {
     if result.selected_matches.len() != 1 {
@@ -18,23 +18,30 @@ pub(super) fn required_selected_match(result: &InteropResult) -> Result<&Selecte
 }
 
 pub(super) fn required_outer_html(selected_match: &SelectedMatch) -> Result<String, CoreError> {
-    selected_match
-        .outer_html
-        .as_deref()
-        .map(normalize_line_endings)
-        .ok_or_else(|| {
-            CoreError::htmlcut_interop(
-                "htmlcut.selected_match.outer_html is required for persistence",
-            )
-        })
+    Ok(normalize_line_endings(&selected_match.outer_html_output))
 }
 
-pub(super) fn reason_code_for_htmlcut_error(error_code: ErrorCode) -> crate::ReasonCode {
+pub(super) fn compare_source_for_basis(
+    selected_match: &SelectedMatch,
+    compare_basis: CompareBasis,
+) -> Result<String, CoreError> {
+    match compare_basis {
+        CompareBasis::Text => Ok(normalize_line_endings(&selected_match.text_output)),
+        CompareBasis::InnerHtml => Ok(normalize_line_endings(&selected_match.inner_html_output)),
+        CompareBasis::OuterHtml => required_outer_html(selected_match),
+    }
+}
+
+pub(super) fn failure_cause_for_htmlcut_error(error_code: ErrorCode) -> RunFailureCause {
     match error_code {
-        ErrorCode::PlanInvalid => crate::ReasonCode::ExtractionPlanInvalid,
-        ErrorCode::NoMatch => crate::ReasonCode::ExtractionNoMatch,
-        ErrorCode::AmbiguousMatch => crate::ReasonCode::ExtractionAmbiguousMatch,
-        ErrorCode::InternalError => crate::ReasonCode::ExtractionInternalError,
+        ErrorCode::PlanInvalid => RunFailureCause::SelectionContractInvalid,
+        ErrorCode::NoMatch => RunFailureCause::SelectionNoMatch,
+        ErrorCode::AmbiguousMatch => RunFailureCause::SelectionAmbiguousMatch,
+        // FFHN's frozen HTMLCut contract never requests attribute output, so a missing-attribute
+        // error indicates interop drift outside the supported profile rather than a user-facing
+        // FFHN match mode.
+        ErrorCode::MissingAttribute => RunFailureCause::SelectionInternalError,
+        ErrorCode::InternalError => RunFailureCause::SelectionInternalError,
     }
 }
 
@@ -46,10 +53,6 @@ pub(super) fn run_outcome_from_digests(previous: Option<&str>, current: &str) ->
     }
 }
 
-pub(super) fn failure_run_outcome(reason_code: crate::ReasonCode) -> RunOutcome {
-    match reason_code.failure_class() {
-        Some(FailureClass::Transient) => RunOutcome::FailedTransient,
-        Some(FailureClass::Permanent) => RunOutcome::FailedPermanent,
-        None => RunOutcome::FailedPermanent,
-    }
+pub(super) fn failure_run_outcome(failure_cause: RunFailureCause) -> RunOutcome {
+    failure_cause.run_outcome()
 }

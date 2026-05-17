@@ -30,17 +30,17 @@ fn valid_target() -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
-        notifications: Vec::new(),
+        notification_endpoints: Vec::new(),
+        notification_routes: Vec::new(),
         extensions: None,
     }
 }
@@ -59,6 +59,34 @@ fn valid_file_target() -> TargetDocument {
     target
 }
 
+fn notification_route(
+    name: &str,
+    on: Vec<RunOutcome>,
+    endpoint: impl Into<String>,
+) -> NotificationRoute {
+    NotificationRoute {
+        name: name.to_owned(),
+        on,
+        endpoint: endpoint.into(),
+    }
+}
+
+fn notification_endpoint(
+    name: &str,
+    program: impl Into<String>,
+    args: Vec<&str>,
+    timeout_ms: u64,
+) -> NotificationEndpoint {
+    NotificationEndpoint {
+        name: name.to_owned(),
+        adapter: NotificationAdapter::ProcessStdin {
+            program: program.into(),
+            args: args.into_iter().map(str::to_owned).collect(),
+            timeout_ms,
+        },
+    }
+}
+
 #[test]
 fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let mut http_target = valid_target();
@@ -70,7 +98,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         )]));
     }
     http_target.compare = CompareConfig {
-        basis: CompareBasis::CanonicalTextSha256,
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
         canonicalization: vec![CanonicalizerSpec {
             kind: CanonicalizerKind::StripRegex,
             pattern: Some("demo".to_owned()),
@@ -82,13 +112,17 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let notification_program = "/bin/sh".to_owned();
     #[cfg(windows)]
     let notification_program = "C:/Windows/System32/cmd.exe".to_owned();
-    http_target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: notification_program.clone(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 5_000,
-    }];
+    http_target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        notification_program.clone(),
+        vec!["-c", "echo changed"],
+        5_000,
+    )];
+    http_target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     http_target.extensions = Some(BTreeMap::from([(
         "demo".to_owned(),
         json!({"kind": "ext"}),
@@ -100,11 +134,41 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(http_target.display_name(), "Demo");
     assert!(http_target.enabled());
     assert_eq!(http_target.target_kind(), TargetKind::Http);
+    let source = http_target.source();
+    assert_eq!(source.kind(), TargetKind::Http);
+    match source {
+        TargetSourceView::Http(source) => {
+            assert_eq!(source.source_url().as_str(), "https://example.com/page");
+        }
+        TargetSourceView::File(_) => panic!("expected http source"),
+    }
     assert_eq!(
         http_target.source_url().map(Url::as_str),
         Some("https://example.com/page")
     );
     assert_eq!(http_target.file_path(), None);
+    let fetch = http_target.fetch_config();
+    assert_eq!(fetch.engine(), FetchEngine::Http);
+    assert_eq!(fetch.max_bytes(), 2_000_000);
+    match fetch {
+        FetchConfigView::Http(fetch) => {
+            assert_eq!(fetch.method(), HttpMethod::GET);
+            assert_eq!(fetch.timeout_ms(), 15_000);
+            assert_eq!(fetch.max_bytes(), 2_000_000);
+            assert_eq!(fetch.user_agent(), "ffhn/example");
+            assert!(fetch.follow_redirects());
+            assert_eq!(fetch.accept(), "text/html");
+            assert_eq!(
+                fetch.headers().get("x-demo").map(String::as_str),
+                Some("demo")
+            );
+            assert_eq!(
+                fetch.extensions().expect("fetch extensions").get("demo"),
+                Some(&json!({"kind": "fetch"}))
+            );
+        }
+        FetchConfigView::File(_) => panic!("expected http fetch"),
+    }
     assert_eq!(http_target.fetch_engine(), FetchEngine::Http);
     assert_eq!(http_target.fetch_max_bytes(), 2_000_000);
     assert_eq!(http_target.fetch_http_method(), Some(HttpMethod::GET));
@@ -127,10 +191,7 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
             .get("demo"),
         Some(&json!({"kind": "fetch"}))
     );
-    assert_eq!(
-        http_target.compare_basis(),
-        CompareBasis::CanonicalTextSha256
-    );
+    assert_eq!(http_target.compare_basis(), CompareBasis::Text);
     assert_eq!(http_target.compare_canonicalization().len(), 1);
     let canonicalizer = &http_target.compare_canonicalization()[0];
     assert_eq!(canonicalizer.kind(), CanonicalizerKind::StripRegex);
@@ -140,15 +201,18 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         [RegexFlag::CaseInsensitive, RegexFlag::MultiLine]
     );
     assert_eq!(http_target.storage_history_limit(), 12);
+    let selection = http_target.selection();
+    assert_eq!(selection.kind(), SelectionKind::CssSelector);
+    match selection {
+        SelectionConfigView::CssSelector(selection) => {
+            assert_eq!(selection.selection_mode(), SelectionModeView::Single);
+            assert_eq!(selection.selector(), "main");
+        }
+        SelectionConfigView::DelimiterPair(_) => panic!("expected css selector"),
+    }
     assert_eq!(http_target.selection_kind(), SelectionKind::CssSelector);
     assert_eq!(http_target.selection_match(), SelectionMatch::Single);
     assert_eq!(http_target.selection_index(), None);
-    assert_eq!(http_target.selection_output(), OutputKind::OuterHtml);
-    assert_eq!(
-        http_target.selection_whitespace(),
-        WhitespaceMode::Normalize
-    );
-    assert!(!http_target.selection_rewrite_urls());
     assert_eq!(http_target.selection_selector(), Some("main"));
     assert_eq!(http_target.selection_start(), None);
     assert_eq!(http_target.selection_end(), None);
@@ -161,6 +225,8 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let notification = notifications[0];
     assert_eq!(notification.name(), "notify");
     assert_eq!(notification.on(), [RunOutcome::Changed]);
+    assert_eq!(notification.endpoint(), "notify-endpoint");
+    assert_eq!(notification.transport_kind(), "process_stdin");
     assert_eq!(notification.program(), notification_program);
     assert_eq!(
         notification.args(),
@@ -175,15 +241,34 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         toml::from_str(&toml::to_string(&http_target).expect("http target toml"))
             .expect("http target round-trip");
     assert_eq!(http_round_trip.fetch().engine(), FetchEngine::Http);
+    let compare = http_target.compare_config();
+    assert_eq!(compare.basis(), CompareBasis::Text);
+    assert_eq!(compare.whitespace(), Some(WhitespaceMode::Normalize));
+    assert!(!compare.rewrite_urls());
+    assert_eq!(compare.canonicalization().len(), 1);
 
     let file_target = valid_file_target();
     let expected_file_path = std::env::temp_dir()
         .join("demo.html")
         .to_string_lossy()
         .into_owned();
+    assert_eq!(file_target.source().kind(), TargetKind::File);
+    match file_target.source() {
+        TargetSourceView::File(source) => {
+            assert_eq!(source.file_path(), expected_file_path.as_str());
+        }
+        TargetSourceView::Http(_) => panic!("expected file source"),
+    }
     assert_eq!(file_target.target_kind(), TargetKind::File);
     assert!(file_target.source_url().is_none());
     assert_eq!(file_target.file_path(), Some(expected_file_path.as_str()));
+    match file_target.fetch_config() {
+        FetchConfigView::File(fetch) => {
+            assert_eq!(fetch.max_bytes(), 2_000_000);
+            assert!(fetch.extensions().is_none());
+        }
+        FetchConfigView::Http(_) => panic!("expected file fetch"),
+    }
     assert_eq!(file_target.fetch_engine(), FetchEngine::File);
     assert_eq!(file_target.fetch_max_bytes(), 2_000_000);
     assert_eq!(file_target.fetch_http_method(), None);
@@ -193,6 +278,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(file_target.fetch_accept(), None);
     assert_eq!(file_target.fetch_headers(), None);
     assert!(file_target.fetch_extensions().is_none());
+    let file_fetch = file_target.fetch_config();
+    assert_eq!(file_fetch.engine(), FetchEngine::File);
+    assert_eq!(file_fetch.max_bytes(), 2_000_000);
     let file_round_trip: TargetDocument =
         toml::from_str(&toml::to_string(&file_target).expect("file target toml"))
             .expect("file target round-trip");
@@ -203,9 +291,6 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(2).expect("nonzero index"),
         },
-        output: OutputKind::InnerHtml,
-        whitespace: WhitespaceMode::Preserve,
-        rewrite_urls: true,
         start: "<main>".to_owned(),
         end: "</main>".to_owned(),
         mode: DelimiterMode::Regex,
@@ -213,18 +298,45 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         include_end: false,
         flags: vec![RegexFlag::DotMatchesNewLine],
     };
+    delimiter_target.compare = CompareConfig {
+        basis: CompareBasis::InnerHtml,
+        whitespace: None,
+        rewrite_urls: true,
+        canonicalization: Vec::new(),
+    };
     assert_eq!(
         delimiter_target.selection_kind(),
         SelectionKind::DelimiterPair
     );
+    assert_eq!(
+        delimiter_target.selection().kind(),
+        SelectionKind::DelimiterPair
+    );
+    match delimiter_target.selection() {
+        SelectionConfigView::DelimiterPair(selection) => {
+            assert_eq!(
+                selection.selection_mode(),
+                SelectionModeView::Nth { index: 2 }
+            );
+            assert_eq!(
+                selection.selection_mode().selection_match(),
+                SelectionMatch::Nth
+            );
+            assert_eq!(selection.selection_mode().index(), Some(2));
+            assert_eq!(selection.start(), "<main>");
+            assert_eq!(selection.end(), "</main>");
+            assert_eq!(selection.delimiter_mode(), DelimiterMode::Regex);
+            assert!(selection.include_start());
+            assert!(!selection.include_end());
+            assert_eq!(selection.regex_flags(), [RegexFlag::DotMatchesNewLine]);
+        }
+        SelectionConfigView::CssSelector(_) => panic!("expected delimiter selection"),
+    }
     assert_eq!(delimiter_target.selection_match(), SelectionMatch::Nth);
     assert_eq!(delimiter_target.selection_index(), Some(2));
-    assert_eq!(delimiter_target.selection_output(), OutputKind::InnerHtml);
-    assert_eq!(
-        delimiter_target.selection_whitespace(),
-        WhitespaceMode::Preserve
-    );
-    assert!(delimiter_target.selection_rewrite_urls());
+    assert_eq!(delimiter_target.compare_basis(), CompareBasis::InnerHtml);
+    assert_eq!(delimiter_target.compare_whitespace(), None);
+    assert!(delimiter_target.compare_rewrite_urls());
     assert_eq!(delimiter_target.selection_selector(), None);
     assert_eq!(delimiter_target.selection_start(), Some("<main>"));
     assert_eq!(delimiter_target.selection_end(), Some("</main>"));
@@ -239,11 +351,39 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         [RegexFlag::DotMatchesNewLine]
     );
 
+    let mut first_match_target = valid_target();
+    first_match_target.selection = SelectionConfig::CssSelector {
+        selection_mode: SelectionModeConfig::First,
+        selector: "article".to_owned(),
+    };
+    first_match_target.compare = CompareConfig {
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Preserve),
+        rewrite_urls: false,
+        canonicalization: Vec::new(),
+    };
+    match first_match_target.selection() {
+        SelectionConfigView::CssSelector(selection) => {
+            assert_eq!(selection.selection_mode(), SelectionModeView::First);
+            assert_eq!(
+                selection.selection_mode().selection_match(),
+                SelectionMatch::First
+            );
+            assert_eq!(selection.selection_mode().index(), None);
+        }
+        SelectionConfigView::DelimiterPair(_) => panic!("expected css selector"),
+    }
+    assert_eq!(
+        SelectionModeView::Single.selection_match(),
+        SelectionMatch::Single
+    );
+    assert_eq!(SelectionModeView::Single.index(), None);
+
     assert!(
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -262,12 +402,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -278,7 +417,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -296,12 +435,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -312,7 +450,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -328,12 +466,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -371,7 +508,7 @@ x-demo = "demo"
         let document = format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -385,12 +522,11 @@ file_path = "/tmp/demo.html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         );
@@ -402,7 +538,7 @@ fn parse_target_with_selection(selection: &str) -> Result<TargetDocument, toml::
     toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -420,7 +556,9 @@ accept = "text/html"
 {selection}
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
     ))
@@ -432,7 +570,9 @@ fn valid_css_selector_target_document_passes_validation() {
 
     TargetDocument {
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: vec![CanonicalizerSpec {
                 kind: CanonicalizerKind::Trim,
                 pattern: None,
@@ -494,7 +634,9 @@ fn target_validation_checks_url_ranges_and_header_values() {
     assert!(target.validate().is_err());
 
     CompareConfig {
-        basis: CompareBasis::CanonicalTextSha256,
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
         canonicalization: vec![CanonicalizerSpec {
             kind: CanonicalizerKind::Lowercase,
             pattern: None,
@@ -511,9 +653,6 @@ fn selection_validation_enforces_match_index_rules() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(2).expect("non-zero index"),
         },
-        output: OutputKind::OuterHtml,
-        whitespace: WhitespaceMode::Normalize,
-        rewrite_urls: false,
         selector: "main".to_owned(),
     };
     selection.validate().expect("nth with index");
@@ -524,9 +663,6 @@ fn selection_validation_enforces_match_index_rules() {
 kind = "css_selector"
 selector = "main"
 match = "nth"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -539,9 +675,6 @@ kind = "css_selector"
 selector = "main"
 match = "nth"
 index = 0
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -554,9 +687,6 @@ kind = "css_selector"
 selector = "main"
 match = "first"
 index = 2
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -567,9 +697,6 @@ rewrite_urls = false
             r#"
 kind = "css_selector"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -582,11 +709,53 @@ kind = "css_selector"
 selector = "main"
 match = "single"
 index = 2
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
+        .is_err()
+    );
+}
+
+#[test]
+fn compare_config_validation_enforces_basis_specific_whitespace_rules() {
+    CompareConfig {
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
+        canonicalization: Vec::new(),
+    }
+    .validate()
+    .expect("text compare with whitespace");
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::Text,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
+        .is_err()
+    );
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::InnerHtml,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
+        .is_err()
+    );
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::OuterHtml,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
         .is_err()
     );
 }
@@ -600,9 +769,6 @@ kind = "css_selector"
 selector = "main"
 start = "BEGIN"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -615,9 +781,6 @@ kind = "css_selector"
 selector = "main"
 end = "END"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -630,9 +793,6 @@ kind = "css_selector"
 selector = "main"
 mode = "regex"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -645,9 +805,6 @@ kind = "css_selector"
 selector = "main"
 include_start = true
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -660,9 +817,6 @@ kind = "css_selector"
 selector = "main"
 include_end = true
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -675,9 +829,6 @@ kind = "css_selector"
 selector = "main"
 flags = ["case_insensitive"]
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -696,9 +847,6 @@ fn delimiter_selection_requires_its_full_contract() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(1).expect("non-zero index"),
         },
-        output: OutputKind::OuterHtml,
-        whitespace: WhitespaceMode::Normalize,
-        rewrite_urls: false,
         start: "BEGIN".to_owned(),
         end: "END".to_owned(),
         mode: DelimiterMode::Regex,
@@ -718,9 +866,6 @@ include_start = false
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -736,9 +881,6 @@ mode = "regex"
 include_start = false
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -754,9 +896,6 @@ mode = "regex"
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -774,9 +913,6 @@ include_start = false
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -904,7 +1040,7 @@ fn file_targets_storage_and_notifications_validate_their_specific_contracts() {
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -921,12 +1057,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -944,97 +1079,126 @@ canonicalization = []
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![
-        NotificationHook {
-            name: "notify".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "echo changed".to_owned()],
-            timeout_ms: 500,
-        },
-        NotificationHook {
-            name: "notify".to_owned(),
-            on: vec![RunOutcome::FailedPermanent],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), "echo failed".to_owned()],
-            timeout_ms: 500,
-        },
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![
+        notification_route("notify", vec![RunOutcome::Changed], "notify-endpoint"),
+        notification_route(
+            "notify",
+            vec![RunOutcome::FailedPermanent],
+            "notify-endpoint",
+        ),
     ];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: Vec::new(),
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_routes = vec![notification_route("notify", Vec::new(), "notify-endpoint")];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed, RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_endpoints = vec![
+        notification_endpoint("notify-endpoint", "sh", vec!["-c", "echo changed"], 500),
+        notification_endpoint("notify-endpoint", "sh", vec!["-c", "echo changed"], 500),
+    ];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["".to_owned()],
-        timeout_ms: 500,
-    }];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "missing-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 99,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed, RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     let mut target = valid_target();
-    target.notifications = vec![NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: "/bin/sh".to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 60_001,
-    }];
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec![""],
+        500,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
+    assert!(target.validate().is_err());
+
+    let mut target = valid_target();
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        99,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
+    assert!(target.validate().is_err());
+
+    let mut target = valid_target();
+    target.notification_endpoints = vec![notification_endpoint(
+        "notify-endpoint",
+        "/bin/sh",
+        vec!["-c", "echo changed"],
+        60_001,
+    )];
+    target.notification_routes = vec![notification_route(
+        "notify",
+        vec![RunOutcome::Changed],
+        "notify-endpoint",
+    )];
     assert!(target.validate().is_err());
 
     #[cfg(unix)]
     let valid_program = "/bin/sh";
     #[cfg(windows)]
     let valid_program = "C:/Windows/System32/cmd.exe";
-    NotificationHook {
-        name: "notify".to_owned(),
-        on: vec![RunOutcome::Changed],
-        program: valid_program.to_owned(),
-        args: vec!["-c".to_owned(), "echo changed".to_owned()],
-        timeout_ms: 500,
-    }
+    notification_endpoint(
+        "notify-endpoint",
+        valid_program,
+        vec!["-c", "echo changed"],
+        500,
+    )
     .validate()
-    .expect("valid notification hook");
+    .expect("valid notification endpoint");
+    notification_route("notify", vec![RunOutcome::Changed], "notify-endpoint")
+        .validate()
+        .expect("valid notification route");
 }
 
 #[test]
@@ -1047,7 +1211,7 @@ fn serde_defaults_fill_http_fetch_storage_and_notification_fields() {
     let parsed: TargetDocument = toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1065,18 +1229,22 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 
-[[notifications]]
+[[notification_endpoints]]
+name = "notify-endpoint"
+kind = "process_stdin"
+program = {notification_program:?}
+
+[[notification_routes]]
 name = "notify"
 on = ["changed"]
-program = {notification_program:?}
+endpoint = "notify-endpoint"
 "#
     ))
     .expect("parse target");
@@ -1091,9 +1259,17 @@ program = {notification_program:?}
         other => panic!("expected http fetch config, got {other:?}"),
     }
     assert_eq!(parsed.storage.history_limit, 10);
-    assert_eq!(parsed.notifications[0].program, notification_program);
-    assert!(parsed.notifications[0].args.is_empty());
-    assert_eq!(parsed.notifications[0].timeout_ms, 5_000);
+    match &parsed.notification_endpoints[0].adapter {
+        NotificationAdapter::ProcessStdin {
+            program,
+            args,
+            timeout_ms,
+        } => {
+            assert_eq!(program, notification_program);
+            assert!(args.is_empty());
+            assert_eq!(*timeout_ms, 5_000);
+        }
+    }
 }
 
 #[test]
@@ -1102,18 +1278,12 @@ fn selection_config_serialization_round_trips_all_typed_shapes() {
         valid_target().selection.clone(),
         SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::First,
-            output: OutputKind::Text,
-            whitespace: WhitespaceMode::Preserve,
-            rewrite_urls: true,
             selector: "article".to_owned(),
         },
         SelectionConfig::DelimiterPair {
             selection_mode: SelectionModeConfig::Nth {
                 index: NonZeroUsize::new(2).expect("non-zero index"),
             },
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: DelimiterMode::Literal,
@@ -1136,7 +1306,7 @@ fn file_targets_use_the_typed_file_fetch_shape_when_deserialized() {
     let parsed = toml::from_str::<TargetDocument>(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1152,12 +1322,11 @@ engine = "file"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
     ))
@@ -1174,7 +1343,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 1
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1191,12 +1360,11 @@ follow_redirects = false
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )

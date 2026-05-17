@@ -1,4 +1,13 @@
 use super::*;
+use crate::CoreError;
+
+#[derive(serde::Serialize)]
+struct MonitoringContract<'a> {
+    target: &'a TargetSource,
+    fetch: &'a FetchConfig,
+    selection: &'a SelectionConfig,
+    compare: &'a CompareConfig,
+}
 
 impl TargetSource {
     /// Returns the target-kind discriminator.
@@ -104,30 +113,62 @@ impl FileFetchConfig {
     }
 }
 
-impl NotificationHook {
-    /// Returns the stable hook label.
+impl NotificationRoute {
+    /// Returns the stable route label.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Returns the run outcomes that trigger this hook.
+    /// Returns the run outcomes that trigger this route.
     pub fn on(&self) -> &[RunOutcome] {
         &self.on
     }
 
-    /// Returns the executable path used to deliver the hook.
+    /// Returns the named delivery endpoint for the route.
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+}
+
+impl NotificationEndpoint {
+    /// Returns the stable endpoint label.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the configured delivery adapter.
+    pub const fn adapter(&self) -> &NotificationAdapter {
+        &self.adapter
+    }
+}
+
+impl NotificationAdapter {
+    /// Returns the delivery adapter kind.
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::ProcessStdin { .. } => "process_stdin",
+        }
+    }
+
+    /// Returns the executable path used to deliver the notification.
     pub fn program(&self) -> &str {
-        &self.program
+        match self {
+            Self::ProcessStdin { program, .. } => program,
+        }
     }
 
     /// Returns the exact argument vector passed to the executable.
     pub fn args(&self) -> &[String] {
-        &self.args
+        match self {
+            Self::ProcessStdin { args, .. } => args,
+        }
     }
 
     /// Returns the maximum runtime in milliseconds.
     pub const fn timeout_ms(&self) -> u64 {
-        self.timeout_ms
+        match self {
+            Self::ProcessStdin { timeout_ms, .. } => *timeout_ms,
+        }
     }
 }
 
@@ -176,6 +217,14 @@ impl SelectionModeConfig {
             Self::Nth { index } => (SelectionMatch::Nth, Some(index.get())),
         }
     }
+
+    pub(crate) const fn view(&self) -> SelectionModeView {
+        match self {
+            Self::Single => SelectionModeView::Single,
+            Self::First => SelectionModeView::First,
+            Self::Nth { index } => SelectionModeView::Nth { index: index.get() },
+        }
+    }
 }
 
 impl SelectionConfig {
@@ -183,28 +232,6 @@ impl SelectionConfig {
         match self {
             Self::CssSelector { selection_mode, .. }
             | Self::DelimiterPair { selection_mode, .. } => selection_mode,
-        }
-    }
-
-    pub(crate) const fn output_kind(&self) -> OutputKind {
-        match self {
-            Self::CssSelector { output, .. } | Self::DelimiterPair { output, .. } => *output,
-        }
-    }
-
-    pub(crate) const fn whitespace_mode(&self) -> WhitespaceMode {
-        match self {
-            Self::CssSelector { whitespace, .. } | Self::DelimiterPair { whitespace, .. } => {
-                *whitespace
-            }
-        }
-    }
-
-    pub(crate) const fn rewrite_urls(&self) -> bool {
-        match self {
-            Self::CssSelector { rewrite_urls, .. } | Self::DelimiterPair { rewrite_urls, .. } => {
-                *rewrite_urls
-            }
         }
     }
 }
@@ -247,6 +274,18 @@ impl TargetDocument {
         &self.display_name
     }
 
+    /// Returns the coherent typed source view.
+    pub fn source(&self) -> TargetSourceView<'_> {
+        match &self.target {
+            TargetSource::Http { source_url } => {
+                TargetSourceView::Http(HttpTargetSourceView(source_url))
+            }
+            TargetSource::File { file_path } => {
+                TargetSourceView::File(FileTargetSourceView(file_path))
+            }
+        }
+    }
+
     /// Returns whether the target is enabled for live runs.
     pub fn enabled(&self) -> bool {
         self.enabled
@@ -265,6 +304,14 @@ impl TargetDocument {
     /// Returns the absolute file path for file targets.
     pub fn file_path(&self) -> Option<&str> {
         self.target.file_path()
+    }
+
+    /// Returns the coherent typed fetch-configuration view.
+    pub fn fetch_config(&self) -> FetchConfigView<'_> {
+        match &self.fetch {
+            FetchConfig::Http(config) => FetchConfigView::Http(HttpFetchConfigView(config)),
+            FetchConfig::File(config) => FetchConfigView::File(FileFetchConfigView(config)),
+        }
     }
 
     /// Returns the fetch-engine discriminator.
@@ -315,6 +362,36 @@ impl TargetDocument {
         }
     }
 
+    /// Returns the coherent typed selection view.
+    pub fn selection(&self) -> SelectionConfigView<'_> {
+        match &self.selection {
+            SelectionConfig::CssSelector {
+                selection_mode,
+                selector,
+            } => SelectionConfigView::CssSelector(CssSelectorSelectionView {
+                selection_mode,
+                selector,
+            }),
+            SelectionConfig::DelimiterPair {
+                selection_mode,
+                start,
+                end,
+                mode,
+                include_start,
+                include_end,
+                flags,
+            } => SelectionConfigView::DelimiterPair(DelimiterPairSelectionView {
+                selection_mode,
+                start,
+                end,
+                mode: *mode,
+                include_start: *include_start,
+                include_end: *include_end,
+                flags,
+            }),
+        }
+    }
+
     /// Returns the selection-kind discriminator.
     pub const fn selection_kind(&self) -> SelectionKind {
         match self.selection {
@@ -331,21 +408,6 @@ impl TargetDocument {
     /// Returns the one-based candidate index when the selection mode is `nth`.
     pub const fn selection_index(&self) -> Option<usize> {
         self.selection.selection_mode().raw_parts().1
-    }
-
-    /// Returns the output payload kind.
-    pub const fn selection_output(&self) -> OutputKind {
-        self.selection.output_kind()
-    }
-
-    /// Returns the extraction-time whitespace mode.
-    pub const fn selection_whitespace(&self) -> WhitespaceMode {
-        self.selection.whitespace_mode()
-    }
-
-    /// Returns whether FFHN rewrites discovered URLs during extraction.
-    pub const fn selection_rewrite_urls(&self) -> bool {
-        self.selection.rewrite_urls()
     }
 
     /// Returns the CSS selector when the selection kind is `css_selector`.
@@ -409,9 +471,24 @@ impl TargetDocument {
         self.compare.basis
     }
 
+    /// Returns the text whitespace mode when the compare basis is `text`.
+    pub const fn compare_whitespace(&self) -> Option<WhitespaceMode> {
+        self.compare.whitespace
+    }
+
+    /// Returns whether FFHN rewrites discovered URLs before comparison.
+    pub const fn compare_rewrite_urls(&self) -> bool {
+        self.compare.rewrite_urls
+    }
+
     /// Returns the ordered canonicalization pipeline.
     pub fn compare_canonicalization(&self) -> &[CanonicalizerSpec] {
         &self.compare.canonicalization
+    }
+
+    /// Returns the coherent compare-configuration view.
+    pub const fn compare_config(&self) -> CompareConfigView<'_> {
+        CompareConfigView(&self.compare)
     }
 
     /// Returns the total retained successful snapshots, including `snapshots/current`.
@@ -419,9 +496,18 @@ impl TargetDocument {
         self.storage.history_limit
     }
 
-    /// Returns the configured notification hooks.
-    pub fn notifications(&self) -> impl ExactSizeIterator<Item = NotificationHookView<'_>> + '_ {
-        self.notifications.iter().map(NotificationHookView)
+    /// Returns the configured notification routes.
+    pub fn notifications(&self) -> impl ExactSizeIterator<Item = NotificationRouteView<'_>> + '_ {
+        self.notification_routes
+            .iter()
+            .map(|route| NotificationRouteView {
+                route,
+                endpoint: self
+                    .notification_endpoints
+                    .iter()
+                    .find(|endpoint| endpoint.name() == route.endpoint())
+                    .expect("validated route endpoint link"),
+            })
     }
 
     /// Returns any reserved extensions.
@@ -433,35 +519,254 @@ impl TargetDocument {
         &self.selection
     }
 
+    pub(crate) const fn compare_config_internal(&self) -> &CompareConfig {
+        &self.compare
+    }
+
+    pub(crate) fn monitoring_contract_digest_sha256(&self) -> Result<String, CoreError> {
+        crate::stable_json::stable_digest(&MonitoringContract {
+            target: &self.target,
+            fetch: &self.fetch,
+            selection: &self.selection,
+            compare: &self.compare,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) const fn fetch(&self) -> &FetchConfig {
         &self.fetch
     }
 }
 
-impl<'a> NotificationHookView<'a> {
-    /// Returns the stable hook label.
+impl<'a> TargetSourceView<'a> {
+    /// Returns the stable target-kind discriminator.
+    pub const fn kind(self) -> TargetKind {
+        match self {
+            Self::Http(_) => TargetKind::Http,
+            Self::File(_) => TargetKind::File,
+        }
+    }
+}
+
+impl<'a> HttpTargetSourceView<'a> {
+    /// Returns the absolute source URL.
+    pub fn source_url(self) -> &'a Url {
+        self.0
+    }
+}
+
+impl<'a> FileTargetSourceView<'a> {
+    /// Returns the absolute file path.
+    pub fn file_path(self) -> &'a str {
+        self.0
+    }
+}
+
+impl<'a> FetchConfigView<'a> {
+    /// Returns the stable fetch-engine discriminator.
+    pub const fn engine(self) -> FetchEngine {
+        match self {
+            Self::Http(_) => FetchEngine::Http,
+            Self::File(_) => FetchEngine::File,
+        }
+    }
+
+    /// Returns the maximum accepted byte count.
+    pub const fn max_bytes(self) -> usize {
+        match self {
+            Self::Http(config) => config.max_bytes(),
+            Self::File(config) => config.max_bytes(),
+        }
+    }
+}
+
+impl<'a> HttpFetchConfigView<'a> {
+    /// Returns the configured HTTP method.
+    pub const fn method(self) -> HttpMethod {
+        self.0.method()
+    }
+
+    /// Returns the timeout in milliseconds.
+    pub const fn timeout_ms(self) -> u64 {
+        self.0.timeout_ms()
+    }
+
+    /// Returns the maximum accepted byte count.
+    pub const fn max_bytes(self) -> usize {
+        self.0.max_bytes
+    }
+
+    /// Returns the configured User-Agent header.
+    pub fn user_agent(self) -> &'a str {
+        self.0.user_agent()
+    }
+
+    /// Returns whether redirects are followed.
+    pub const fn follow_redirects(self) -> bool {
+        self.0.follow_redirects()
+    }
+
+    /// Returns the configured Accept header.
+    pub fn accept(self) -> &'a str {
+        self.0.accept()
+    }
+
+    /// Returns any extra request headers.
+    pub const fn headers(self) -> &'a BTreeMap<String, String> {
+        self.0.headers()
+    }
+
+    /// Returns any reserved extensions.
+    pub fn extensions(self) -> Option<&'a BTreeMap<String, serde_json::Value>> {
+        self.0.extensions()
+    }
+}
+
+impl<'a> FileFetchConfigView<'a> {
+    /// Returns the maximum accepted byte count.
+    pub const fn max_bytes(self) -> usize {
+        self.0.max_bytes
+    }
+
+    /// Returns any reserved extensions.
+    pub fn extensions(self) -> Option<&'a BTreeMap<String, serde_json::Value>> {
+        self.0.extensions()
+    }
+}
+
+impl SelectionModeView {
+    /// Returns the stable selection-match discriminator.
+    pub const fn selection_match(self) -> SelectionMatch {
+        match self {
+            Self::Single => SelectionMatch::Single,
+            Self::First => SelectionMatch::First,
+            Self::Nth { .. } => SelectionMatch::Nth,
+        }
+    }
+
+    /// Returns the one-based candidate index when one exists.
+    pub const fn index(self) -> Option<usize> {
+        match self {
+            Self::Single | Self::First => None,
+            Self::Nth { index } => Some(index),
+        }
+    }
+}
+
+impl<'a> SelectionConfigView<'a> {
+    /// Returns the stable selection-kind discriminator.
+    pub const fn kind(self) -> SelectionKind {
+        match self {
+            Self::CssSelector(_) => SelectionKind::CssSelector,
+            Self::DelimiterPair(_) => SelectionKind::DelimiterPair,
+        }
+    }
+}
+
+impl<'a> CssSelectorSelectionView<'a> {
+    /// Returns the candidate-selection mode.
+    pub const fn selection_mode(self) -> SelectionModeView {
+        self.selection_mode.view()
+    }
+
+    /// Returns the CSS selector query.
+    pub fn selector(self) -> &'a str {
+        self.selector
+    }
+}
+
+impl<'a> DelimiterPairSelectionView<'a> {
+    /// Returns the candidate-selection mode.
+    pub const fn selection_mode(self) -> SelectionModeView {
+        self.selection_mode.view()
+    }
+
+    /// Returns the start delimiter.
+    pub fn start(self) -> &'a str {
+        self.start
+    }
+
+    /// Returns the end delimiter.
+    pub fn end(self) -> &'a str {
+        self.end
+    }
+
+    /// Returns the delimiter matching mode.
+    pub const fn delimiter_mode(self) -> DelimiterMode {
+        self.mode
+    }
+
+    /// Returns whether the start delimiter is included in the selected payload.
+    pub const fn include_start(self) -> bool {
+        self.include_start
+    }
+
+    /// Returns whether the end delimiter is included in the selected payload.
+    pub const fn include_end(self) -> bool {
+        self.include_end
+    }
+
+    /// Returns the regex flags used when the delimiter mode is `regex`.
+    pub fn regex_flags(self) -> &'a [RegexFlag] {
+        self.flags
+    }
+}
+
+impl<'a> CompareConfigView<'a> {
+    /// Returns the compare basis.
+    pub const fn basis(self) -> CompareBasis {
+        self.0.basis
+    }
+
+    /// Returns the text whitespace mode when the compare basis is `text`.
+    pub const fn whitespace(self) -> Option<WhitespaceMode> {
+        self.0.whitespace
+    }
+
+    /// Returns whether FFHN rewrites discovered URLs before comparison.
+    pub const fn rewrite_urls(self) -> bool {
+        self.0.rewrite_urls
+    }
+
+    /// Returns the ordered canonicalization pipeline.
+    pub fn canonicalization(self) -> &'a [CanonicalizerSpec] {
+        &self.0.canonicalization
+    }
+}
+
+impl<'a> NotificationRouteView<'a> {
+    /// Returns the stable route label.
     pub fn name(self) -> &'a str {
-        self.0.name()
+        self.route.name()
     }
 
-    /// Returns the run outcomes that trigger this hook.
+    /// Returns the run outcomes that trigger this route.
     pub fn on(self) -> &'a [RunOutcome] {
-        self.0.on()
+        self.route.on()
     }
 
-    /// Returns the executable path used to deliver the hook.
+    /// Returns the named delivery endpoint.
+    pub fn endpoint(self) -> &'a str {
+        self.route.endpoint()
+    }
+
+    /// Returns the delivery transport kind.
+    pub const fn transport_kind(self) -> &'static str {
+        self.endpoint.adapter().kind()
+    }
+
+    /// Returns the executable path used to deliver this route.
     pub fn program(self) -> &'a str {
-        self.0.program()
+        self.endpoint.adapter().program()
     }
 
     /// Returns the exact argument vector passed to the executable.
     pub fn args(self) -> &'a [String] {
-        self.0.args()
+        self.endpoint.adapter().args()
     }
 
     /// Returns the maximum runtime in milliseconds.
     pub const fn timeout_ms(self) -> u64 {
-        self.0.timeout_ms()
+        self.endpoint.adapter().timeout_ms()
     }
 }

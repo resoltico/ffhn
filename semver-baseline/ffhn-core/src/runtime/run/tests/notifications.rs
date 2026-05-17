@@ -7,6 +7,25 @@ struct FailOnSecondWrite {
     writes: usize,
 }
 
+#[cfg(unix)]
+fn target_with_notification_endpoint(
+    route_name: &str,
+    program: &str,
+    args: Vec<&str>,
+    timeout_ms: u64,
+) -> TargetDocument {
+    let mut target = target_document(
+        "demo",
+        true,
+        Url::parse("https://example.com").expect("url"),
+        "main",
+        SelectionMatch::Single,
+    );
+    target.notification_endpoints =
+        vec![notification_endpoint(route_name, program, args, timeout_ms)];
+    target
+}
+
 impl Write for FailOnSecondWrite {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.writes += 1;
@@ -62,6 +81,7 @@ fn notification_helpers_cover_payload_failures_wait_paths_and_panics() {
         let child_payload_failure = write_child_notification_payload_or_failure(
             "notify",
             Instant::now(),
+            500,
             &mut child,
             &"payload".repeat(16_384),
         )
@@ -172,6 +192,94 @@ fn notification_helper_writes_newline_delimited_json_payloads() {
 }
 
 #[test]
+fn notification_deadline_helpers_cover_expired_and_disconnected_paths() {
+    let expired = notification_time_remaining(Instant::now() - Duration::from_millis(10), 0)
+        .expect_err("expired notification deadline must fail");
+    assert!(expired.is_timed_out());
+    assert_eq!(expired.error(), Some("route process timed out"));
+
+    let (sender, receiver) = mpsc::channel::<()>();
+    drop(sender);
+    let disconnected = recv_with_notification_deadline(&receiver, "notify", Instant::now(), 50)
+        .expect_err("disconnected writer must fail");
+    assert!(!disconnected.is_timed_out());
+    assert!(
+        disconnected
+            .error()
+            .is_some_and(|error| error.contains("terminated unexpectedly"))
+    );
+
+    let (_sender, receiver) = mpsc::channel::<()>();
+    let timed_out = recv_with_notification_deadline(
+        &receiver,
+        "notify",
+        Instant::now() - Duration::from_millis(10),
+        0,
+    )
+    .expect_err("expired route must time out");
+    assert!(timed_out.is_timed_out());
+
+    let (_sender, receiver) = mpsc::channel::<()>();
+    let timeout = recv_with_notification_deadline(&receiver, "notify", Instant::now(), 1)
+        .expect_err("idle receiver must time out");
+    assert!(timeout.is_timed_out());
+    assert_eq!(timeout.error(), Some("route process timed out"));
+}
+
+#[cfg(unix)]
+#[test]
+fn child_notification_payload_helper_covers_missing_stdin_and_write_deadline_timeout() {
+    let mut no_stdin_child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("sleep 5")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("child with piped stdin");
+    drop(no_stdin_child.stdin.take());
+
+    let missing_stdin = write_child_notification_payload_or_failure(
+        "notify",
+        Instant::now(),
+        500,
+        &mut no_stdin_child,
+        "payload",
+    )
+    .expect("missing stdin failure");
+    assert!(!missing_stdin.is_delivered());
+    assert_eq!(
+        missing_stdin.error(),
+        Some("notification child stdin was unavailable")
+    );
+    assert!(no_stdin_child.try_wait().expect("child try_wait").is_some());
+
+    let mut timed_out_child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("cat >/dev/null; sleep 5")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("child for timeout");
+    let timed_out = write_child_notification_payload_or_failure(
+        "notify",
+        Instant::now() - Duration::from_millis(10),
+        0,
+        &mut timed_out_child,
+        "payload",
+    )
+    .expect("deadline timeout");
+    assert!(timed_out.is_timed_out());
+    assert!(
+        timed_out_child
+            .try_wait()
+            .expect("child try_wait")
+            .is_some()
+    );
+}
+
+#[test]
 fn finish_report_and_notifications_cover_failure_paths() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
@@ -200,47 +308,56 @@ fn finish_report_and_notifications_cover_failure_paths() {
         // Successful hooks must drain stdin; an immediate `exit 0` races the payload write and can
         // turn a success-path test into a broken-pipe test under load.
         let delivered = deliver_notification(
-            &NotificationHook {
-                name: "ok".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec!["-c".to_owned(), "cat >/dev/null; exit 0".to_owned()],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "ok",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; exit 0"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "ok",
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; exit 0"],
+                500,
+            ),
             &live_success_report("demo"),
         );
         assert!(delivered.is_delivered());
 
         let delivered_with_stderr = deliver_notification(
-            &NotificationHook {
-                name: "ok-with-stderr".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec![
-                    "-c".to_owned(),
-                    "cat >/dev/null; echo ok-msg >&2; exit 0".to_owned(),
-                ],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "ok-with-stderr",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; echo ok-msg >&2; exit 0"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "ok-with-stderr",
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; echo ok-msg >&2; exit 0"],
+                500,
+            ),
             &live_success_report("demo"),
         );
         assert!(delivered_with_stderr.is_delivered());
         assert!(delivered_with_stderr.error().is_none());
 
         let exited = deliver_notification(
-            &NotificationHook {
-                name: "fail".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec![
-                    "-c".to_owned(),
-                    "cat >/dev/null; echo hook-broke >&2; exit 7".to_owned(),
-                ],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "fail",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; echo hook-broke >&2; exit 7"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "fail",
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; echo hook-broke >&2; exit 7"],
+                500,
+            ),
             &live_success_report("demo"),
         );
         assert_eq!(exited.exit_code(), Some(7));
@@ -252,30 +369,37 @@ fn finish_report_and_notifications_cover_failure_paths() {
         );
 
         let timed_out = deliver_notification(
-            &NotificationHook {
-                name: "timeout".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec!["-c".to_owned(), "cat >/dev/null; sleep 1".to_owned()],
-                timeout_ms: 10,
-            },
-            &target,
+            &notification_route(
+                "timeout",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; sleep 1"],
+                10,
+            ),
+            &target_with_notification_endpoint(
+                "timeout",
+                "/bin/sh",
+                vec!["-c", "cat >/dev/null; sleep 1"],
+                10,
+            ),
             &live_success_report("demo"),
         );
         assert!(timed_out.is_timed_out());
 
         let payload_failure = deliver_notification(
-            &NotificationHook {
-                name: "payload".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec![
-                    "-c".to_owned(),
-                    "echo payload-stderr >&2; exec 0<&-; sleep 1".to_owned(),
-                ],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "payload",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "echo payload-stderr >&2; exec 0<&-; sleep 1"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "payload",
+                "/bin/sh",
+                vec!["-c", "echo payload-stderr >&2; exec 0<&-; sleep 1"],
+                500,
+            ),
             &{
                 let mut report = live_success_report("demo");
                 report.extensions = Some(BTreeMap::from([(
@@ -293,27 +417,37 @@ fn finish_report_and_notifications_cover_failure_paths() {
         );
 
         let spawn_error = deliver_notification(
-            &NotificationHook {
-                name: "spawn".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/no/such/program".to_owned(),
-                args: vec!["-c".to_owned(), "exit 0".to_owned()],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "spawn",
+                vec![RunOutcome::Changed],
+                "/no/such/program",
+                vec!["-c", "exit 0"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "spawn",
+                "/no/such/program",
+                vec!["-c", "exit 0"],
+                500,
+            ),
             &live_success_report("demo"),
         );
         assert!(spawn_error.error().is_some());
 
         let payload_serialization_failure = deliver_notification(
-            &NotificationHook {
-                name: "invalid-report".to_owned(),
-                on: vec![RunOutcome::Changed],
-                program: "/bin/sh".to_owned(),
-                args: vec!["-c".to_owned(), "exit 0".to_owned()],
-                timeout_ms: 500,
-            },
-            &target,
+            &notification_route(
+                "invalid-report",
+                vec![RunOutcome::Changed],
+                "/bin/sh",
+                vec!["-c", "exit 0"],
+                500,
+            ),
+            &target_with_notification_endpoint(
+                "invalid-report",
+                "/bin/sh",
+                vec!["-c", "exit 0"],
+                500,
+            ),
             &{
                 let mut report = live_success_report("demo");
                 report.schema_name = "not.ffhn.run_report".to_owned();
@@ -335,23 +469,16 @@ fn deliver_notification_allows_predelivery_persist_error_reports() {
     let temp = tempdir().expect("tempdir");
     let payload_path = temp.path().join("payload.json");
     let env_path = temp.path().join("env.txt");
-    let target = target_document(
-        "demo",
-        true,
-        Url::parse("https://example.com").expect("url"),
-        "main",
-        SelectionMatch::Single,
-    );
     let mut report = live_success_report("demo");
-    report.run_outcome = RunOutcome::FailedTransient;
-    report.reason_code = ReasonCode::PersistError;
-    report.failure_class = Some(crate::FailureClass::Transient);
-    report.error_detail = Some(crate::ProcessErrorDetail {
-        kind: crate::ProcessErrorKind::Io,
-        message: "permission denied".to_owned(),
-        path: Some("/tmp/watch/demo/state.json".to_owned()),
-    });
-    report.persist.state_write = PersistWriteStatus::Failed {
+    report.result = RunResult::FailedTransient {
+        cause: RunFailureCause::PersistError,
+        error_detail: crate::ProcessErrorDetail {
+            kind: crate::ProcessErrorKind::Io,
+            message: "permission denied".to_owned(),
+            path: Some("/tmp/watch/demo/state.json".to_owned()),
+        },
+    };
+    report.persist.state_commit = PersistWriteStatus::Failed {
         error: crate::ProcessErrorDetail {
             kind: crate::ProcessErrorKind::Io,
             message: "permission denied".to_owned(),
@@ -363,19 +490,19 @@ fn deliver_notification_allows_predelivery_persist_error_reports() {
 
     let command = format!(
         "cat > '{}'; printf '%s\\n%s\\n' \
-\"$FFHN_RUN_OUTCOME\" \"$FFHN_REASON_CODE\" > '{}'",
+\"$FFHN_RUN_OUTCOME\" \"$FFHN_FAILURE_CAUSE\" > '{}'",
         payload_path.display(),
         env_path.display(),
     );
     let delivered = deliver_notification(
-        &NotificationHook {
-            name: "capture".to_owned(),
-            on: vec![RunOutcome::FailedTransient],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), command],
-            timeout_ms: 500,
-        },
-        &target,
+        &notification_route(
+            "capture",
+            vec![RunOutcome::FailedTransient],
+            "/bin/sh",
+            vec!["-c", &command],
+            500,
+        ),
+        &target_with_notification_endpoint("capture", "/bin/sh", vec!["-c", &command], 500),
         &report,
     );
     assert!(delivered.is_delivered());
@@ -396,30 +523,23 @@ fn deliver_notification_passes_documented_env_vars_and_stdin_payload() {
     let temp = tempdir().expect("tempdir");
     let payload_path = temp.path().join("payload.json");
     let env_path = temp.path().join("env.txt");
-    let target = target_document(
-        "demo",
-        true,
-        Url::parse("https://example.com").expect("url"),
-        "main",
-        SelectionMatch::Single,
-    );
     let report = live_success_report("demo");
     let command = format!(
         "cat > '{}'; printf '%s\\n%s\\n%s\\n%s\\n%s\\n' \
-\"$FFHN_TARGET_ID\" \"$FFHN_RUN_OUTCOME\" \"$FFHN_REASON_CODE\" \
+\"$FFHN_TARGET_ID\" \"$FFHN_RUN_OUTCOME\" \"$FFHN_FAILURE_CAUSE\" \
 \"$FFHN_RUN_MODE\" \"$FFHN_FAILURE_CLASS\" > '{}'",
         payload_path.display(),
         env_path.display(),
     );
     let delivered = deliver_notification(
-        &NotificationHook {
-            name: "capture".to_owned(),
-            on: vec![RunOutcome::Changed],
-            program: "/bin/sh".to_owned(),
-            args: vec!["-c".to_owned(), command],
-            timeout_ms: 500,
-        },
-        &target,
+        &notification_route(
+            "capture",
+            vec![RunOutcome::Changed],
+            "/bin/sh",
+            vec!["-c", &command],
+            500,
+        ),
+        &target_with_notification_endpoint("capture", "/bin/sh", vec!["-c", &command], 500),
         &report,
     );
     assert!(delivered.is_delivered());
@@ -427,12 +547,12 @@ fn deliver_notification_passes_documented_env_vars_and_stdin_payload() {
         serde_json::from_str(&std::fs::read_to_string(&payload_path).expect("payload"))
             .expect("notification payload");
     payload.validate().expect("valid notification payload");
-    assert_eq!(payload.hook_name(), "capture");
+    assert_eq!(payload.route_name(), "capture");
     assert_eq!(payload.run_report.target_id(), "demo");
     assert!(!payload.run_report.persist.wrote_last_run());
     assert!(payload.run_report.notifications.is_empty());
     assert_eq!(
         std::fs::read_to_string(&env_path).expect("env"),
-        "demo\nchanged\nok\nlive\n\n"
+        "demo\nchanged\n\nlive\n\n"
     );
 }
