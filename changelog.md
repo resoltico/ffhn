@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0] - 2026-05-17
+
 ### Changed
 
 - Added a maintained `cargo xtask miri` proof lane for the FFHN-to-HTMLCut selector boundary, wired it into `./check.sh`, tightened the host/devcontainer bootstrap so the pinned QA nightly toolchain now installs `miri` plus `rust-src` as part of FFHN's normal maintainer contract, and temporarily patched `servo_arc` plus `tendril` locally so FFHN can prove the current pinned HTMLCut interop stack under strict provenance until the later HTMLCut dependency bump removes the override.
