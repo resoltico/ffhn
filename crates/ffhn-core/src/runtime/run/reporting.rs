@@ -56,7 +56,7 @@ pub(super) fn invalid_target_run_report(
         run_started_at: run_started_at.to_owned(),
         run_mode,
         result: failure_result(RunFailureCause::ConfigInvalid, error_detail),
-        compare_basis: CompareBasis::CanonicalTextSha256,
+        compare_basis: CompareBasis::Text,
         lifecycle: RunReportLifecycle::invalid_target(),
         sections: RunReportSections::default(),
         persist: RunPersistSection::from_writes(
@@ -80,7 +80,7 @@ pub(super) fn unavailable_target_run_report(
         run_started_at: run_started_at.to_owned(),
         run_mode,
         result: failure_result(RunFailureCause::TargetUnavailable, error_detail),
-        compare_basis: CompareBasis::CanonicalTextSha256,
+        compare_basis: CompareBasis::Text,
         lifecycle: RunReportLifecycle::invalid_target(),
         sections: RunReportSections::default(),
         persist: RunPersistSection::from_writes(

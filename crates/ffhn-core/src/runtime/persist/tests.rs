@@ -8,11 +8,10 @@ use crate::stable_json::{sha256_hex, stable_json};
 use crate::{
     BaselinePhase, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HttpMethod, LastRunRecord,
-    NetworkFetchConfig, OutputKind, RelativeArtifactPath, RunFailureCause, RunOutcome, RunReport,
-    RunResult, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionEvidence,
-    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
-    StateDocument, StoredBaseline, TargetDocument, TargetId, TargetPaths, TargetSource,
-    WhitespaceMode,
+    NetworkFetchConfig, RelativeArtifactPath, RunFailureCause, RunOutcome, RunReport, RunResult,
+    STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, SelectionConfig, SelectionEvidence, SelectionKind,
+    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StateDocument,
+    StoredBaseline, TargetDocument, TargetId, TargetPaths, TargetSource, WhitespaceMode,
 };
 use std::io;
 use tempfile::tempdir;
@@ -50,13 +49,12 @@ fn target() -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
@@ -70,11 +68,11 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
     ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-        comparison_input_sha256: DIGEST.to_owned(),
+        compare_source_sha256: DIGEST.to_owned(),
         outer_html_sha256: outer_html_sha256.to_owned(),
         selection_kind: SelectionKind::CssSelector,
         selection_match: SelectionMatch::Single,
-        output_kind: OutputKind::OuterHtml,
+        compare_basis: CompareBasis::Text,
         candidate_count: 1,
         selected_candidate_index: 1,
         selection_evidence: SelectionEvidence::CssSelector {
@@ -83,6 +81,7 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
         },
         warning_codes: Vec::new(),
         created_at: "2026-04-05T10:15:30Z".to_owned(),
+        monitoring_contract_digest_sha256: DIGEST.to_owned(),
         extensions: None,
     }
 }
@@ -90,10 +89,10 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
 fn snapshot(slot: SnapshotSlot, name: &str, canonical: &str, outer: &str) -> SnapshotArtifacts {
     let reference = SnapshotReference {
         slot,
-        canonical_text_sha256: sha256_hex(canonical.as_bytes()),
+        compare_digest_sha256: sha256_hex(canonical.as_bytes()),
         outer_html_sha256: sha256_hex(outer.as_bytes()),
         extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
-        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        compare_path: artifact_path(format!("snapshots/{name}/compare.txt")),
         outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     };
@@ -101,7 +100,7 @@ fn snapshot(slot: SnapshotSlot, name: &str, canonical: &str, outer: &str) -> Sna
         extraction_json: stable_json(&extraction_record(&reference.outer_html_sha256))
             .expect("stable extraction record"),
         reference,
-        canonical_text: canonical.to_owned(),
+        compare_value: canonical.to_owned(),
         outer_html: outer.to_owned(),
     }
 }
@@ -115,6 +114,7 @@ fn prior_state_with(
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: DIGEST.to_owned(),
             baseline: match &current {
                 Some(current_snapshot) => StoredBaseline::Ready {
                     current_snapshot: current_snapshot.reference.clone(),
@@ -138,10 +138,8 @@ fn prior_state_with(
 
 fn write_snapshot(paths: &TargetPaths, snapshot: &SnapshotArtifacts) {
     write_exact_text(
-        paths
-            .target_dir()
-            .join(&snapshot.reference.canonical_text_path),
-        &snapshot.canonical_text,
+        paths.target_dir().join(&snapshot.reference.compare_path),
+        &snapshot.compare_value,
     )
     .expect("write snapshot canonical");
     write_exact_text(
@@ -296,7 +294,7 @@ fn persist_successful_run_rotates_current_into_history_and_prunes_to_limit() {
             prior_state: &prior_state,
             run_started_at: "2026-04-05T12:00:00Z",
             run_outcome: RunOutcome::Changed,
-            canonical_text: "after",
+            compare_value: "after",
             outer_html: "<main>After</main>",
             extraction_record: &extraction,
         },
@@ -306,14 +304,14 @@ fn persist_successful_run_rotates_current_into_history_and_prunes_to_limit() {
 
     assert_eq!(state.baseline_phase(), BaselinePhase::HasBaseline);
     assert_eq!(
-        read_text(&paths.current_snapshot_dir().join("canonical.txt")).expect("current canonical"),
+        read_text(&paths.current_snapshot_dir().join("compare.txt")).expect("current canonical"),
         "after"
     );
     assert_eq!(state.snapshot_history().len(), 1);
     assert_eq!(state.snapshot_history()[0].slot(), SnapshotSlot::History);
     assert!(
         state.snapshot_history()[0]
-            .canonical_text_path()
+            .compare_path()
             .as_str()
             .starts_with("snapshots/history/")
     );
@@ -327,7 +325,7 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
         paths
             .history_snapshots_dir()
             .join("stale")
-            .join("canonical.txt"),
+            .join("compare.txt"),
         "stale",
     )
     .expect("write stale history");
@@ -338,7 +336,7 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
             prior_state: &StateLoad::Missing,
             run_started_at: "2026-04-05T12:30:00Z",
             run_outcome: RunOutcome::Initialized,
-            canonical_text: "fresh",
+            compare_value: "fresh",
             outer_html: "<main>Fresh</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
         },
@@ -367,7 +365,7 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
             prior_state: &prior_state_with(Some(current.clone()), vec![history.clone()]),
             run_started_at: "2026-04-05T13:00:00Z",
             run_outcome: RunOutcome::Unchanged,
-            canonical_text: "same",
+            compare_value: "same",
             outer_html: "<main>Same</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>Same</main>".as_bytes())),
         },
@@ -378,8 +376,8 @@ fn persist_successful_run_handles_initialized_and_unchanged_runs() {
         unchanged
             .current_snapshot()
             .expect("current")
-            .canonical_text_sha256(),
-        current.reference.canonical_text_sha256
+            .compare_digest_sha256(),
+        current.reference.compare_digest_sha256
     );
     assert_eq!(unchanged.snapshot_history().len(), 1);
 }
@@ -395,7 +393,7 @@ fn persist_successful_run_changed_without_prior_current_keeps_history_empty() {
             prior_state: &prior_state_with(None, Vec::new()),
             run_started_at: "2026-04-05T13:30:00Z",
             run_outcome: RunOutcome::Changed,
-            canonical_text: "after",
+            compare_value: "after",
             outer_html: "<main>After</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>After</main>".as_bytes())),
         },
@@ -419,7 +417,7 @@ fn persist_successful_run_surfaces_current_snapshot_write_errors_for_initialized
             prior_state: &StateLoad::Missing,
             run_started_at: "2026-04-05T12:30:00Z",
             run_outcome: RunOutcome::Initialized,
-            canonical_text: "fresh",
+            compare_value: "fresh",
             outer_html: "<main>Fresh</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
         },
@@ -442,7 +440,7 @@ fn persist_successful_run_surfaces_current_snapshot_write_errors_for_initialized
             ),
             run_started_at: "2026-04-05T13:30:00Z",
             run_outcome: RunOutcome::Changed,
-            canonical_text: "after",
+            compare_value: "after",
             outer_html: "<main>After</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>After</main>".as_bytes())),
         },
@@ -503,7 +501,7 @@ fn persist_successful_run_rejects_failed_outcomes() {
             prior_state: &StateLoad::Missing,
             run_started_at: "2026-04-05T12:30:00Z",
             run_outcome: RunOutcome::FailedTransient,
-            canonical_text: "fresh",
+            compare_value: "fresh",
             outer_html: "<main>Fresh</main>",
             extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
         },
@@ -551,6 +549,7 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: DIGEST.to_owned(),
             baseline: StoredBaseline::Ready {
                 current_snapshot: current.reference.clone(),
                 snapshot_history: vec![older.reference.clone(), oldest.reference.clone()],
@@ -575,7 +574,7 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
                 ),
                 run_started_at: "2026-04-05T12:00:00Z",
                 run_outcome: RunOutcome::Changed,
-                canonical_text: "after",
+                compare_value: "after",
                 outer_html: "<main>After</main>",
                 extraction_record: &extraction_record(&sha256_hex("<main>After</main>".as_bytes())),
             },
@@ -585,19 +584,19 @@ fn persist_successful_run_rolls_back_changed_snapshot_mutations_when_state_write
     assert!(matches!(error, CoreError::Io { .. }));
 
     assert_eq!(
-        read_text(&paths.current_snapshot_dir().join("canonical.txt")).expect("current canonical"),
+        read_text(&paths.current_snapshot_dir().join("compare.txt")).expect("current canonical"),
         "before"
     );
     assert!(
         paths
             .target_dir()
-            .join(&older.reference.canonical_text_path)
+            .join(&older.reference.compare_path)
             .exists()
     );
     assert!(
         paths
             .target_dir()
-            .join(&oldest.reference.canonical_text_path)
+            .join(&oldest.reference.compare_path)
             .exists()
     );
     let history_entries = std::fs::read_dir(paths.history_snapshots_dir())
@@ -632,7 +631,7 @@ fn persist_successful_run_removes_staged_current_on_initialized_state_write_fail
                 prior_state: &StateLoad::Missing,
                 run_started_at: "2026-04-05T12:30:00Z",
                 run_outcome: RunOutcome::Initialized,
-                canonical_text: "fresh",
+                compare_value: "fresh",
                 outer_html: "<main>Fresh</main>",
                 extraction_record: &extraction_record(&sha256_hex("<main>Fresh</main>".as_bytes())),
             },
@@ -658,7 +657,7 @@ fn write_last_run_persists_report_json() {
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: crate::RunMode::Live,
         result: RunResult::Initialized,
-        compare_basis: CompareBasis::CanonicalTextSha256,
+        compare_basis: CompareBasis::Text,
         previous_compare_digest_sha256: None,
         current_compare_digest_sha256: Some(DIGEST.to_owned()),
         baseline_phase_before_run: BaselinePhase::NeverSucceeded,
@@ -672,11 +671,10 @@ fn write_last_run_persists_report_json() {
             duration_ms: 1,
         }),
         extraction: Some(crate::RunExtractionSection {
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: DIGEST.to_owned(),
             selection_kind: SelectionKind::CssSelector,
             selection_match: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
             candidate_count: 1,
             selected_candidate_index: 1,
             warning_codes: Vec::new(),
@@ -688,10 +686,10 @@ fn write_last_run_persists_report_json() {
         }),
         change: Some(crate::RunChangeSection {
             kind: crate::ChangeKind::Initialized,
-            previous_text_bytes: None,
-            current_text_bytes: 5,
-            previous_line_count: None,
-            current_line_count: 1,
+            previous_compare_bytes: None,
+            current_compare_bytes: 5,
+            previous_compare_line_count: None,
+            current_compare_line_count: 1,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,

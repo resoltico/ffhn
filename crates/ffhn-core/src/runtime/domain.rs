@@ -14,6 +14,7 @@ pub(crate) enum PersistedBaselineState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PersistedState {
+    pub(crate) monitoring_contract_digest_sha256: String,
     pub(crate) baseline: PersistedBaselineState,
     pub(crate) last_run: Option<LastRunRecord>,
 }
@@ -21,6 +22,7 @@ pub(crate) struct PersistedState {
 impl PersistedState {
     pub(crate) fn from_document(document: StateDocument) -> Self {
         Self {
+            monitoring_contract_digest_sha256: document.monitoring_contract_digest_sha256,
             baseline: match document.baseline {
                 StoredBaseline::Pending => PersistedBaselineState::Pending,
                 StoredBaseline::Ready {
@@ -40,6 +42,7 @@ impl PersistedState {
             schema_name: STATE_SCHEMA_NAME.to_owned(),
             schema_version: STATE_SCHEMA_VERSION,
             target_id,
+            monitoring_contract_digest_sha256: self.monitoring_contract_digest_sha256.clone(),
             baseline: match &self.baseline {
                 PersistedBaselineState::Pending => StoredBaseline::Pending,
                 PersistedBaselineState::Ready {
@@ -55,6 +58,10 @@ impl PersistedState {
         };
         document.validate()?;
         Ok(document)
+    }
+
+    pub(crate) fn monitoring_contract_digest_sha256(&self) -> &str {
+        &self.monitoring_contract_digest_sha256
     }
 
     pub(crate) const fn baseline_phase(&self) -> BaselinePhase {

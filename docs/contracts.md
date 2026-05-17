@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: CONTRACTS
-updated: "2026-05-14"
+updated: "2026-05-17"
 route:
   keywords: [contracts, schema versions, htmlcut boundary, durable layout, extraction record, notification payload, process errors, snapshot layout]
   questions: ["what schemas does ffhn freeze today?", "what does ffhn own versus htmlcut?", "what is the persisted watch root layout?", "where is ffhn's structured process-error shape documented?"]
@@ -38,14 +38,14 @@ All current FFHN schema documents require exact `schema_name` and `schema_versio
 
 | Schema | Version | Notes |
 | --- | ---: | --- |
-| `ffhn.target` | 3 | loaded from `target.toml` |
-| `ffhn.extraction_record` | 3 | persisted inside snapshot artifacts |
-| `ffhn.state` | 3 | stored as `state.json` |
-| `ffhn.run_report` | 3 | emitted for single-target `run` |
-| `ffhn.last_run_snapshot` | 1 | stored as `last_run.json` |
-| `ffhn.notification_payload` | 3 | written to notification route stdin |
-| `ffhn.batch_run_report` | 3 | emitted for multi-target `run` |
-| `ffhn.status_report` | 4 | emitted for `status` |
+| `ffhn.target` | 4 | loaded from `target.toml` |
+| `ffhn.extraction_record` | 4 | persisted inside snapshot artifacts |
+| `ffhn.state` | 4 | stored as `state.json` |
+| `ffhn.run_report` | 4 | emitted for single-target `run` |
+| `ffhn.last_run_snapshot` | 2 | stored as `last_run.json` |
+| `ffhn.notification_payload` | 4 | written to notification route stdin |
+| `ffhn.batch_run_report` | 4 | emitted for multi-target `run` |
+| `ffhn.status_report` | 5 | emitted for `status` |
 
 Embedded field vocabularies and stable subobjects inside those schemas are part of the same public
 contract surface. That includes `RunResult.kind`, `RunFailureCause`, `StatusSummary.kind`,
@@ -69,12 +69,12 @@ For discovery-based `run --all`, only immediate subdirectories that contain a `t
       run.lock
     snapshots/
       current/
-        canonical.txt
+        compare.txt
         outer.html
         extraction.json
       history/
         <snapshot_key>/
-          canonical.txt
+          compare.txt
           outer.html
           extraction.json
 ```
@@ -85,7 +85,7 @@ The durable artifact meanings are:
 - `state.json`: `ffhn.state`
 - `last_run.json`: `ffhn.last_run_snapshot`, which wraps the live post-notification `ffhn.run_report` snapshot FFHN successfully published; the nested report keeps `persist.last_run_write.status = not_attempted`, and the file may lag the newest live stdout report if a later final publication attempt fails
 - `lock/run.lock`: the shared/exclusive lock anchor, created lazily for valid live `run`, valid dry-run `run`, and valid `status` execution
-- `snapshots/current/canonical.txt`: compare-time canonical text
+- `snapshots/current/compare.txt`: the final compare value after FFHN applies compare-basis projection, URL rewriting, text whitespace shaping when applicable, and configured canonicalizers
 - `snapshots/current/outer.html`: the FFHN-owned persisted outer-HTML artifact derived from the selected interop match
 - `snapshots/current/extraction.json`: persisted `ffhn.extraction_record`
 
@@ -98,7 +98,7 @@ In the repository itself, `watchlist/demo` is maintained as starter target confi
 FFHN derives each history directory key from:
 
 1. the snapshot capture timestamp with ASCII-alphanumeric characters compacted together
-2. the first 12 hex characters of the canonical-text SHA-256 digest
+2. the first 12 hex characters of the compare-value SHA-256 digest
 
 The exact formatting is intentionally an implementation detail, but the derived directory name becomes part of the relative history paths persisted in `ffhn.state`.
 

@@ -112,8 +112,9 @@ That script:
 1. builds the contributor image from [../.devcontainer/Dockerfile](../.devcontainer/Dockerfile)
 2. poisons the mounted cache and build-output volumes with root-owned files
 3. verifies that [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh) repairs writability for the contributor user
-4. checks the pinned toolchains and Cargo QA versions from [../tooling/rust-tooling.env](../tooling/rust-tooling.env), plus `shellcheck`, `gh`, `clang`, and `./check.sh --help`, on the raw Docker image
+4. checks the pinned toolchains and Cargo QA versions from [../tooling/rust-tooling.env](../tooling/rust-tooling.env), plus the nightly `cargo +... miri` entrypoint, `shellcheck`, `gh`, `clang`, and `./check.sh --help`, on the raw Docker image
 5. builds a small Dev Container CLI helper from the already-built contributor image, layers in a pinned Node 20 runtime plus a pinned Docker Buildx CLI plugin for the pinned Dev Containers CLI, proves that `docker buildx` works inside that helper, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
+6. promotes the validated contributor image to the canonical local tag `ffhn-devcontainer:local` so later cached-image checks can reuse the exact proven image instead of an ambient older tag
 
 The contributor image copies exactly the pinned tooling manifest plus the standalone
 [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installer before Rust
@@ -135,7 +136,7 @@ That script:
 5. marks the mounted repository as a Git safe directory for the raw Docker session
 6. runs the maintained `./check.sh` gate inside the contributor container
 
-GitHub CI uses the validator first, then reuses the warmed contributor image for the maintained headless full-gate pass so the second step proves `./check.sh` rather than paying for a redundant rebuild.
+GitHub CI uses the validator first, then reuses the warmed contributor image for the maintained headless full-gate pass so the second step proves `./check.sh` rather than paying for a redundant rebuild. Local release and maintainer flows can do the same by running `FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh` immediately after a successful validation pass.
 
 For ad hoc terminal use without VS Code beyond the maintained full-gate path, run the image against
 the mounted repository:

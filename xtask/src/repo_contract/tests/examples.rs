@@ -76,7 +76,7 @@ fn public_target_example_helper_covers_non_watchlist_file_targets() {
     let path = Path::new("/tmp/examples/release_notes.toml");
     let document = r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "release_notes"
 display_name = "Release Notes"
 enabled = true
@@ -93,12 +93,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#;
     let target: TargetDocument = toml::from_str(document).expect("parse file-target example");

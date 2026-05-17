@@ -7,8 +7,8 @@ mod wire;
 /// Digest summary for one snapshot in `ffhn.status_report`.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotDigestSummary {
-    /// Canonical text digest.
-    pub(crate) canonical_text_sha256: String,
+    /// Compare digest.
+    pub(crate) compare_digest_sha256: String,
     /// Outer HTML digest.
     pub(crate) outer_html_sha256: String,
     /// Capture timestamp.
@@ -45,6 +45,13 @@ pub enum StatusSummary {
         /// Parsed persisted state phase when FFHN could still recover it.
         baseline_phase: BaselinePhase,
         /// Structured invalid-state detail.
+        error_detail: ProcessErrorDetail,
+    },
+    /// Stored baseline captured under a different monitoring contract.
+    IncompatibleBaseline {
+        /// Parsed persisted state phase when FFHN could still recover it.
+        baseline_phase: BaselinePhase,
+        /// Structured baseline-incompatibility detail.
         error_detail: ProcessErrorDetail,
     },
     /// Snapshot artifact integrity mismatch.
@@ -157,6 +164,7 @@ impl StatusReport {
                 StatusSummary::Pending
                 | StatusSummary::Ready { .. }
                 | StatusSummary::InvalidState { .. }
+                | StatusSummary::IncompatibleBaseline { .. }
                 | StatusSummary::IntegrityMismatch { .. },
             ) => Ok(()),
             (Some(_), None, _) | (None, Some(_), _) => Err(CoreError::contract(
@@ -177,9 +185,9 @@ impl StatusReport {
 }
 
 impl SnapshotDigestSummary {
-    /// Returns the canonical-text digest.
-    pub fn canonical_text_sha256(&self) -> &str {
-        &self.canonical_text_sha256
+    /// Returns the compare digest.
+    pub fn compare_digest_sha256(&self) -> &str {
+        &self.compare_digest_sha256
     }
 
     /// Returns the outer-HTML digest.
@@ -202,6 +210,7 @@ impl StatusSummary {
             Self::InvalidConfig { .. } => "invalid_config",
             Self::UnavailableTarget { .. } => "unavailable_target",
             Self::InvalidState { .. } => "invalid_state",
+            Self::IncompatibleBaseline { .. } => "incompatible_baseline",
             Self::IntegrityMismatch { .. } => "integrity_mismatch",
         }
     }
@@ -227,6 +236,7 @@ impl StatusSummary {
             Self::InvalidConfig { error_detail }
             | Self::UnavailableTarget { error_detail }
             | Self::InvalidState { error_detail, .. }
+            | Self::IncompatibleBaseline { error_detail, .. }
             | Self::IntegrityMismatch { error_detail, .. } => Some(error_detail),
             Self::Pending | Self::Ready { .. } => None,
         }
@@ -239,6 +249,7 @@ impl StatusSummary {
             Self::Ready { .. } => Some(BaselinePhase::HasBaseline),
             Self::InvalidConfig { .. } | Self::UnavailableTarget { .. } => None,
             Self::InvalidState { baseline_phase, .. }
+            | Self::IncompatibleBaseline { baseline_phase, .. }
             | Self::IntegrityMismatch { baseline_phase, .. } => Some(*baseline_phase),
         }
     }
@@ -253,6 +264,7 @@ impl StatusSummary {
             | Self::InvalidConfig { .. }
             | Self::UnavailableTarget { .. }
             | Self::InvalidState { .. }
+            | Self::IncompatibleBaseline { .. }
             | Self::IntegrityMismatch { .. } => None,
         }
     }
@@ -267,6 +279,7 @@ impl StatusSummary {
             | Self::InvalidConfig { .. }
             | Self::UnavailableTarget { .. }
             | Self::InvalidState { .. }
+            | Self::IncompatibleBaseline { .. }
             | Self::IntegrityMismatch { .. } => &[],
         }
     }
@@ -296,6 +309,7 @@ impl StatusSummary {
             Self::InvalidConfig { error_detail }
             | Self::UnavailableTarget { error_detail }
             | Self::InvalidState { error_detail, .. }
+            | Self::IncompatibleBaseline { error_detail, .. }
             | Self::IntegrityMismatch { error_detail, .. } => error_detail.validate(),
         }
     }
@@ -309,7 +323,7 @@ fn validate_optional_non_empty(field: &str, value: Option<&str>) -> Result<(), C
 }
 
 fn validate_snapshot_digest_summary(snapshot: &SnapshotDigestSummary) -> Result<(), CoreError> {
-    validate_sha256(&snapshot.canonical_text_sha256)?;
+    validate_sha256(&snapshot.compare_digest_sha256)?;
     validate_sha256(&snapshot.outer_html_sha256)?;
     validate_timestamp(&snapshot.captured_at)
 }

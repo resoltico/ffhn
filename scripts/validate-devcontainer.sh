@@ -7,6 +7,7 @@ set -euo pipefail
 
 readonly volume_mode="${FFHN_DEVCONTAINER_VOLUME_MODE:-isolated}"
 readonly helper_image_tag="ffhn-devcontainer-cli-helper:local"
+readonly canonical_image_tag="ffhn-devcontainer:local"
 
 select_volume_name() {
     local shared_name="$1"
@@ -67,7 +68,7 @@ validate_inner_runtime() {
     [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
     rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
     cargo build --help >/dev/null
-    cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
+    cargo +"${RUST_QA_NIGHTLY_TOOLCHAIN}" build --help >/dev/null
     rustup target list --installed | grep -Fx 'x86_64-unknown-linux-musl' >/dev/null
     cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
     cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
@@ -156,7 +157,9 @@ main() {
                 "${FFHN_VALIDATE_CARGO_REGISTRY_VOLUME}" \
                 "${FFHN_VALIDATE_CARGO_GIT_VOLUME}" \
                 "${FFHN_VALIDATE_USER_CACHE_VOLUME}" >/dev/null 2>&1 || true
-            docker image rm -f "${FFHN_VALIDATE_IMAGE_TAG}" >/dev/null 2>&1 || true
+            if [[ "${FFHN_VALIDATE_IMAGE_TAG}" != "${canonical_image_tag}" ]]; then
+                docker image rm -f "${FFHN_VALIDATE_IMAGE_TAG}" >/dev/null 2>&1 || true
+            fi
         fi
 
         while IFS= read -r devcontainer_id; do
@@ -185,7 +188,8 @@ main() {
         [[ "${ID}" == "ubuntu" ]]
         [[ "${VERSION_ID}" == "24.04" ]]
         rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
-        cargo +"${RUST_COVERAGE_TOOLCHAIN}" --version >/dev/null
+        cargo +"${RUST_QA_NIGHTLY_TOOLCHAIN}" --version >/dev/null
+        cargo +"${RUST_QA_NIGHTLY_TOOLCHAIN}" miri --version >/dev/null
         cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
         cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
         cargo deny --version | grep -F " ${CARGO_DENY_VERSION}" >/dev/null
@@ -268,7 +272,8 @@ main() {
             [[ -w "${CARGO_BUILD_BUILD_DIR}" ]]
             rustc +"${RUST_STABLE_TOOLCHAIN}" --version | grep -F "rustc ${RUST_STABLE_TOOLCHAIN}" >/dev/null
             cargo build --help >/dev/null
-            cargo +"${RUST_COVERAGE_TOOLCHAIN}" build --help >/dev/null
+            cargo +"${RUST_QA_NIGHTLY_TOOLCHAIN}" build --help >/dev/null
+            cargo +"${RUST_QA_NIGHTLY_TOOLCHAIN}" miri --version >/dev/null
             rustup target list --installed | grep -Fx '\''x86_64-unknown-linux-musl'\'' >/dev/null
             cargo nextest --version | grep -F " ${CARGO_NEXTEST_VERSION}" >/dev/null
             cargo audit --version | grep -F " ${CARGO_AUDIT_VERSION}" >/dev/null
@@ -313,9 +318,13 @@ main() {
             mkdir -p "${HOME}"
             git config --global --add safe.directory "${FFHN_REPO_ROOT}"
             devcontainer up --remove-existing-container --workspace-folder "${FFHN_REPO_ROOT}" >/dev/null
-            printf "devcontainer validation: run inner runtime probe through devcontainer exec\n"
             devcontainer exec --workspace-folder "${FFHN_REPO_ROOT}" ./scripts/validate-devcontainer.sh
         '
+
+    if [[ "${image_tag}" != "${canonical_image_tag}" ]]; then
+        printf 'devcontainer validation: promote validated image to canonical local tag %s\n' "${canonical_image_tag}"
+        docker tag "${image_tag}" "${canonical_image_tag}"
+    fi
 
     printf 'devcontainer validation: success\n'
 }

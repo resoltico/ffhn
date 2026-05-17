@@ -8,7 +8,7 @@ use super::schema::{
 };
 use super::validate::{require_non_empty, validate_identity, validate_sha256, validate_timestamp};
 use super::{
-    BaselinePhase, ChangeKind, CompareBasis, Extensions, FailureClass, FetchEngine, OutputKind,
+    BaselinePhase, ChangeKind, CompareBasis, Extensions, FailureClass, FetchEngine,
     RunFailureCause, RunMode, RunOutcome, SelectionKind, SelectionMatch,
 };
 use crate::CoreError;

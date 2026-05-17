@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RUN_REPORTS
-updated: "2026-05-14"
+updated: "2026-05-17"
 route:
   keywords: [run report, batch run report, process errors, failure causes, notification delivery, persist error]
   questions: ["what does ffhn.run_report mean?", "what does ffhn.batch_run_report mean?", "which failure causes can ffhn emit?", "what is the shared ffhn process-error shape?"]
@@ -84,13 +84,15 @@ compare, and change data from the already-computed run body.
 
 Field semantics:
 
-1. `compare_basis` is currently the fixed vocabulary value `canonical_text_sha256`
+1. `compare_basis` records the selected projection FFHN compared: `text`, `inner_html`, or `outer_html`
 2. `previous_compare_digest_sha256` is present only when FFHN had a prior valid baseline digest
 3. `current_compare_digest_sha256` is absent for early failures and disabled skips, but present for successful runs and for late failures that happened after compare completed
 4. `display_name` is present only when FFHN could trust the target document enough to surface operator-facing identity; `config_invalid` and `target_unavailable` failures omit it
 5. `baseline_phase_before_run` and `baseline_phase_after_run` record the durable baseline phase, not the richer `status.kind` view
 6. failed runs may preserve the recovered baseline phase from the stable durable state view FFHN observed while sealing the report, even when the live run body never reached persistence
 7. `result.cause = target_unavailable` means the explicit `target.toml` path was missing or unreadable after FFHN had already validated the watch root and request shape
+8. `result.cause = baseline_incompatible` means the saved baseline was captured under a different monitoring contract than the current target definition
+9. live runs fail on `baseline_incompatible`, while dry-runs continue so operators can preview the new definition before clearing or replacing the baseline
 
 ### `fetch`
 
@@ -119,11 +121,11 @@ Interpretation:
 
 Fields:
 
-1. `comparison_input_sha256`
+1. `compare_source_sha256`
 2. `outer_html_sha256`
-3. `selection_kind`
-4. `selection_match`
-5. `output_kind`
+3. `compare_basis`
+4. `selection_kind`
+5. `selection_match`
 6. `candidate_count`
 7. `selected_candidate_index`
 8. `warning_codes`
@@ -131,22 +133,22 @@ Fields:
 
 Interpretation:
 
-1. `comparison_input_sha256` is the digest of HTMLCut's selected `text_output` after FFHN line-ending normalization
-2. `outer_html_sha256` is the digest of the selected `outer_html_output` after FFHN line-ending normalization
-3. `selection_kind`, `selection_match`, and `output_kind` are FFHN-owned vocabularies
+1. `compare_source_sha256` is the digest of the selected compare-basis projection before FFHN applies canonicalizers
+2. `outer_html_sha256` is the digest of the selected outer HTML after FFHN line-ending normalization
+3. `compare_basis`, `selection_kind`, and `selection_match` are FFHN-owned vocabularies
 4. `warning_codes` includes warning-level diagnostics only
 5. when URL rewriting was requested but no effective HTTP(S) base URL resolved, `warning_codes` includes `EFFECTIVE_BASE_URL_UNRESOLVED` instead of turning the run into a hard failure
 6. deeper selection evidence lives in the persisted sibling `ffhn.extraction_record`
 
 ### `change`
 
-`change` summarizes the compare result over LF-normalized canonical text.
+`change` summarizes the compare result over FFHN's final compare value.
 
 Fields:
 
 1. `kind`
-2. `previous_text_bytes`
-3. `current_text_bytes`
+2. `previous_compare_bytes`
+3. `current_compare_bytes`
 4. `previous_line_count`
 5. `current_line_count`
 6. `common_prefix_lines`
@@ -156,8 +158,8 @@ Fields:
 Interpretation:
 
 1. `kind = "initialized" | "changed" | "unchanged"` is derived from the compare digest result
-2. `previous_*` fields are omitted on `initialized` because there was no prior baseline text
-3. `common_prefix_lines` and `common_suffix_lines` count equal surrounding lines in the previous and current canonical texts
+2. `previous_*` fields are omitted on `initialized` because there was no prior baseline compare value
+3. `common_prefix_lines` and `common_suffix_lines` count equal surrounding lines in the previous and current compare values
 4. `changed_region` appears only for `initialized` and `changed`, and its line numbers are one-based
 5. `previous_excerpt` and `current_excerpt` keep only the first four lines of the changed region and may be omitted when FFHN chooses not to surface them
 6. excerpt digests appear only when the corresponding excerpt string exists

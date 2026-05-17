@@ -11,15 +11,15 @@ const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 fn snapshot(slot: SnapshotSlot, captured_at: &str) -> SnapshotReference {
     SnapshotReference {
         slot,
-        canonical_text_sha256: DIGEST.to_owned(),
+        compare_digest_sha256: DIGEST.to_owned(),
         outer_html_sha256: DIGEST.to_owned(),
         extraction_record_path: RelativeArtifactPath::new(format!(
             "snapshots/{}/extraction.json",
             slot_name(slot)
         ))
         .expect("relative path"),
-        canonical_text_path: RelativeArtifactPath::new(format!(
-            "snapshots/{}/canonical.txt",
+        compare_path: RelativeArtifactPath::new(format!(
+            "snapshots/{}/compare.txt",
             slot_name(slot)
         ))
         .expect("relative path"),
@@ -48,6 +48,7 @@ fn pending_state() -> StateDocument {
         schema_name: STATE_SCHEMA_NAME.to_owned(),
         schema_version: STATE_SCHEMA_VERSION,
         target_id: target_id(),
+        monitoring_contract_digest_sha256: DIGEST.to_owned(),
         baseline: StoredBaseline::Pending,
         last_run: None,
         extensions: None,
@@ -101,6 +102,7 @@ fn state_document_accessors_expose_the_public_contract() {
     assert_eq!(state.schema_name(), STATE_SCHEMA_NAME);
     assert_eq!(state.schema_version(), STATE_SCHEMA_VERSION);
     assert_eq!(state.target_id(), "demo");
+    assert_eq!(state.monitoring_contract_digest_sha256(), DIGEST);
     assert!(matches!(state.baseline(), StoredBaseline::Ready { .. }));
     assert_eq!(state.baseline_phase(), BaselinePhase::HasBaseline);
     let last_run = state.last_run().expect("last run");
@@ -118,6 +120,7 @@ fn state_document_accessors_expose_the_public_contract() {
     );
 
     let pending = pending_state();
+    assert_eq!(pending.monitoring_contract_digest_sha256(), DIGEST);
     assert!(matches!(pending.baseline(), StoredBaseline::Pending));
     assert_eq!(pending.baseline_phase(), BaselinePhase::NeverSucceeded);
     assert!(pending.last_run().is_none());
@@ -327,10 +330,10 @@ fn state_document_round_trips_through_the_new_wire_shape() {
         "state_phase": "has_baseline",
         "current_snapshot": {
             "slot": "current",
-            "canonical_text_sha256": DIGEST,
+            "compare_digest_sha256": DIGEST,
             "outer_html_sha256": DIGEST,
             "extraction_record_path": "snapshots/current/extraction.json",
-            "canonical_text_path": "snapshots/current/canonical.txt",
+            "compare_path": "snapshots/current/compare.txt",
             "outer_html_path": "snapshots/current/outer.html",
             "captured_at": "2026-04-05T10:15:30Z"
         }

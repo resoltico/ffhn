@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 fn digest_summary(captured_at: &str) -> SnapshotDigestSummary {
     SnapshotDigestSummary {
-        canonical_text_sha256: DIGEST.to_owned(),
+        compare_digest_sha256: DIGEST.to_owned(),
         outer_html_sha256: DIGEST.to_owned(),
         captured_at: captured_at.to_owned(),
     }
@@ -44,12 +44,12 @@ fn status_report_accessors_expose_the_public_contract() {
     assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
     assert!(report.error_detail().is_none());
     let current_snapshot = report.current_snapshot().expect("current snapshot");
-    assert_eq!(current_snapshot.canonical_text_sha256(), DIGEST);
+    assert_eq!(current_snapshot.compare_digest_sha256(), DIGEST);
     assert_eq!(current_snapshot.outer_html_sha256(), DIGEST);
     assert_eq!(current_snapshot.captured_at(), "2026-04-05T10:15:30Z");
     assert_eq!(report.snapshot_history().len(), 1);
     let history_snapshot = &report.snapshot_history()[0];
-    assert_eq!(history_snapshot.canonical_text_sha256(), DIGEST);
+    assert_eq!(history_snapshot.compare_digest_sha256(), DIGEST);
     assert_eq!(history_snapshot.outer_html_sha256(), DIGEST);
     assert_eq!(history_snapshot.captured_at(), "2026-04-05T10:14:30Z");
     assert_eq!(
@@ -91,6 +91,19 @@ fn status_report_accessors_expose_the_public_contract() {
     );
     assert!(integrity_mismatch.current_snapshot().is_none());
     assert!(integrity_mismatch.snapshot_history().is_empty());
+
+    let incompatible_baseline = StatusSummary::IncompatibleBaseline {
+        baseline_phase: BaselinePhase::HasBaseline,
+        error_detail: valid_process_error(),
+    };
+    assert!(is_invalid(&incompatible_baseline));
+    assert_eq!(incompatible_baseline.kind_str(), "incompatible_baseline");
+    assert_eq!(
+        incompatible_baseline.baseline_phase(),
+        Some(BaselinePhase::HasBaseline)
+    );
+    assert!(incompatible_baseline.current_snapshot().is_none());
+    assert!(incompatible_baseline.snapshot_history().is_empty());
 }
 
 #[test]
@@ -118,7 +131,7 @@ fn status_report_validation_enforces_status_summary_rules() {
     let invalid_snapshot = StatusReport {
         status: StatusSummary::Ready {
             current_snapshot: SnapshotDigestSummary {
-                canonical_text_sha256: "bad".to_owned(),
+                compare_digest_sha256: "bad".to_owned(),
                 ..digest_summary("2026-04-05T10:15:30Z")
             },
             snapshot_history: Vec::new(),
@@ -195,7 +208,7 @@ fn status_report_deserialization_revalidates_raw_documents() {
         "reason_code": "ok",
         "state_phase": "has_baseline",
         "current_snapshot": {
-            "canonical_text_sha256": DIGEST,
+            "compare_digest_sha256": DIGEST,
             "outer_html_sha256": DIGEST,
             "captured_at": "2026-04-05T10:15:30Z"
         }

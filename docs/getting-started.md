@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: GETTING_STARTED
-updated: "2026-05-14"
+updated: "2026-05-16"
 route:
   keywords: [getting started, install, quick start, release package, sample page, windows]
   questions: ["how do I install ffhn?", "how do I try ffhn quickly?", "what is the fastest verified ffhn sample flow?", "where are the packaged install commands?"]
@@ -26,7 +26,7 @@ cargo build --release --locked -p ffhn-cli --bin ffhn
 ../.ffhn-artifacts/target/release/ffhn --help
 ```
 
-Maintained source builds use the stable workspace toolchain pinned in [../rust-toolchain.toml](../rust-toolchain.toml). The exact maintainer toolchain set lives in [../tooling/rust-tooling.env](../tooling/rust-tooling.env). Regular builds and normal CLI usage do not need the pinned coverage/nightly toolchain; that path is only part of coverage and fuzzing workflows.
+Maintained source builds use the stable workspace toolchain pinned in [../rust-toolchain.toml](../rust-toolchain.toml). The exact maintainer toolchain set lives in [../tooling/rust-tooling.env](../tooling/rust-tooling.env). Regular builds and normal CLI usage do not need the pinned QA nightly toolchain; that path is only part of the maintained Miri proof, coverage, and fuzzing workflows.
 FFHN keeps Cargo output in the managed sibling roots documented in [hygiene.md](hygiene.md), so the compiled binary lands under the active configured target root instead of the repository tree. On Windows, the equivalent built binary path is `..\\.ffhn-artifacts\\target\\release\\ffhn.exe`.
 
 If you want to run without building first, the repository checkout path is:
@@ -100,7 +100,7 @@ cat >"$HTML_FILE" <<'HTML'
 HTML
 cat >"$TARGET_DIR/target.toml" <<EOF
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -115,13 +115,12 @@ engine = "file"
 [selection]
 kind = "css_selector"
 match = "single"
-output = "outer_html"
-whitespace = "preserve"
-rewrite_urls = false
 selector = "main"
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 EOF
 ffhn run --watch-root "$WATCH_ROOT" --target demo_file --format summary
@@ -140,7 +139,7 @@ Set-Content -Path $HtmlFile -Encoding utf8 -NoNewline -Value '<html><body><main>
 $TomlFilePath = $HtmlFile -replace '\\','/'
 @"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo_file"
 display_name = "Demo File"
 enabled = true
@@ -155,13 +154,12 @@ engine = "file"
 [selection]
 kind = "css_selector"
 match = "single"
-output = "outer_html"
-whitespace = "preserve"
-rewrite_urls = false
 selector = "main"
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "@ | Set-Content -Path (Join-Path $TargetDir "target.toml") -Encoding utf8
 ffhn run --watch-root $WatchRoot --target demo_file --format summary

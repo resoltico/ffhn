@@ -60,7 +60,7 @@ fn status_emits_one_json_document() {
         target_dir.join("target.toml"),
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -82,12 +82,11 @@ accept = "text/html,application/xhtml+xml"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
     )
@@ -240,7 +239,7 @@ fn invalid_target_and_state_reports_surface_structured_error_detail() {
         target_dir.join("target.toml"),
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -256,12 +255,11 @@ engine = "http"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
     )
@@ -331,7 +329,7 @@ canonicalization = []
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -348,12 +346,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),
@@ -389,7 +386,7 @@ canonicalization = []
         target_dir.join("state.json"),
         r#"{
   "schema_name": "ffhn.state",
-  "schema_version": 3,
+  "schema_version": 4,
   "target_id": "demo",
   "state_phase": "has_baseline",
   "last_run_at": "2026-04-05T10:15:30Z",
@@ -447,7 +444,7 @@ fn contract_invalid_extraction_reports_surface_contract_error_and_artifact_path(
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -464,12 +461,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),
@@ -495,12 +491,12 @@ canonicalization = []
         target_dir.join("snapshots/current/extraction.json"),
         r#"{
   "schema_name": "wrong",
-  "schema_version": 3,
-  "comparison_input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_version": 4,
+  "compare_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "outer_html_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "selection_kind": "css_selector",
   "selection_match": "single",
-  "output_kind": "outer_html",
+  "compare_basis": "text",
   "candidate_count": 1,
   "selected_candidate_index": 1,
   "selection_evidence": {
@@ -509,7 +505,8 @@ canonicalization = []
     "tag_name": "main"
   },
   "warning_codes": [],
-  "created_at": "2026-04-05T10:15:30Z"
+  "created_at": "2026-04-05T10:15:30Z",
+  "monitoring_contract_digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 }"#,
     )
     .expect("write contract-invalid extraction record");
@@ -876,7 +873,7 @@ fn status_reports_disabled_enablement_separately_from_pending_baseline_state() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = false
@@ -893,12 +890,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),
@@ -941,7 +937,7 @@ fn run_all_ignores_directories_without_a_target_marker() {
         format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -958,12 +954,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
         ),

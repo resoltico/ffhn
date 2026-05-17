@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: TARGETS
-updated: "2026-05-14"
+updated: "2026-05-17"
 route:
   keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
   questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification routes work?"]
@@ -14,7 +14,7 @@ FFHN loads one `ffhn.target` document from `<watch_root>/<target_id>/target.toml
 Every target document requires:
 
 1. `schema_name = "ffhn.target"`
-2. `schema_version = 3`
+2. `schema_version = 4`
 3. `target_id`
 4. `display_name`
 5. `enabled`
@@ -150,16 +150,9 @@ FFHN supports two selection strategies:
 Shared fields:
 
 1. `match = "single" | "first" | "nth"`
-2. `output = "text" | "inner_html" | "outer_html"`
-3. `whitespace = "preserve" | "normalize"`
-4. `rewrite_urls = true | false`
 
-`rewrite_urls` follows HTMLCut's effective-base rules:
-
-1. HTTP targets pass their final `http` or `https` fetch URL into HTMLCut as the input base URL
-2. file targets do not invent an input base URL from `file://...`
-3. file targets can rewrite relative URLs when the document itself resolves an effective HTTP(S) base, such as `<base href="https://example.com/docs/">`
-4. when `rewrite_urls = true` and no effective HTTP(S) base resolves, FFHN keeps the extraction successful and surfaces the HTMLCut warning code `EFFECTIVE_BASE_URL_UNRESOLVED` in `warning_codes`
+Selection tells FFHN how to locate one fragment. It does not decide how FFHN compares that
+fragment. Projection choices such as rendered text versus HTML now live under `[compare]`.
 
 ### Candidate selection
 
@@ -196,9 +189,47 @@ Additional rules:
 
 ## Compare Section
 
-Current compare basis:
+Compare owns the projection that FFHN turns into a durable compare artifact.
 
-1. `basis = "canonical_text_sha256"`
+Supported compare bases:
+
+1. `basis = "text"`
+2. `basis = "inner_html"`
+3. `basis = "outer_html"`
+
+Text compare example:
+
+```toml
+[compare]
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
+canonicalization = []
+```
+
+Outer-HTML compare example:
+
+```toml
+[compare]
+basis = "outer_html"
+rewrite_urls = false
+canonicalization = []
+```
+
+Rules:
+
+1. `compare.whitespace = "preserve" | "normalize"` is required when `basis = "text"`
+2. `compare.whitespace` is forbidden when `basis = "inner_html"` or `basis = "outer_html"`
+3. `compare.rewrite_urls = true | false` defaults to `false`
+4. `compare.canonicalization` defaults to `[]`
+5. FFHN always normalizes line endings to LF before hashing the final compare value
+
+`compare.rewrite_urls` follows HTMLCut's effective-base rules:
+
+1. HTTP targets pass their final `http` or `https` fetch URL into HTMLCut as the input base URL
+2. file targets do not invent an input base URL from `file://...`
+3. file targets can rewrite relative URLs when the document itself resolves an effective HTTP(S) base, such as `<base href="https://example.com/docs/">`
+4. when `rewrite_urls = true` and no effective HTTP(S) base resolves, FFHN keeps the extraction successful and surfaces the HTMLCut warning code `EFFECTIVE_BASE_URL_UNRESOLVED` in `warning_codes`
 
 The canonicalization pipeline is an ordered list of:
 
@@ -208,13 +239,17 @@ The canonicalization pipeline is an ordered list of:
 4. `strip_regex`
 5. `lowercase`
 
-`compare.canonicalization` may also be empty. In that case FFHN hashes the LF-normalized
-extraction output directly without any additional caller-configured transforms.
+When `compare.canonicalization` is empty or omitted, FFHN hashes the LF-normalized compare-basis
+projection directly without any additional caller-configured transforms.
 
-FFHN always normalizes extraction output line endings to LF before compare-time hashing, and the
-final canonical text is LF-normalized again after the configured pipeline completes.
-`normalize_newlines` therefore remains a stable explicit vocabulary value, but it serves as an
-explicit declaration of that otherwise implicit LF-normalization step.
+FFHN persists two different artifacts for successful baselines:
+
+1. `outer.html` is the selected outer HTML after FFHN line-ending normalization
+2. `compare.txt` is the final compare value after basis projection, URL rewriting, optional text
+   whitespace shaping, and any configured canonicalizers
+
+`normalize_newlines` remains a stable explicit vocabulary value, but it now declares an otherwise
+implicit step in the caller-visible compare pipeline rather than serving as a hidden special case.
 
 `strip_regex` additionally requires:
 

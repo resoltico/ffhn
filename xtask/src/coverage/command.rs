@@ -11,7 +11,7 @@ pub(crate) fn coverage_command(repo_root: &Path, tooling: &RustTooling) -> Comma
     CommandSpec::new(
         "cargo",
         [
-            &tooling.coverage_toolchain_arg(),
+            &tooling.qa_nightly_toolchain_arg(),
             "llvm-cov",
             "--branch",
             "--workspace",
@@ -35,7 +35,7 @@ pub(crate) fn coverage_clean_command(tooling: &RustTooling) -> CommandSpec {
     CommandSpec::new(
         "cargo",
         [
-            &tooling.coverage_toolchain_arg(),
+            &tooling.qa_nightly_toolchain_arg(),
             "llvm-cov",
             "clean",
             "--workspace",

@@ -1,10 +1,10 @@
 use super::super::storage::{write_exact_text, write_json};
 use super::*;
 use crate::{
-    BaselinePhase, CoreError, EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION,
-    LastRunRecord, OutputKind, ProcessErrorDetail, ProcessErrorKind, RelativeArtifactPath,
-    RunOutcome, SelectionEvidence, SelectionKind, SelectionMatch, SnapshotSlot, StoredBaseline,
-    TargetId,
+    BaselinePhase, CompareBasis, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
+    EXTRACTION_RECORD_SCHEMA_VERSION, LastRunRecord, ProcessErrorDetail, ProcessErrorKind,
+    RelativeArtifactPath, RunOutcome, SelectionEvidence, SelectionKind, SelectionMatch,
+    SnapshotSlot, StoredBaseline, TargetId,
 };
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -23,13 +23,13 @@ fn artifact_path(path: impl Into<String>) -> RelativeArtifactPath {
 fn snapshot(slot: SnapshotSlot, canonical_text: &str, outer_html: &str) -> SnapshotReference {
     SnapshotReference {
         slot,
-        canonical_text_sha256: sha256_hex(normalize_line_endings(canonical_text).as_bytes()),
+        compare_digest_sha256: sha256_hex(normalize_line_endings(canonical_text).as_bytes()),
         outer_html_sha256: sha256_hex(normalize_line_endings(outer_html).as_bytes()),
         extraction_record_path: artifact_path(format!(
             "snapshots/{}/extraction.json",
             slot_name(slot)
         )),
-        canonical_text_path: artifact_path(format!("snapshots/{}/canonical.txt", slot_name(slot))),
+        compare_path: artifact_path(format!("snapshots/{}/compare.txt", slot_name(slot))),
         outer_html_path: artifact_path(format!("snapshots/{}/outer.html", slot_name(slot))),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
@@ -51,11 +51,11 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
     ExtractionRecord {
         schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
         schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-        comparison_input_sha256: DIGEST.to_owned(),
+        compare_source_sha256: DIGEST.to_owned(),
         outer_html_sha256: outer_html_sha256.to_owned(),
         selection_kind: SelectionKind::CssSelector,
         selection_match: SelectionMatch::Single,
-        output_kind: OutputKind::OuterHtml,
+        compare_basis: CompareBasis::Text,
         candidate_count: 1,
         selected_candidate_index: 1,
         selection_evidence: SelectionEvidence::CssSelector {
@@ -64,6 +64,7 @@ fn extraction_record(outer_html_sha256: &str) -> ExtractionRecord {
         },
         warning_codes: Vec::new(),
         created_at: "2026-04-05T10:15:30Z".to_owned(),
+        monitoring_contract_digest_sha256: DIGEST.to_owned(),
         extensions: None,
     }
 }
@@ -75,7 +76,7 @@ fn write_snapshot(
     outer: &str,
 ) {
     write_exact_text(
-        paths.target_dir().join(&reference.canonical_text_path),
+        paths.target_dir().join(&reference.compare_path),
         &normalize_line_endings(canonical),
     )
     .expect("write canonical");
@@ -107,6 +108,7 @@ fn state_document(
         schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
         schema_version: crate::STATE_SCHEMA_VERSION,
         target_id: target_id("demo"),
+        monitoring_contract_digest_sha256: DIGEST.to_owned(),
         baseline,
         last_run: if has_baseline {
             Some(LastRunRecord::new(
@@ -155,12 +157,12 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
             .as_ref()
             .expect("current")
             .reference
-            .canonical_text_sha256,
-        current.canonical_text_sha256
+            .compare_digest_sha256,
+        current.compare_digest_sha256
     );
     assert_eq!(
         prior_compare_digest(&StateLoad::Valid(Box::new(loaded.clone()))),
-        Some(current.canonical_text_sha256.clone())
+        Some(current.compare_digest_sha256.clone())
     );
     assert_eq!(
         baseline_phase_or_default(&StateLoad::Valid(Box::new(loaded.clone()))),
@@ -169,7 +171,7 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
     assert_eq!(
         snapshot_digest_summary(&current),
         SnapshotDigestSummary {
-            canonical_text_sha256: current.canonical_text_sha256.clone(),
+            compare_digest_sha256: current.compare_digest_sha256.clone(),
             outer_html_sha256: current.outer_html_sha256.clone(),
             captured_at: current.captured_at.clone(),
         }
@@ -254,11 +256,8 @@ fn load_state_covers_missing_valid_invalid_and_integrity_mismatch_cases() {
         &state_document(Some(current.clone()), vec![previous.clone()]),
     )
     .expect("rewrite valid state");
-    write_exact_text(
-        paths.target_dir().join(&current.canonical_text_path),
-        "tampered",
-    )
-    .expect("tamper canonical");
+    write_exact_text(paths.target_dir().join(&current.compare_path), "tampered")
+        .expect("tamper canonical");
     assert!(matches!(
         load_state(&paths),
         StateLoad::IntegrityMismatch {

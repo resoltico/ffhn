@@ -3,9 +3,9 @@ use super::*;
 use crate::{
     BaselinePhase, CompareBasis, CompareConfig, CoreError, EXTRACTION_RECORD_SCHEMA_NAME,
     EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig, HttpMethod, LastRunRecord,
-    NetworkFetchConfig, OutputKind, RelativeArtifactPath, SelectionConfig, SelectionEvidence,
-    SelectionKind, SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot,
-    StatusSummary, StoredBaseline, TargetId, TargetSource, WhitespaceMode,
+    NetworkFetchConfig, RelativeArtifactPath, SelectionConfig, SelectionEvidence, SelectionKind,
+    SelectionMatch, SelectionModeConfig, SnapshotReference, SnapshotSlot, StatusSummary,
+    StoredBaseline, TargetId, TargetSource, WhitespaceMode,
 };
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -47,13 +47,12 @@ fn target_document(target_name: &str) -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
@@ -66,10 +65,10 @@ fn target_document(target_name: &str) -> TargetDocument {
 fn snapshot(slot: SnapshotSlot, name: &str, canonical: &str, outer: &str) -> SnapshotReference {
     SnapshotReference {
         slot,
-        canonical_text_sha256: crate::stable_json::sha256_hex(canonical.as_bytes()),
+        compare_digest_sha256: crate::stable_json::sha256_hex(canonical.as_bytes()),
         outer_html_sha256: crate::stable_json::sha256_hex(outer.as_bytes()),
         extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
-        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        compare_path: artifact_path(format!("snapshots/{name}/compare.txt")),
         outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
@@ -83,15 +82,19 @@ fn write_target(paths: &TargetPaths, target: &TargetDocument) {
     .expect("write target");
 }
 
-fn write_valid_state(paths: &TargetPaths) {
+fn monitoring_contract_digest(target: &TargetDocument) -> String {
+    target
+        .monitoring_contract_digest_sha256()
+        .expect("monitoring contract digest")
+}
+
+fn write_valid_state(paths: &TargetPaths, target: &TargetDocument) {
     let canonical = "hello";
     let outer = "<main>Hello</main>";
     let current = snapshot(SnapshotSlot::Current, "current", canonical, outer);
-    write_exact_text(
-        paths.target_dir().join(&current.canonical_text_path),
-        canonical,
-    )
-    .expect("write canonical");
+    let monitoring_contract_digest = monitoring_contract_digest(target);
+    write_exact_text(paths.target_dir().join(&current.compare_path), canonical)
+        .expect("write canonical");
     write_exact_text(paths.target_dir().join(&current.outer_html_path), outer)
         .expect("write outer html");
     write_json(
@@ -99,11 +102,11 @@ fn write_valid_state(paths: &TargetPaths) {
         &ExtractionRecord {
             schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
             schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: current.outer_html_sha256.clone(),
             selection_kind: SelectionKind::CssSelector,
             selection_match: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
+            compare_basis: CompareBasis::Text,
             candidate_count: 1,
             selected_candidate_index: 1,
             selection_evidence: SelectionEvidence::CssSelector {
@@ -112,6 +115,7 @@ fn write_valid_state(paths: &TargetPaths) {
             },
             warning_codes: Vec::new(),
             created_at: "2026-04-05T10:15:30Z".to_owned(),
+            monitoring_contract_digest_sha256: monitoring_contract_digest.clone(),
             extensions: None,
         },
     )
@@ -122,6 +126,7 @@ fn write_valid_state(paths: &TargetPaths) {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: monitoring_contract_digest,
             baseline: StoredBaseline::Ready {
                 current_snapshot: current,
                 snapshot_history: Vec::new(),
@@ -150,7 +155,7 @@ fn validate_target_reads_toml_and_enforces_directory_identity() {
         paths.target_file(),
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -166,12 +171,11 @@ engine = "http"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
     )
@@ -230,6 +234,7 @@ fn validate_target_and_status_require_a_real_watch_root_directory() {
 fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
+    let target = target_document("demo");
 
     write_text(paths.target_file(), "not = [valid").expect("broken target");
     let report = status(&paths).expect("config invalid status");
@@ -243,7 +248,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
     assert!(report.error_detail().is_some());
     assert!(!paths.run_lock_file().exists());
 
-    write_target(&paths, &target_document("demo"));
+    write_target(&paths, &target);
     let report = status(&paths).expect("pending status");
     assert_eq!(report.enabled(), Some(true));
     assert!(report.status().is_pending());
@@ -261,6 +266,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: monitoring_contract_digest(&target),
             baseline: StoredBaseline::Pending,
             last_run: None,
             extensions: None,
@@ -277,6 +283,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: monitoring_contract_digest(&target),
             baseline: StoredBaseline::Ready {
                 current_snapshot: snapshot(
                     SnapshotSlot::Current,
@@ -305,7 +312,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
 
     #[cfg(unix)]
     {
-        write_valid_state(&paths);
+        write_valid_state(&paths, &target);
         let metadata = std::fs::metadata(paths.state_file()).expect("state metadata");
         let original = metadata.permissions();
         let mut denied = original.clone();
@@ -325,7 +332,7 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
         assert!(report.error_detail().is_some());
     }
 
-    write_valid_state(&paths);
+    write_valid_state(&paths, &target);
     write_exact_text(
         paths.target_dir().join("snapshots/current/outer.html"),
         "<main>Tampered</main>",
@@ -340,13 +347,32 @@ fn status_covers_config_invalid_missing_invalid_integrity_and_ready_states() {
     ));
     assert!(report.error_detail().is_some());
 
-    write_valid_state(&paths);
+    write_valid_state(&paths, &target);
     let report = status(&paths).expect("ready status");
     assert_eq!(report.enabled(), Some(true));
     assert!(report.status().is_ready());
     assert!(matches!(report.status(), StatusSummary::Ready { .. }));
     assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
     assert!(report.current_snapshot().is_some());
+
+    let incompatible_target = TargetDocument {
+        target: TargetSource::Http {
+            source_url: Url::parse("https://example.com/changed").expect("url"),
+        },
+        ..target_document("demo")
+    };
+    write_target(&paths, &incompatible_target);
+    let report = status(&paths).expect("incompatible baseline status");
+    assert_eq!(report.enabled(), Some(true));
+    assert!(matches!(
+        report.status(),
+        StatusSummary::IncompatibleBaseline {
+            baseline_phase: BaselinePhase::HasBaseline,
+            ..
+        }
+    ));
+    assert_eq!(report.baseline_phase(), Some(BaselinePhase::HasBaseline));
+    assert!(report.error_detail().is_some());
 
     #[cfg(unix)]
     {

@@ -27,7 +27,7 @@ path that does not depend on a live website, use the
 ```toml
 # checks/quarterly-report/target.toml
 schema_name    = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id      = "quarterly-report"
 display_name   = "Quarterly Report"
 enabled        = true
@@ -43,15 +43,13 @@ accept           = "text/html"
 follow_redirects = true
 
 [selection]
-kind         = "css_selector"
-match        = "single"
-output       = "outer_html"
-whitespace   = "preserve"
-rewrite_urls = false
-selector     = "section.financials"
+kind     = "css_selector"
+match    = "single"
+selector = "section.financials"
 
 [compare]
-basis            = "canonical_text_sha256"
+basis            = "outer_html"
+rewrite_urls     = false
 canonicalization = []
 ```
 

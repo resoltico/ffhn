@@ -28,7 +28,7 @@ pub(super) use crate::stable_json::sha256_hex;
 pub(super) use crate::{
     BaselinePhase, ChangeKind, CompareBasis, CompareConfig, CoreError,
     EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord, FetchConfig,
-    FetchEngine, HttpMethod, LastRunRecord, NetworkFetchConfig, OutputKind, PersistWriteStatus,
+    FetchEngine, HttpMethod, LastRunRecord, NetworkFetchConfig, PersistWriteStatus,
     RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, RelativeArtifactPath, RunChangeSection,
     RunCompareSection, RunExtractionSection, RunFailureCause, RunFetchSection, RunMode, RunOutcome,
     RunPersistSection, RunReport, RunResult, SelectionConfig, SelectionEvidence, SelectionKind,
@@ -103,6 +103,7 @@ pub(super) fn notification_endpoint(
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct TestResponse {
     pub(super) status_line: &'static str,
     pub(super) content_type: &'static str,
@@ -187,7 +188,7 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
         run_finished_at: "2026-04-05T10:15:31Z".to_owned(),
         run_mode: RunMode::Live,
         result: RunResult::Changed,
-        compare_basis: CompareBasis::CanonicalTextSha256,
+        compare_basis: CompareBasis::Text,
         previous_compare_digest_sha256: Some(DIGEST.to_owned()),
         current_compare_digest_sha256: Some(DIGEST.to_owned()),
         baseline_phase_before_run: BaselinePhase::HasBaseline,
@@ -201,11 +202,10 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
             duration_ms: 12,
         }),
         extraction: Some(RunExtractionSection {
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: DIGEST.to_owned(),
             selection_kind: SelectionKind::CssSelector,
             selection_match: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
             candidate_count: 1,
             selected_candidate_index: 1,
             warning_codes: Vec::new(),
@@ -217,10 +217,10 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
         }),
         change: Some(RunChangeSection {
             kind: ChangeKind::Changed,
-            previous_text_bytes: Some(6),
-            current_text_bytes: 7,
-            previous_line_count: Some(1),
-            current_line_count: 1,
+            previous_compare_bytes: Some(6),
+            current_compare_bytes: 7,
+            previous_compare_line_count: Some(1),
+            current_compare_line_count: 1,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,
@@ -238,21 +238,27 @@ pub(super) fn live_success_report(target_name: &str) -> RunReport {
 }
 
 pub(super) fn serve_once(response: TestResponse) -> (Url, thread::JoinHandle<()>) {
+    serve_sequence(vec![response])
+}
+
+pub(super) fn serve_sequence(responses: Vec<TestResponse>) -> (Url, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
     let address = listener.local_addr().expect("server addr");
     let url = Url::parse(&format!("http://{address}")).expect("server url");
     let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept connection");
-        let mut request = [0u8; 2048];
-        let _ = stream.read(&mut request);
-        let raw = format!(
-            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-            response.status_line,
-            response.content_type,
-            response.body.len(),
-            response.body
-        );
-        let _ = stream.write_all(raw.as_bytes());
+        for response in responses {
+            let (mut stream, _) = listener.accept().expect("accept connection");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            let raw = format!(
+                "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                response.status_line,
+                response.content_type,
+                response.body.len(),
+                response.body
+            );
+            let _ = stream.write_all(raw.as_bytes());
+        }
     });
     (url, handle)
 }
@@ -341,13 +347,12 @@ pub(super) fn target_document(
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: selector.to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
@@ -355,6 +360,12 @@ pub(super) fn target_document(
         notification_routes: Vec::new(),
         extensions: None,
     }
+}
+
+pub(super) fn monitoring_contract_digest(target: &TargetDocument) -> String {
+    target
+        .monitoring_contract_digest_sha256()
+        .expect("monitoring contract digest")
 }
 
 pub(super) fn write_target(paths: &TargetPaths, target: &TargetDocument) {
@@ -373,22 +384,25 @@ pub(super) fn snapshot_reference(
 ) -> SnapshotReference {
     SnapshotReference {
         slot,
-        canonical_text_sha256: sha256_hex(canonical.as_bytes()),
+        compare_digest_sha256: sha256_hex(canonical.as_bytes()),
         outer_html_sha256: sha256_hex(outer.as_bytes()),
         extraction_record_path: artifact_path(format!("snapshots/{name}/extraction.json")),
-        canonical_text_path: artifact_path(format!("snapshots/{name}/canonical.txt")),
+        compare_path: artifact_path(format!("snapshots/{name}/compare.txt")),
         outer_html_path: artifact_path(format!("snapshots/{name}/outer.html")),
         captured_at: "2026-04-05T10:15:30Z".to_owned(),
     }
 }
 
-pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: &str) {
+pub(super) fn write_snapshot_state(
+    paths: &TargetPaths,
+    target: &TargetDocument,
+    canonical: &str,
+    outer: &str,
+) {
     let reference = snapshot_reference(SnapshotSlot::Current, "current", canonical, outer);
-    write_exact_text(
-        paths.target_dir().join(&reference.canonical_text_path),
-        canonical,
-    )
-    .expect("write canonical");
+    let monitoring_contract_digest = monitoring_contract_digest(target);
+    write_exact_text(paths.target_dir().join(&reference.compare_path), canonical)
+        .expect("write canonical");
     write_exact_text(paths.target_dir().join(&reference.outer_html_path), outer)
         .expect("write outer");
     write_json(
@@ -396,11 +410,11 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
         &ExtractionRecord {
             schema_name: EXTRACTION_RECORD_SCHEMA_NAME.to_owned(),
             schema_version: EXTRACTION_RECORD_SCHEMA_VERSION,
-            comparison_input_sha256: DIGEST.to_owned(),
+            compare_source_sha256: DIGEST.to_owned(),
             outer_html_sha256: reference.outer_html_sha256.clone(),
             selection_kind: SelectionKind::CssSelector,
             selection_match: SelectionMatch::Single,
-            output_kind: OutputKind::OuterHtml,
+            compare_basis: CompareBasis::Text,
             candidate_count: 1,
             selected_candidate_index: 1,
             selection_evidence: SelectionEvidence::CssSelector {
@@ -409,6 +423,7 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
             },
             warning_codes: Vec::new(),
             created_at: "2026-04-05T10:15:30Z".to_owned(),
+            monitoring_contract_digest_sha256: monitoring_contract_digest.clone(),
             extensions: None,
         },
     )
@@ -419,6 +434,7 @@ pub(super) fn write_snapshot_state(paths: &TargetPaths, canonical: &str, outer: 
             schema_name: crate::STATE_SCHEMA_NAME.to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id(paths.target_id()),
+            monitoring_contract_digest_sha256: monitoring_contract_digest,
             baseline: StoredBaseline::Ready {
                 current_snapshot: reference,
                 snapshot_history: Vec::new(),

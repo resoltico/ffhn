@@ -272,12 +272,15 @@ fn validate_devcontainer_repairs_workspace_volumes_and_exercises_client_path() {
     assert!(script.contains("scripts/devcontainer-cli-helper.Dockerfile"));
     assert!(script.contains("ffhn_docker_build"));
     assert!(script.contains("--build-arg \"BASE_IMAGE=${image_tag}\""));
+    assert!(script.contains("cargo +\"${RUST_QA_NIGHTLY_TOOLCHAIN}\" miri --version >/dev/null"));
     assert!(
         script.contains("docker run --rm \"${helper_image_tag}\" docker buildx version >/dev/null")
     );
     assert!(script.contains("mkdir -p \"${HOME}\""));
     assert!(script.contains("git config --global --add safe.directory \"${FFHN_REPO_ROOT}\""));
     assert!(script.contains("readonly FFHN_VALIDATE_REPO_ROOT"));
+    assert!(script.contains("readonly canonical_image_tag=\"ffhn-devcontainer:local\""));
+    assert!(script.contains("docker tag \"${image_tag}\" \"${canonical_image_tag}\""));
     assert!(script.contains("--volume \"${repo_root}:/workspaces/ffhn\""));
     assert!(!script.contains("--volume \"${repo_root}:/workspaces/ffhn:ro\""));
     assert!(script.contains("devcontainer up --remove-existing-container"));

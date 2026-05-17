@@ -28,7 +28,7 @@ fn run_report_accessors_expose_the_public_contract() {
     assert_eq!(report.run_finished_at(), "2026-04-05T10:15:31Z");
     assert_eq!(report.failure_class(), None);
     assert!(report.error_detail().is_none());
-    assert_eq!(report.compare_basis(), CompareBasis::CanonicalTextSha256);
+    assert_eq!(report.compare_basis(), CompareBasis::Text);
     assert_eq!(report.previous_compare_digest_sha256(), Some(DIGEST));
     assert_eq!(report.current_compare_digest_sha256(), Some(DIGEST));
     assert_eq!(
@@ -42,7 +42,7 @@ fn run_report_accessors_expose_the_public_contract() {
     let successful = report.successful().expect("successful view");
     let body = successful.body();
     assert_eq!(body.fetch().engine(), FetchEngine::Http);
-    assert_eq!(body.extraction().comparison_input_sha256(), DIGEST);
+    assert_eq!(body.extraction().compare_source_sha256(), DIGEST);
     assert_eq!(body.compare().canonicalizers(), ["trim"]);
     assert_eq!(body.change().kind(), ChangeKind::Changed);
     assert_eq!(body.previous_compare_digest_sha256(), Some(DIGEST));
@@ -57,11 +57,10 @@ fn run_report_accessors_expose_the_public_contract() {
     assert_eq!(fetch.duration_ms(), 12);
 
     let extraction = report.extraction().expect("extraction");
-    assert_eq!(extraction.comparison_input_sha256(), DIGEST);
+    assert_eq!(extraction.compare_source_sha256(), DIGEST);
     assert_eq!(extraction.outer_html_sha256(), DIGEST);
     assert_eq!(extraction.selection_kind(), SelectionKind::CssSelector);
     assert_eq!(extraction.selection_match(), SelectionMatch::Single);
-    assert_eq!(extraction.output_kind(), OutputKind::OuterHtml);
     assert_eq!(extraction.candidate_count(), 1);
     assert_eq!(extraction.selected_candidate_index(), 1);
     assert!(extraction.warning_codes().is_empty());
@@ -73,10 +72,10 @@ fn run_report_accessors_expose_the_public_contract() {
 
     let change = report.change().expect("change");
     assert_eq!(change.kind(), ChangeKind::Changed);
-    assert_eq!(change.previous_text_bytes(), Some(6));
-    assert_eq!(change.current_text_bytes(), 7);
-    assert_eq!(change.previous_line_count(), Some(1));
-    assert_eq!(change.current_line_count(), 1);
+    assert_eq!(change.previous_compare_bytes(), Some(6));
+    assert_eq!(change.current_compare_bytes(), 7);
+    assert_eq!(change.previous_compare_line_count(), Some(1));
+    assert_eq!(change.current_compare_line_count(), 1);
     assert_eq!(change.common_prefix_lines(), 0);
     assert_eq!(change.common_suffix_lines(), 0);
     let changed_region = change.changed_region().expect("changed region");
@@ -218,10 +217,10 @@ fn run_report_validation_accepts_success_skipped_and_persist_error_shapes() {
         baseline_phase_before_run: BaselinePhase::NeverSucceeded,
         change: Some(RunChangeSection {
             kind: ChangeKind::Initialized,
-            previous_text_bytes: None,
-            current_text_bytes: 7,
-            previous_line_count: None,
-            current_line_count: 1,
+            previous_compare_bytes: None,
+            current_compare_bytes: 7,
+            previous_compare_line_count: None,
+            current_compare_line_count: 1,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,
@@ -644,10 +643,10 @@ fn run_report_validation_rejects_invalid_result_and_stage_contracts() {
         previous_compare_digest_sha256: None,
         change: Some(RunChangeSection {
             kind: ChangeKind::Initialized,
-            previous_text_bytes: None,
-            current_text_bytes: 7,
-            previous_line_count: None,
-            current_line_count: 1,
+            previous_compare_bytes: None,
+            current_compare_bytes: 7,
+            previous_compare_line_count: None,
+            current_compare_line_count: 1,
             common_prefix_lines: 0,
             common_suffix_lines: 0,
             changed_region: None,
@@ -733,10 +732,10 @@ fn run_report_validation_rejects_invalid_fetch_extraction_and_change_sections() 
     let invalid_change = RunReport {
         change: Some(RunChangeSection {
             kind: ChangeKind::Changed,
-            previous_text_bytes: Some(1),
-            current_text_bytes: 0,
-            previous_line_count: Some(1),
-            current_line_count: 0,
+            previous_compare_bytes: Some(1),
+            current_compare_bytes: 0,
+            previous_compare_line_count: Some(1),
+            current_compare_line_count: 0,
             common_prefix_lines: 2,
             common_suffix_lines: 0,
             changed_region: None,
@@ -765,7 +764,7 @@ fn run_report_deserialization_revalidates_and_rejects_legacy_shapes() {
         "run_mode": "live",
         "run_outcome": "changed",
         "reason_code": "ok",
-        "compare_basis": "canonical_text_sha256",
+        "compare_basis": "compare_digest_sha256",
         "current_compare_digest_sha256": DIGEST,
         "baseline_phase_before_run": "has_baseline",
         "baseline_phase_after_run": "has_baseline",
@@ -814,7 +813,7 @@ fn run_report_body_views_cover_partial_empty_and_incoherent_shapes() {
     match fetch_and_extraction.body() {
         RunBodyView::FetchAndExtraction { fetch, extraction } => {
             assert_eq!(fetch.engine(), FetchEngine::Http);
-            assert_eq!(extraction.output_kind(), OutputKind::OuterHtml);
+            assert_eq!(extraction.selection_kind(), SelectionKind::CssSelector);
         }
         other => panic!("unexpected body view: {other:?}"),
     }

@@ -33,24 +33,25 @@ pub use schema::{
     STATUS_REPORT_SCHEMA_VERSION, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
 };
 pub use state::{LastRunRecord, StateDocument, StoredBaseline};
+pub(crate) use target::CompareConfig;
 #[cfg(all(test, unix))]
 pub(crate) use target::NotificationAdapter;
 #[cfg(all(test, unix))]
 pub(crate) use target::NotificationEndpoint;
 pub use target::{CanonicalizerSpec, NotificationRouteView, TargetDocument};
-#[cfg(any(test, doctest))]
-pub(crate) use target::{CompareConfig, FetchConfig, TargetSource};
 pub use target::{
     CompareConfigView, CssSelectorSelectionView, DelimiterPairSelectionView, FetchConfigView,
     FileFetchConfigView, FileTargetSourceView, HttpFetchConfigView, HttpTargetSourceView,
     SelectionConfigView, SelectionModeView, TargetSourceView,
 };
+#[cfg(any(test, doctest))]
+pub(crate) use target::{FetchConfig, TargetSource};
 pub(crate) use target::{
     FileFetchConfig, NetworkFetchConfig, NotificationRoute, SelectionConfig, SelectionModeConfig,
 };
 pub use value::{RelativeArtifactPath, TargetId};
 pub use vocab::{
     BaselinePhase, CanonicalizerKind, ChangeKind, CompareBasis, DelimiterMode, FailureClass,
-    FetchEngine, HttpMethod, OutputKind, RegexFlag, RunFailureCause, RunMode, RunOutcome,
-    SelectionKind, SelectionMatch, SnapshotSlot, TargetKind, WhitespaceMode,
+    FetchEngine, HttpMethod, RegexFlag, RunFailureCause, RunMode, RunOutcome, SelectionKind,
+    SelectionMatch, SnapshotSlot, TargetKind, WhitespaceMode,
 };

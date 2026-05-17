@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-15"
+updated: "2026-05-16"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -88,7 +88,7 @@ That keeps the release worktree clean without discarding the real unpublished st
 
 If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${VERSION}` from the updated `origin/main`.
 
-Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). The stable workspace toolchain is owned by [../rust-toolchain.toml](../rust-toolchain.toml), and the exact maintainer toolchain plus QA-tool versions are owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env). The pinned coverage/nightly toolchain exists only for the coverage gate and optional manual sanitizer-backed fuzz runs.
+Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). The stable workspace toolchain is owned by [../rust-toolchain.toml](../rust-toolchain.toml), and the exact maintainer toolchain plus QA-tool versions are owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env). The pinned QA nightly toolchain exists for the maintained Miri proof, the coverage gate, and optional manual sanitizer-backed fuzz runs.
 
 Run the single local quality gate first:
 
@@ -128,7 +128,10 @@ FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh
 
 `./check.sh` proves the shipped Rust/product contract. The two devcontainer entrypoints prove the
 committed contributor environment, the raw Docker image contract, the Dev Container client path, and
-the full headless maintainer gate through that environment.
+the full headless maintainer gate through that environment. The validator also promotes the
+validated contributor image into the canonical local tag `ffhn-devcontainer:local`, so the
+`FFHN_DEVCONTAINER_SKIP_BUILD=1` path reuses the exact image that just passed validation instead of
+silently drifting onto an older local tag.
 
 FFHN keeps normal Cargo output out of the repository tree by default through
 [../.cargo/config.toml](../.cargo/config.toml), which points the maintained host-native path at the

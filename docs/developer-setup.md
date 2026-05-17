@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: SETUP
-updated: "2026-05-14"
+updated: "2026-05-16"
 route:
-  keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, cargo-fuzz, shellcheck, gh cli, compiler override]
-  questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn release work?"]
+  keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, nightly, miri, cargo-fuzz, shellcheck, gh cli, compiler override]
+  questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn's maintained miri proof?", "what is required for ffhn release work?"]
 ---
 
 # Developer Setup
@@ -30,7 +30,7 @@ Required for ordinary host-native local development:
 
 Required for the maintained local gate (`./check.sh`):
 
-1. the pinned stable and coverage toolchains from [../rust-toolchain.toml](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
+1. the pinned stable and QA nightly toolchains from [../rust-toolchain.toml](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
 2. the pinned Cargo QA tools used by `cargo xtask`
 3. `shellcheck`
 
@@ -72,9 +72,9 @@ Why this shape:
 
 1. [`rust-toolchain.toml`](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env) stay the only canonical owners of exact toolchain and QA-tool versions
 2. [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installs those pinned versions directly instead of depending on ambient host state
-3. the maintained coverage gate and manual fuzzing need the pinned coverage toolchain, while ordinary build/test/run work uses the pinned stable toolchain
+3. the maintained Miri proof, coverage gate, and manual fuzzing need the pinned QA nightly toolchain, while ordinary build/test/run work uses the pinned stable toolchain
 
-Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`. It is required for the maintained coverage gate and optional manual fuzzing.
+Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`. It is required for the maintained Miri proof, the coverage gate, and optional manual fuzzing.
 
 The bootstrap script also installs the pinned `cargo-fuzz` and `cargo-outdated` tools. They are
 not part of the required correctness gate, but FFHN uses them for manual fuzzing and the separate
@@ -148,8 +148,11 @@ its real Dev Container client path directly:
 For the full maintainer gate inside the contributor image:
 
 ```bash
-./scripts/run-devcontainer-check.sh
+FFHN_DEVCONTAINER_SKIP_BUILD=1 ./scripts/run-devcontainer-check.sh
 ```
+
+The validator seeds the canonical local contributor-image tag, so the skip-build gate reuses the
+same image that already passed the raw-image and Dev Container client proofs.
 
 For a live terminal inside the contributor image, follow [developer-devcontainer.md](developer-devcontainer.md).
 
@@ -166,6 +169,7 @@ cargo audit --version
 cargo deny --version
 cargo semver-checks --version
 cargo llvm-cov --version
+cargo +"$(sed -n 's/^RUST_QA_NIGHTLY_TOOLCHAIN=//p' tooling/rust-tooling.env)" miri --version
 shellcheck --version
 ./check.sh
 ```

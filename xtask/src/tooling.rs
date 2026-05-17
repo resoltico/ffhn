@@ -16,7 +16,7 @@ pub(crate) struct RustTooling {
     pub(crate) workspace_edition: String,
     pub(crate) workspace_rust_version: String,
     pub(crate) stable_toolchain: String,
-    pub(crate) coverage_toolchain: String,
+    pub(crate) qa_nightly_toolchain: String,
     pub(crate) cargo_audit_version: String,
     pub(crate) cargo_deny_version: String,
     pub(crate) cargo_fuzz_version: String,
@@ -27,8 +27,8 @@ pub(crate) struct RustTooling {
 }
 
 impl RustTooling {
-    pub(crate) fn coverage_toolchain_arg(&self) -> String {
-        format!("+{}", self.coverage_toolchain)
+    pub(crate) fn qa_nightly_toolchain_arg(&self) -> String {
+        format!("+{}", self.qa_nightly_toolchain)
     }
 
     pub(crate) fn cargo_qa_tools(&self) -> [CargoQaToolSpec<'_>; 6] {
@@ -101,7 +101,7 @@ pub(crate) fn parse_rust_tooling(text: &str) -> Result<RustTooling, String> {
         workspace_edition: required_tooling_value(&values, "RUST_WORKSPACE_EDITION")?,
         workspace_rust_version: required_tooling_value(&values, "RUST_WORKSPACE_RUST_VERSION")?,
         stable_toolchain: required_tooling_value(&values, "RUST_STABLE_TOOLCHAIN")?,
-        coverage_toolchain: required_tooling_value(&values, "RUST_COVERAGE_TOOLCHAIN")?,
+        qa_nightly_toolchain: required_tooling_value(&values, "RUST_QA_NIGHTLY_TOOLCHAIN")?,
         cargo_audit_version: required_tooling_value(&values, "CARGO_AUDIT_VERSION")?,
         cargo_deny_version: required_tooling_value(&values, "CARGO_DENY_VERSION")?,
         cargo_fuzz_version: required_tooling_value(&values, "CARGO_FUZZ_VERSION")?,

@@ -30,13 +30,12 @@ fn valid_target() -> TargetDocument {
         }),
         selection: SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::Single,
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             selector: "main".to_owned(),
         },
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: Vec::new(),
         },
         storage: Default::default(),
@@ -99,7 +98,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         )]));
     }
     http_target.compare = CompareConfig {
-        basis: CompareBasis::CanonicalTextSha256,
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
         canonicalization: vec![CanonicalizerSpec {
             kind: CanonicalizerKind::StripRegex,
             pattern: Some("demo".to_owned()),
@@ -190,10 +191,7 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
             .get("demo"),
         Some(&json!({"kind": "fetch"}))
     );
-    assert_eq!(
-        http_target.compare_basis(),
-        CompareBasis::CanonicalTextSha256
-    );
+    assert_eq!(http_target.compare_basis(), CompareBasis::Text);
     assert_eq!(http_target.compare_canonicalization().len(), 1);
     let canonicalizer = &http_target.compare_canonicalization()[0];
     assert_eq!(canonicalizer.kind(), CanonicalizerKind::StripRegex);
@@ -208,9 +206,6 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     match selection {
         SelectionConfigView::CssSelector(selection) => {
             assert_eq!(selection.selection_mode(), SelectionModeView::Single);
-            assert_eq!(selection.output_kind(), OutputKind::OuterHtml);
-            assert_eq!(selection.whitespace_mode(), WhitespaceMode::Normalize);
-            assert!(!selection.rewrite_urls());
             assert_eq!(selection.selector(), "main");
         }
         SelectionConfigView::DelimiterPair(_) => panic!("expected css selector"),
@@ -218,12 +213,6 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     assert_eq!(http_target.selection_kind(), SelectionKind::CssSelector);
     assert_eq!(http_target.selection_match(), SelectionMatch::Single);
     assert_eq!(http_target.selection_index(), None);
-    assert_eq!(http_target.selection_output(), OutputKind::OuterHtml);
-    assert_eq!(
-        http_target.selection_whitespace(),
-        WhitespaceMode::Normalize
-    );
-    assert!(!http_target.selection_rewrite_urls());
     assert_eq!(http_target.selection_selector(), Some("main"));
     assert_eq!(http_target.selection_start(), None);
     assert_eq!(http_target.selection_end(), None);
@@ -253,7 +242,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
             .expect("http target round-trip");
     assert_eq!(http_round_trip.fetch().engine(), FetchEngine::Http);
     let compare = http_target.compare_config();
-    assert_eq!(compare.basis(), CompareBasis::CanonicalTextSha256);
+    assert_eq!(compare.basis(), CompareBasis::Text);
+    assert_eq!(compare.whitespace(), Some(WhitespaceMode::Normalize));
+    assert!(!compare.rewrite_urls());
     assert_eq!(compare.canonicalization().len(), 1);
 
     let file_target = valid_file_target();
@@ -300,15 +291,18 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(2).expect("nonzero index"),
         },
-        output: OutputKind::InnerHtml,
-        whitespace: WhitespaceMode::Preserve,
-        rewrite_urls: true,
         start: "<main>".to_owned(),
         end: "</main>".to_owned(),
         mode: DelimiterMode::Regex,
         include_start: true,
         include_end: false,
         flags: vec![RegexFlag::DotMatchesNewLine],
+    };
+    delimiter_target.compare = CompareConfig {
+        basis: CompareBasis::InnerHtml,
+        whitespace: None,
+        rewrite_urls: true,
+        canonicalization: Vec::new(),
     };
     assert_eq!(
         delimiter_target.selection_kind(),
@@ -329,9 +323,6 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
                 SelectionMatch::Nth
             );
             assert_eq!(selection.selection_mode().index(), Some(2));
-            assert_eq!(selection.output_kind(), OutputKind::InnerHtml);
-            assert_eq!(selection.whitespace_mode(), WhitespaceMode::Preserve);
-            assert!(selection.rewrite_urls());
             assert_eq!(selection.start(), "<main>");
             assert_eq!(selection.end(), "</main>");
             assert_eq!(selection.delimiter_mode(), DelimiterMode::Regex);
@@ -343,12 +334,9 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     }
     assert_eq!(delimiter_target.selection_match(), SelectionMatch::Nth);
     assert_eq!(delimiter_target.selection_index(), Some(2));
-    assert_eq!(delimiter_target.selection_output(), OutputKind::InnerHtml);
-    assert_eq!(
-        delimiter_target.selection_whitespace(),
-        WhitespaceMode::Preserve
-    );
-    assert!(delimiter_target.selection_rewrite_urls());
+    assert_eq!(delimiter_target.compare_basis(), CompareBasis::InnerHtml);
+    assert_eq!(delimiter_target.compare_whitespace(), None);
+    assert!(delimiter_target.compare_rewrite_urls());
     assert_eq!(delimiter_target.selection_selector(), None);
     assert_eq!(delimiter_target.selection_start(), Some("<main>"));
     assert_eq!(delimiter_target.selection_end(), Some("</main>"));
@@ -366,10 +354,13 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
     let mut first_match_target = valid_target();
     first_match_target.selection = SelectionConfig::CssSelector {
         selection_mode: SelectionModeConfig::First,
-        output: OutputKind::Text,
-        whitespace: WhitespaceMode::Preserve,
-        rewrite_urls: false,
         selector: "article".to_owned(),
+    };
+    first_match_target.compare = CompareConfig {
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Preserve),
+        rewrite_urls: false,
+        canonicalization: Vec::new(),
     };
     match first_match_target.selection() {
         SelectionConfigView::CssSelector(selection) => {
@@ -392,7 +383,7 @@ fn typed_target_and_fetch_accessors_and_raw_contracts_cover_all_variants() {
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -411,12 +402,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -427,7 +417,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -445,12 +435,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -461,7 +450,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -477,12 +466,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -520,7 +508,7 @@ x-demo = "demo"
         let document = format!(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -534,12 +522,11 @@ file_path = "/tmp/demo.html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         );
@@ -551,7 +538,7 @@ fn parse_target_with_selection(selection: &str) -> Result<TargetDocument, toml::
     toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -569,7 +556,9 @@ accept = "text/html"
 {selection}
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
     ))
@@ -581,7 +570,9 @@ fn valid_css_selector_target_document_passes_validation() {
 
     TargetDocument {
         compare: CompareConfig {
-            basis: CompareBasis::CanonicalTextSha256,
+            basis: CompareBasis::Text,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
             canonicalization: vec![CanonicalizerSpec {
                 kind: CanonicalizerKind::Trim,
                 pattern: None,
@@ -643,7 +634,9 @@ fn target_validation_checks_url_ranges_and_header_values() {
     assert!(target.validate().is_err());
 
     CompareConfig {
-        basis: CompareBasis::CanonicalTextSha256,
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
         canonicalization: vec![CanonicalizerSpec {
             kind: CanonicalizerKind::Lowercase,
             pattern: None,
@@ -660,9 +653,6 @@ fn selection_validation_enforces_match_index_rules() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(2).expect("non-zero index"),
         },
-        output: OutputKind::OuterHtml,
-        whitespace: WhitespaceMode::Normalize,
-        rewrite_urls: false,
         selector: "main".to_owned(),
     };
     selection.validate().expect("nth with index");
@@ -673,9 +663,6 @@ fn selection_validation_enforces_match_index_rules() {
 kind = "css_selector"
 selector = "main"
 match = "nth"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -688,9 +675,6 @@ kind = "css_selector"
 selector = "main"
 match = "nth"
 index = 0
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -703,9 +687,6 @@ kind = "css_selector"
 selector = "main"
 match = "first"
 index = 2
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -716,9 +697,6 @@ rewrite_urls = false
             r#"
 kind = "css_selector"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -731,11 +709,53 @@ kind = "css_selector"
 selector = "main"
 match = "single"
 index = 2
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
+        .is_err()
+    );
+}
+
+#[test]
+fn compare_config_validation_enforces_basis_specific_whitespace_rules() {
+    CompareConfig {
+        basis: CompareBasis::Text,
+        whitespace: Some(WhitespaceMode::Normalize),
+        rewrite_urls: false,
+        canonicalization: Vec::new(),
+    }
+    .validate()
+    .expect("text compare with whitespace");
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::Text,
+            whitespace: None,
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
+        .is_err()
+    );
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::InnerHtml,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
+        .is_err()
+    );
+
+    assert!(
+        CompareConfig {
+            basis: CompareBasis::OuterHtml,
+            whitespace: Some(WhitespaceMode::Normalize),
+            rewrite_urls: false,
+            canonicalization: Vec::new(),
+        }
+        .validate()
         .is_err()
     );
 }
@@ -749,9 +769,6 @@ kind = "css_selector"
 selector = "main"
 start = "BEGIN"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -764,9 +781,6 @@ kind = "css_selector"
 selector = "main"
 end = "END"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -779,9 +793,6 @@ kind = "css_selector"
 selector = "main"
 mode = "regex"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -794,9 +805,6 @@ kind = "css_selector"
 selector = "main"
 include_start = true
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -809,9 +817,6 @@ kind = "css_selector"
 selector = "main"
 include_end = true
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -824,9 +829,6 @@ kind = "css_selector"
 selector = "main"
 flags = ["case_insensitive"]
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -845,9 +847,6 @@ fn delimiter_selection_requires_its_full_contract() {
         selection_mode: SelectionModeConfig::Nth {
             index: NonZeroUsize::new(1).expect("non-zero index"),
         },
-        output: OutputKind::OuterHtml,
-        whitespace: WhitespaceMode::Normalize,
-        rewrite_urls: false,
         start: "BEGIN".to_owned(),
         end: "END".to_owned(),
         mode: DelimiterMode::Regex,
@@ -867,9 +866,6 @@ include_start = false
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -885,9 +881,6 @@ mode = "regex"
 include_start = false
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -903,9 +896,6 @@ mode = "regex"
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -923,9 +913,6 @@ include_start = false
 include_end = true
 match = "nth"
 index = 1
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 "#,
         )
         .is_err()
@@ -1053,7 +1040,7 @@ fn file_targets_storage_and_notifications_validate_their_specific_contracts() {
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1070,12 +1057,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )
@@ -1225,7 +1211,7 @@ fn serde_defaults_fill_http_fetch_storage_and_notification_fields() {
     let parsed: TargetDocument = toml::from_str(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1243,12 +1229,11 @@ accept = "text/html"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 
 [[notification_endpoints]]
@@ -1293,18 +1278,12 @@ fn selection_config_serialization_round_trips_all_typed_shapes() {
         valid_target().selection.clone(),
         SelectionConfig::CssSelector {
             selection_mode: SelectionModeConfig::First,
-            output: OutputKind::Text,
-            whitespace: WhitespaceMode::Preserve,
-            rewrite_urls: true,
             selector: "article".to_owned(),
         },
         SelectionConfig::DelimiterPair {
             selection_mode: SelectionModeConfig::Nth {
                 index: NonZeroUsize::new(2).expect("non-zero index"),
             },
-            output: OutputKind::OuterHtml,
-            whitespace: WhitespaceMode::Normalize,
-            rewrite_urls: false,
             start: "BEGIN".to_owned(),
             end: "END".to_owned(),
             mode: DelimiterMode::Literal,
@@ -1327,7 +1306,7 @@ fn file_targets_use_the_typed_file_fetch_shape_when_deserialized() {
     let parsed = toml::from_str::<TargetDocument>(&format!(
         r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1343,12 +1322,11 @@ engine = "file"
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#
     ))
@@ -1365,7 +1343,7 @@ canonicalization = []
         toml::from_str::<TargetDocument>(
             r#"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "demo"
 display_name = "Demo"
 enabled = true
@@ -1382,12 +1360,11 @@ follow_redirects = false
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 canonicalization = []
 "#,
         )

@@ -54,19 +54,6 @@ pub enum SelectionMatch {
     Nth,
 }
 
-/// Supported output payload kinds.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum OutputKind {
-    /// Plain text.
-    Text,
-    /// Inner HTML.
-    InnerHtml,
-    /// Outer HTML.
-    OuterHtml,
-}
-
 /// Supported whitespace modes.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -111,8 +98,12 @@ pub enum RegexFlag {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CompareBasis {
-    /// SHA-256 of compare-time canonical text.
-    CanonicalTextSha256,
+    /// Rendered text projection of the selected fragment.
+    Text,
+    /// Inner-HTML projection of the selected fragment.
+    InnerHtml,
+    /// Outer-HTML projection of the selected fragment.
+    OuterHtml,
 }
 
 /// Supported canonicalizer kinds.
@@ -176,22 +167,13 @@ impl SelectionMatch {
     }
 }
 
-impl OutputKind {
+impl CompareBasis {
     /// Returns the stable schema vocabulary token.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Text => "text",
             Self::InnerHtml => "inner_html",
             Self::OuterHtml => "outer_html",
-        }
-    }
-}
-
-impl CompareBasis {
-    /// Returns the stable schema vocabulary token.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CanonicalTextSha256 => "canonical_text_sha256",
         }
     }
 }
@@ -252,6 +234,7 @@ impl RunFailureCause {
             Self::SelectionInternalError => "selection_internal_error",
             Self::CanonicalizationError => "canonicalization_error",
             Self::CompareError => "compare_error",
+            Self::BaselineIncompatible => "baseline_incompatible",
             Self::PersistError => "persist_error",
             Self::IntegrityMismatch => "integrity_mismatch",
         }
@@ -278,6 +261,7 @@ impl RunFailureCause {
             | Self::SelectionInternalError
             | Self::CanonicalizationError
             | Self::CompareError
+            | Self::BaselineIncompatible
             | Self::IntegrityMismatch => FailureClass::Permanent,
         }
     }
@@ -314,13 +298,9 @@ mod tests {
         assert_eq!(SelectionMatch::Single.as_str(), "single");
         assert_eq!(SelectionMatch::First.as_str(), "first");
         assert_eq!(SelectionMatch::Nth.as_str(), "nth");
-        assert_eq!(OutputKind::Text.as_str(), "text");
-        assert_eq!(OutputKind::InnerHtml.as_str(), "inner_html");
-        assert_eq!(OutputKind::OuterHtml.as_str(), "outer_html");
-        assert_eq!(
-            CompareBasis::CanonicalTextSha256.as_str(),
-            "canonical_text_sha256"
-        );
+        assert_eq!(CompareBasis::Text.as_str(), "text");
+        assert_eq!(CompareBasis::InnerHtml.as_str(), "inner_html");
+        assert_eq!(CompareBasis::OuterHtml.as_str(), "outer_html");
         assert_eq!(RunMode::Live.as_str(), "live");
         assert_eq!(RunMode::DryRun.as_str(), "dry_run");
         assert_eq!(FailureClass::Transient.as_str(), "transient");
@@ -388,6 +368,10 @@ mod tests {
             "canonicalization_error"
         );
         assert_eq!(RunFailureCause::CompareError.as_str(), "compare_error");
+        assert_eq!(
+            RunFailureCause::BaselineIncompatible.as_str(),
+            "baseline_incompatible"
+        );
         assert_eq!(RunFailureCause::PersistError.as_str(), "persist_error");
         assert_eq!(
             RunFailureCause::IntegrityMismatch.as_str(),
@@ -552,6 +536,8 @@ pub enum RunFailureCause {
     CanonicalizationError,
     /// Compare stage failed.
     CompareError,
+    /// The stored baseline was captured under a different monitoring contract.
+    BaselineIncompatible,
     /// Persistence failed.
     PersistError,
     /// Snapshot artifacts do not match their recorded digests.

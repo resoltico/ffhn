@@ -4,9 +4,8 @@ use std::num::NonZeroUsize;
 use url::Url;
 
 use super::super::{
-    CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod,
-    OutputKind, RegexFlag, RunOutcome, SelectionKind, SelectionMatch, TargetId, TargetKind,
-    WhitespaceMode,
+    CanonicalizerKind, CompareBasis, DelimiterMode, Extensions, FetchEngine, HttpMethod, RegexFlag,
+    RunOutcome, SelectionKind, SelectionMatch, TargetId, TargetKind, WhitespaceMode,
 };
 use super::defaults::default_history_limit;
 
@@ -137,12 +136,6 @@ pub(crate) enum SelectionConfig {
     CssSelector {
         /// Candidate selection mode.
         selection_mode: SelectionModeConfig,
-        /// Output payload.
-        output: OutputKind,
-        /// Extraction-time whitespace mode.
-        whitespace: WhitespaceMode,
-        /// Extraction-time URL rewriting.
-        rewrite_urls: bool,
         /// CSS selector query.
         selector: String,
     },
@@ -150,12 +143,6 @@ pub(crate) enum SelectionConfig {
     DelimiterPair {
         /// Candidate selection mode.
         selection_mode: SelectionModeConfig,
-        /// Output payload.
-        output: OutputKind,
-        /// Extraction-time whitespace mode.
-        whitespace: WhitespaceMode,
-        /// Extraction-time URL rewriting.
-        rewrite_urls: bool,
         /// Start delimiter.
         start: String,
         /// End delimiter.
@@ -172,16 +159,20 @@ pub(crate) enum SelectionConfig {
 }
 
 /// Compare section.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
 pub(crate) struct CompareConfig {
     /// Compare basis.
     pub(crate) basis: CompareBasis,
+    /// Text whitespace mode when the compare basis is `text`.
+    pub(crate) whitespace: Option<WhitespaceMode>,
+    /// Whether FFHN rewrites discovered URLs before comparison.
+    pub(crate) rewrite_urls: bool,
     /// Ordered canonicalization pipeline.
     pub(crate) canonicalization: Vec<CanonicalizerSpec>,
 }
 
 /// One canonicalizer specification.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
 pub struct CanonicalizerSpec {
     /// Canonicalizer kind.
     pub(crate) kind: CanonicalizerKind,
@@ -276,9 +267,6 @@ pub enum SelectionConfigView<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct CssSelectorSelectionView<'a> {
     pub(crate) selection_mode: &'a SelectionModeConfig,
-    pub(crate) output: OutputKind,
-    pub(crate) whitespace: WhitespaceMode,
-    pub(crate) rewrite_urls: bool,
     pub(crate) selector: &'a str,
 }
 
@@ -286,9 +274,6 @@ pub struct CssSelectorSelectionView<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DelimiterPairSelectionView<'a> {
     pub(crate) selection_mode: &'a SelectionModeConfig,
-    pub(crate) output: OutputKind,
-    pub(crate) whitespace: WhitespaceMode,
-    pub(crate) rewrite_urls: bool,
     pub(crate) start: &'a str,
     pub(crate) end: &'a str,
     pub(crate) mode: DelimiterMode,

@@ -21,7 +21,7 @@ usage() {
     cat <<'EOF'
 Usage:
   ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
-  ./scripts/bootstrap-rust-tools.sh install-coverage-toolchain
+  ./scripts/bootstrap-rust-tools.sh install-qa-nightly-toolchain
   ./scripts/bootstrap-rust-tools.sh install-toolchains
   ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
   ./scripts/bootstrap-rust-tools.sh install-qa-tools
@@ -57,13 +57,13 @@ install_stable_toolchain() {
     verify_stable_toolchain_entrypoints
 }
 
-install_coverage_toolchain() {
-    retry 3 rustup toolchain install "${RUST_COVERAGE_TOOLCHAIN}" --profile minimal --component llvm-tools-preview
+install_qa_nightly_toolchain() {
+    retry 3 rustup toolchain install "${RUST_QA_NIGHTLY_TOOLCHAIN}" --profile minimal --component llvm-tools-preview --component miri --component rust-src
 }
 
 install_toolchains() {
     install_stable_toolchain
-    install_coverage_toolchain
+    install_qa_nightly_toolchain
 }
 
 install_cross_platform_qa_tools() {
@@ -93,8 +93,8 @@ main() {
         install-stable-toolchain)
             install_stable_toolchain
             ;;
-        install-coverage-toolchain)
-            install_coverage_toolchain
+        install-qa-nightly-toolchain)
+            install_qa_nightly_toolchain
             ;;
         install-toolchains)
             install_toolchains

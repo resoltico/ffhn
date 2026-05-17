@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Force $destinationDir | Out-Null
 
 $content = @"
 schema_name = "ffhn.target"
-schema_version = 3
+schema_version = 4
 target_id = "release_notes"
 display_name = "Local Release Notes Example"
 enabled = true
@@ -38,12 +38,11 @@ max_bytes = 2000000
 kind = "css_selector"
 selector = "main"
 match = "single"
-output = "outer_html"
-whitespace = "normalize"
-rewrite_urls = false
 
 [compare]
-basis = "canonical_text_sha256"
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
 
 [[compare.canonicalization]]
 kind = "trim"

@@ -7,7 +7,7 @@ use crate::canonical::normalize_line_endings;
 use crate::stable_json::sha256_hex;
 use crate::{
     BaselinePhase, CoreError, ExtractionRecord, ProcessErrorDetail, SnapshotDigestSummary,
-    SnapshotReference, StateDocument, TargetPaths,
+    SnapshotReference, StateDocument, TargetDocument, TargetPaths,
 };
 
 use super::domain::PersistedState;
@@ -16,7 +16,7 @@ use super::storage::read_text;
 #[derive(Clone, Debug)]
 pub(crate) struct SnapshotArtifacts {
     pub(crate) reference: SnapshotReference,
-    pub(crate) canonical_text: String,
+    pub(crate) compare_value: String,
     pub(crate) outer_html: String,
     pub(crate) extraction_json: String,
 }
@@ -135,24 +135,24 @@ fn load_snapshot(
     target_dir: PathBuf,
     reference: &SnapshotReference,
 ) -> Result<Option<SnapshotArtifacts>, ProcessErrorDetail> {
-    let canonical_path = target_dir.join(&reference.canonical_text_path);
+    let compare_path = target_dir.join(&reference.compare_path);
     let outer_html_path = target_dir.join(&reference.outer_html_path);
     let extraction_path = target_dir.join(&reference.extraction_record_path);
 
-    let canonical_text =
-        read_text(&canonical_path).map_err(|error| detail_with_path(&error, &canonical_path))?;
+    let compare_value =
+        read_text(&compare_path).map_err(|error| detail_with_path(&error, &compare_path))?;
     let outer_html =
         read_text(&outer_html_path).map_err(|error| detail_with_path(&error, &outer_html_path))?;
     let extraction_json =
         read_text(&extraction_path).map_err(|error| detail_with_path(&error, &extraction_path))?;
     let extraction_record = decode_extraction_record(&extraction_path, &extraction_json)?;
 
-    validate_snapshot_integrity(reference, &canonical_text, &outer_html, &extraction_record)
+    validate_snapshot_integrity(reference, &compare_value, &outer_html, &extraction_record)
         .map_err(|error| ProcessErrorDetail::from(&error))?;
 
     Ok(Some(SnapshotArtifacts {
         reference: reference.clone(),
-        canonical_text,
+        compare_value,
         outer_html,
         extraction_json,
     }))
@@ -192,12 +192,12 @@ fn detail_with_path(error: &CoreError, path: &Path) -> ProcessErrorDetail {
 
 fn validate_snapshot_integrity(
     reference: &SnapshotReference,
-    canonical_text: &str,
+    compare_value: &str,
     outer_html: &str,
     extraction_record: &ExtractionRecord,
 ) -> Result<(), CoreError> {
-    let canonical_digest = sha256_hex(normalize_line_endings(canonical_text).as_bytes());
-    if canonical_digest != reference.canonical_text_sha256 {
+    let compare_digest = sha256_hex(normalize_line_endings(compare_value).as_bytes());
+    if compare_digest != reference.compare_digest_sha256 {
         return Err(CoreError::contract(
             "snapshot artifact digests do not match state",
         ));
@@ -232,7 +232,27 @@ pub(crate) fn prior_valid_state(state: &StateLoad) -> Option<&LoadedState> {
 pub(crate) fn prior_compare_digest(state: &StateLoad) -> Option<String> {
     prior_valid_state(state)
         .and_then(|state| state.state.current_snapshot())
-        .map(|snapshot| snapshot.canonical_text_sha256.clone())
+        .map(|snapshot| snapshot.compare_digest_sha256.clone())
+}
+
+pub(crate) fn monitoring_contract_incompatibility(
+    paths: &TargetPaths,
+    target: &TargetDocument,
+    loaded: &LoadedState,
+) -> Result<Option<ProcessErrorDetail>, CoreError> {
+    let current_digest = target.monitoring_contract_digest_sha256()?;
+    if current_digest == loaded.state.monitoring_contract_digest_sha256() {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        ProcessErrorDetail::new(
+            crate::ProcessErrorKind::Contract,
+            "stored baseline was captured under a different monitoring contract; clear the target baseline before running this definition again",
+            Some(paths.state_file().display().to_string()),
+        )
+        .expect("baseline incompatibility detail"),
+    ))
 }
 
 pub(crate) fn baseline_phase_or_default(state: &StateLoad) -> BaselinePhase {
@@ -257,7 +277,7 @@ pub(crate) fn state_error_detail(state: &StateLoad) -> Option<&ProcessErrorDetai
 
 pub(crate) fn snapshot_digest_summary(snapshot: &SnapshotReference) -> SnapshotDigestSummary {
     SnapshotDigestSummary {
-        canonical_text_sha256: snapshot.canonical_text_sha256.clone(),
+        compare_digest_sha256: snapshot.compare_digest_sha256.clone(),
         outer_html_sha256: snapshot.outer_html_sha256.clone(),
         captured_at: snapshot.captured_at.clone(),
     }

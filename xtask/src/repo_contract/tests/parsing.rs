@@ -99,12 +99,12 @@ fn repo_contract_helpers_cover_present_missing_and_invalid_shapes() {
     .expect("write guide");
     fs::write(
         repo_root.join("examples/example.toml"),
-        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"example\"\ndisplay_name = \"Example\"\nenabled = true\n\n[target]\nkind = \"http\"\nsource_url = \"https://example.com\"\n\n[fetch]\nengine = \"http\"\nmethod = \"GET\"\ntimeout_ms = 15000\nmax_bytes = 2000000\nuser_agent = \"ffhn/example\"\nfollow_redirects = true\naccept = \"text/html\"\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
+        "schema_name = \"ffhn.target\"\nschema_version = 4\ntarget_id = \"example\"\ndisplay_name = \"Example\"\nenabled = true\n\n[target]\nkind = \"http\"\nsource_url = \"https://example.com\"\n\n[fetch]\nengine = \"http\"\nmethod = \"GET\"\ntimeout_ms = 15000\nmax_bytes = 2000000\nuser_agent = \"ffhn/example\"\nfollow_redirects = true\naccept = \"text/html\"\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\n\n[compare]\nbasis = \"outer_html\"\nrewrite_urls = false\ncanonicalization = []\n",
     )
     .expect("write example target");
     fs::write(
         repo_root.join("watchlist/demo/target.toml"),
-        "schema_name = \"ffhn.target\"\nschema_version = 3\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\noutput = \"outer_html\"\nwhitespace = \"normalize\"\nrewrite_urls = false\n\n[compare]\nbasis = \"canonical_text_sha256\"\ncanonicalization = []\n",
+        "schema_name = \"ffhn.target\"\nschema_version = 4\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 2000000\n\n[selection]\nkind = \"css_selector\"\nselector = \"main\"\nmatch = \"single\"\n\n[compare]\nbasis = \"outer_html\"\nrewrite_urls = false\ncanonicalization = []\n",
     )
     .expect("write watchlist target");
     fs::create_dir_all(repo_root.join("watchlist/demo/lock")).expect("create watchlist lock dir");

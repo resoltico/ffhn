@@ -5,6 +5,7 @@
 mod app;
 mod coverage;
 mod hygiene;
+mod miri;
 mod model;
 mod plan;
 #[cfg(test)]

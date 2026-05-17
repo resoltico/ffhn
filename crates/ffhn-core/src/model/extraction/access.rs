@@ -11,9 +11,9 @@ impl ExtractionRecord {
         self.schema_version
     }
 
-    /// Returns the normalized comparison-input digest.
-    pub fn comparison_input_sha256(&self) -> &str {
-        &self.comparison_input_sha256
+    /// Returns the normalized compare-source digest.
+    pub fn compare_source_sha256(&self) -> &str {
+        &self.compare_source_sha256
     }
 
     /// Returns the persisted outer-HTML digest.
@@ -31,9 +31,9 @@ impl ExtractionRecord {
         self.selection_match
     }
 
-    /// Returns the output kind.
-    pub fn output_kind(&self) -> OutputKind {
-        self.output_kind
+    /// Returns the compare basis used to project the selected fragment.
+    pub fn compare_basis(&self) -> CompareBasis {
+        self.compare_basis
     }
 
     /// Returns the total candidate count.
@@ -59,6 +59,11 @@ impl ExtractionRecord {
     /// Returns the record creation timestamp.
     pub fn created_at(&self) -> &str {
         &self.created_at
+    }
+
+    /// Returns the monitoring-contract digest that produced the snapshot.
+    pub fn monitoring_contract_digest_sha256(&self) -> &str {
+        &self.monitoring_contract_digest_sha256
     }
 
     /// Returns any reserved extensions.
@@ -95,9 +100,9 @@ impl SnapshotReference {
         self.slot
     }
 
-    /// Returns the canonical-text digest.
-    pub fn canonical_text_sha256(&self) -> &str {
-        &self.canonical_text_sha256
+    /// Returns the compare digest.
+    pub fn compare_digest_sha256(&self) -> &str {
+        &self.compare_digest_sha256
     }
 
     /// Returns the outer-HTML digest.
@@ -110,9 +115,9 @@ impl SnapshotReference {
         &self.extraction_record_path
     }
 
-    /// Returns the relative canonical-text path.
-    pub fn canonical_text_path(&self) -> &RelativeArtifactPath {
-        &self.canonical_text_path
+    /// Returns the relative compare-artifact path.
+    pub fn compare_path(&self) -> &RelativeArtifactPath {
+        &self.compare_path
     }
 
     /// Returns the relative outer-HTML path.

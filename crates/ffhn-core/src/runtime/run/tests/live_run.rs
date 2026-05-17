@@ -72,6 +72,7 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
             schema_name: "wrong".to_owned(),
             schema_version: crate::STATE_SCHEMA_VERSION,
             target_id: target_id("demo"),
+            monitoring_contract_digest_sha256: DIGEST.to_owned(),
             baseline: StoredBaseline::Pending,
             last_run: None,
             extensions: None,
@@ -82,7 +83,14 @@ fn run_once_covers_config_invalid_lock_state_and_disabled_paths() {
     assert_eq!(report.failure_cause(), Some(RunFailureCause::StateInvalid));
     assert!(report.error_detail().is_some());
 
-    write_snapshot_state(&paths, "hello", "<main>Hello</main>");
+    let target = target_document(
+        "demo",
+        true,
+        source_url.clone(),
+        "main",
+        SelectionMatch::Single,
+    );
+    write_snapshot_state(&paths, &target, "hello", "<main>Hello</main>");
     write_exact_text(
         paths.target_dir().join("snapshots/current/outer.html"),
         "<main>Tampered</main>",
@@ -158,7 +166,6 @@ fn run_once_reports_watch_root_directory_failures_at_the_watch_root_path() {
 fn live_run_holds_the_exclusive_lock_until_the_run_finishes() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
-    write_snapshot_state(&paths, "before", "<main>Before</main>");
     let (source_url, accepted_rx, response_handle) = serve_once_with_accept_signal(
         TestResponse {
             status_line: "200 OK",
@@ -167,10 +174,9 @@ fn live_run_holds_the_exclusive_lock_until_the_run_finishes() {
         },
         250,
     );
-    write_target(
-        &paths,
-        &target_document("demo", true, source_url, "main", SelectionMatch::Single),
-    );
+    let target = target_document("demo", true, source_url, "main", SelectionMatch::Single);
+    write_snapshot_state(&paths, &target, "before", "<main>Before</main>");
+    write_target(&paths, &target);
 
     let first_paths = paths.clone();
     let first_run = thread::spawn(move || run_once(&first_paths).expect("first run"));
@@ -253,7 +259,6 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
 
     let fetch_temp = tempdir().expect("fetch tempdir");
     let fetch_paths = TargetPaths::new(fetch_temp.path(), "demo");
-    write_snapshot_state(&fetch_paths, "before", "<main>Before</main>");
     let (url, fetch_handle) = serve_once_with_delay(
         TestResponse {
             status_line: "500 Internal Server Error",
@@ -262,10 +267,9 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         },
         100,
     );
-    write_target(
-        &fetch_paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
-    );
+    let fetch_target = target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
+    write_snapshot_state(&fetch_paths, &fetch_target, "before", "<main>Before</main>");
+    write_target(&fetch_paths, &fetch_target);
     let fetch_report = with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
         run_once(&fetch_paths).expect("fetch persist failure")
     });
@@ -283,7 +287,6 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
 
     let extraction_temp = tempdir().expect("extraction tempdir");
     let extraction_paths = TargetPaths::new(extraction_temp.path(), "demo");
-    write_snapshot_state(&extraction_paths, "before", "<main>Before</main>");
     let (url, extraction_handle) = serve_once_with_delay(
         TestResponse {
             status_line: "200 OK",
@@ -292,10 +295,15 @@ fn run_once_reports_structured_persist_failures_for_live_disabled_fetch_extracti
         },
         100,
     );
-    write_target(
+    let extraction_target =
+        target_document("demo", true, url.clone(), "main", SelectionMatch::Single);
+    write_snapshot_state(
         &extraction_paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
+        &extraction_target,
+        "before",
+        "<main>Before</main>",
     );
+    write_target(&extraction_paths, &extraction_target);
     let extraction_report =
         with_write_error_injected("state.json", std::io::ErrorKind::Other, || {
             run_once(&extraction_paths).expect("extraction persist failure")
@@ -470,17 +478,26 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
     let temp = tempdir().expect("tempdir");
     let paths = TargetPaths::new(temp.path(), "demo");
 
-    let (url, handle) = serve_once(TestResponse {
-        status_line: "200 OK",
-        content_type: "text/html; charset=utf-8",
-        body: "<html><body><main>Hello</main></body></html>",
-    });
-    write_target(
-        &paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
-    );
+    let (url, handle) = serve_sequence(vec![
+        TestResponse {
+            status_line: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: "<html><body><main>Hello</main></body></html>",
+        },
+        TestResponse {
+            status_line: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: "<html><body><main>Hello</main></body></html>",
+        },
+        TestResponse {
+            status_line: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: "<html><body><main>Changed</main></body></html>",
+        },
+    ]);
+    let target = target_document("demo", true, url, "main", SelectionMatch::Single);
+    write_target(&paths, &target);
     let report = run_once(&paths).expect("initialized run");
-    handle.join().expect("server join");
     assert_eq!(report.run_outcome(), RunOutcome::Initialized);
     assert_eq!(report.failure_cause(), None);
     assert_eq!(
@@ -488,28 +505,9 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
         BaselinePhase::HasBaseline
     );
 
-    let (url, handle) = serve_once(TestResponse {
-        status_line: "200 OK",
-        content_type: "text/html; charset=utf-8",
-        body: "<html><body><main>Hello</main></body></html>",
-    });
-    write_target(
-        &paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
-    );
     let report = run_once(&paths).expect("unchanged run");
-    handle.join().expect("server join");
     assert_eq!(report.run_outcome(), RunOutcome::Unchanged);
 
-    let (url, handle) = serve_once(TestResponse {
-        status_line: "200 OK",
-        content_type: "text/html; charset=utf-8",
-        body: "<html><body><main>Changed</main></body></html>",
-    });
-    write_target(
-        &paths,
-        &target_document("demo", true, url, "main", SelectionMatch::Single),
-    );
     let report = run_once(&paths).expect("changed run");
     handle.join().expect("server join");
     assert_eq!(report.run_outcome(), RunOutcome::Changed);
@@ -521,7 +519,7 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
     assert_eq!(state.snapshot_history()[0].slot(), SnapshotSlot::History);
     assert!(
         state.snapshot_history()[0]
-            .canonical_text_path()
+            .compare_path()
             .as_str()
             .starts_with("snapshots/history/")
     );
@@ -538,4 +536,38 @@ fn run_once_initializes_then_detects_unchanged_and_changed_content() {
         last_run.run_report().current_compare_digest_sha256(),
         report.current_compare_digest_sha256()
     );
+}
+
+#[test]
+fn run_once_reports_incompatible_baseline_without_fetching_in_live_mode() {
+    let temp = tempdir().expect("tempdir");
+    let paths = TargetPaths::new(temp.path(), "demo");
+    let baseline_target = target_document(
+        "demo",
+        true,
+        Url::parse("https://example.com/original").expect("url"),
+        "main",
+        SelectionMatch::Single,
+    );
+    write_target(&paths, &baseline_target);
+    write_snapshot_state(&paths, &baseline_target, "before", "<main>Before</main>");
+
+    let incompatible_target = target_document(
+        "demo",
+        true,
+        Url::parse("https://example.com/changed").expect("url"),
+        "main",
+        SelectionMatch::Single,
+    );
+    write_target(&paths, &incompatible_target);
+
+    let report = run_once(&paths).expect("incompatible baseline run");
+    assert_eq!(report.run_outcome(), RunOutcome::FailedPermanent);
+    assert_eq!(
+        report.failure_cause(),
+        Some(RunFailureCause::BaselineIncompatible)
+    );
+    assert!(report.fetch().is_none());
+    assert!(report.extraction().is_none());
+    assert!(!report.persist().committed_state());
 }
