@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-16"
+updated: "2026-05-19"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
@@ -32,9 +32,10 @@ Run:
 
 ```bash
 PRIMARY_CHECKOUT="$(git rev-parse --show-toplevel)"
-VERSION="$(./scripts/workspace-package-field.sh version)"
-TAG="v${VERSION}"
-RELEASE_BRANCH="release/${VERSION}"
+CURRENT_VERSION="$(./scripts/workspace-package-field.sh version)"
+RELEASE_VERSION="<set the intended release version, for example 8.1.0>"
+TAG="v${RELEASE_VERSION}"
+RELEASE_BRANCH="release/${RELEASE_VERSION}"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 
 git branch --show-current
@@ -46,6 +47,7 @@ git rev-list --left-right --count HEAD...origin/main
 Requirements:
 
 - the primary checkout path is known explicitly
+- the intended public release version is named explicitly as `${RELEASE_VERSION}` before any branch or tag is created
 - the primary checkout must not be left behind `origin/main` at release closeout
 - if the primary checkout is already clean and current, release from it directly
 - if the primary checkout has local work, is intentionally dirty, or lives on a problematic or slow filesystem, create a clean release worktree from the same repository and do the release there:
@@ -67,17 +69,19 @@ Those maintained Bash entrypoints intentionally avoid Bash-4-only builtins, so s
 
 If the primary checkout has unpublished local work, decide before the release whether that work is real or stale. Real work must move onto a named branch or exported patch before closeout. Stale work must be dropped. Never leave the primary checkout on stale `main` plus unpublished overlays.
 
-If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${VERSION}`. The release branch is for the final changelog dating, tag-triggering, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
+The workspace version read into `${CURRENT_VERSION}` at this point may still be the previously released line. That is expected whenever the narrow `release/${RELEASE_VERSION}` branch itself owns the final version bump. Do not derive the release branch or tag from `${CURRENT_VERSION}` unless the tree already contains the intended release version.
 
-When that substantive pre-release work already includes the intended release notes, keep those entries under `## [Unreleased]` while landing the normal PR to `main`. The final `release/${VERSION}` branch must still carry a real narrow diff, typically converting the accumulated `Unreleased` entries into `## [${VERSION}] - YYYY-MM-DD` immediately before the release PR. If the working tree already has a dated release section before the substantive PR is merged, move those entries back under `Unreleased` first so the final release branch remains mechanically meaningful.
+If that real unpublished work changes shipped code, tests, docs, workflows, or release machinery beyond the narrow release-version delta itself, land it on `main` through the normal PR path before cutting `release/${RELEASE_VERSION}`. The release branch is for the final changelog dating, tag-triggering, and release-metadata convergence step, not for first publication of substantive product changes that still need ordinary review and CI on their own merits.
+
+When that substantive pre-release work already includes the intended release notes, keep those entries under `## [Unreleased]` while landing the normal PR to `main`. The final `release/${RELEASE_VERSION}` branch must still carry a real narrow diff, typically converting the accumulated `Unreleased` entries into `## [${RELEASE_VERSION}] - YYYY-MM-DD` immediately before the release PR. If the working tree already has a dated release section before the substantive PR is merged, move those entries back under `Unreleased` first so the final release branch remains mechanically meaningful.
 
 If the primary checkout is dirty because it already contains the intended release-candidate work, capture that state explicitly before creating the clean release worktree:
 
 ```bash
-PREP_BRANCH="release-prep/${VERSION}"
+PREP_BRANCH="release-prep/${RELEASE_VERSION}"
 git switch -c "$PREP_BRANCH"
 git add <every already-intended release file>
-git commit -m "chore: prepare ${VERSION} release candidate"
+git commit -m "chore: prepare ${RELEASE_VERSION} release candidate"
 git fetch origin --prune --tags
 RELEASE_WORKTREE="$(mktemp -d -t ffhn-release-XXXXXX)"
 git worktree add -b "$RELEASE_BRANCH" "$RELEASE_WORKTREE" "$PREP_BRANCH"
@@ -86,7 +90,7 @@ cd "$RELEASE_WORKTREE"
 
 That keeps the release worktree clean without discarding the real unpublished state that must ship. Do not hand-copy a dirty diff into a temporary checkout and hope it still matches later.
 
-If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${VERSION}` from the updated `origin/main`.
+If the captured prep branch still contains substantive unpublished product changes rather than only the final release delta, treat that prep branch as the input to the normal pre-release PR to `main`, not as the final release branch itself. After that normal PR merges, cut `release/${RELEASE_VERSION}` from the updated `origin/main`.
 
 Install the local maintainer toolchain if it is not already available by following [developer-setup.md](developer-setup.md). The stable workspace toolchain is owned by [../rust-toolchain.toml](../rust-toolchain.toml), and the exact maintainer toolchain plus QA-tool versions are owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env). The pinned QA nightly toolchain exists for the maintained Miri proof, the coverage gate, and optional manual sanitizer-backed fuzz runs.
 
@@ -141,9 +145,9 @@ instead of reintroducing repo-local build output.
 
 Then verify:
 
-- `Cargo.toml` `[workspace.package] version` equals `${VERSION}` exactly. This is the single version source of truth for both crates and for `ffhn --version`.
+- `Cargo.toml` `[workspace.package] version` equals `${RELEASE_VERSION}` exactly. This is the single version source of truth for both crates and for `ffhn --version`.
 - `Cargo.toml` `[workspace.package] description` still reflects the current product in task-facing language.
-- `changelog.md` has a `## [${VERSION}] - YYYY-MM-DD` section with at least one entry.
+- `changelog.md` has a `## [${RELEASE_VERSION}] - YYYY-MM-DD` section with at least one entry.
 - `README.md` still documents the current install flow, CLI model, durable runtime model, and the exact public release asset names.
 - `CONTRIBUTING.md` still matches the maintained contributor and release workflow.
 - `docs/README.md` still points at the maintained developer and maintainer docs.
@@ -184,7 +188,7 @@ git add -A
 git status --short
 git diff --cached --name-status
 git diff --cached --stat
-git commit -m "release: bump version to ${VERSION}"
+git commit -m "release: bump version to ${RELEASE_VERSION}"
 git push -u origin "$RELEASE_BRANCH"
 ```
 
@@ -199,10 +203,10 @@ Before committing:
 
 ```bash
 PR_URL="$(gh pr create \
-  --title "release: bump version to ${VERSION}" \
+  --title "release: bump version to ${RELEASE_VERSION}" \
   --base main \
   --head "$RELEASE_BRANCH" \
-  --body "Release ${VERSION}")"
+  --body "Release ${RELEASE_VERSION}")"
 PR_NUMBER="$(gh pr view "$PR_URL" --json number --jq '.number')"
 
 gh pr diff "$PR_NUMBER" --name-only
@@ -264,7 +268,7 @@ gh pr checks "$PR_NUMBER"
 ## 4. Merge handoff
 
 ```bash
-gh pr merge "$PR_NUMBER" --merge --delete-branch --subject "release: bump version to ${VERSION} (#${PR_NUMBER})"
+gh pr merge "$PR_NUMBER" --merge --delete-branch --subject "release: bump version to ${RELEASE_VERSION} (#${PR_NUMBER})"
 git fetch origin --prune --tags
 git checkout --detach origin/main
 gh pr view "$PR_NUMBER" --json number,state,mergedAt,headRefName,baseRefName,url
@@ -361,13 +365,13 @@ Requirements:
 - `isDraft` is `false`
 - `isPrerelease` is `false`
 - assets include:
-  - `ffhn-source-${VERSION}.zip`
-  - `ffhn-source-${VERSION}.tar.gz`
-  - `ffhn-${VERSION}-aarch64-apple-darwin.tar.gz`
-  - `ffhn-${VERSION}-x86_64-apple-darwin.tar.gz`
-  - `ffhn-${VERSION}-x86_64-unknown-linux-musl.tar.gz`
-  - `ffhn-${VERSION}-x86_64-pc-windows-msvc.zip`
-  - `ffhn-${VERSION}-checksums.txt`
+  - `ffhn-source-${RELEASE_VERSION}.zip`
+  - `ffhn-source-${RELEASE_VERSION}.tar.gz`
+  - `ffhn-${RELEASE_VERSION}-aarch64-apple-darwin.tar.gz`
+  - `ffhn-${RELEASE_VERSION}-x86_64-apple-darwin.tar.gz`
+  - `ffhn-${RELEASE_VERSION}-x86_64-unknown-linux-musl.tar.gz`
+  - `ffhn-${RELEASE_VERSION}-x86_64-pc-windows-msvc.zip`
+  - `ffhn-${RELEASE_VERSION}-checksums.txt`
 
 Workflow success is not authoritative. The release object and its assets are authoritative.
 GitHub Actions also emits build provenance attestations for the source archives, standalone packages, and checksum manifest, but this protocol's blocking verification keys on the release object and the maintained asset inventory rather than those separate attestation records.
@@ -383,15 +387,15 @@ Download the maintained host-native release package plus the checksum manifest, 
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64)
     HOST_TARGET="aarch64-apple-darwin"
-    HOST_ARCHIVE="ffhn-${VERSION}-${HOST_TARGET}.tar.gz"
+    HOST_ARCHIVE="ffhn-${RELEASE_VERSION}-${HOST_TARGET}.tar.gz"
     ;;
   Darwin/x86_64)
     HOST_TARGET="x86_64-apple-darwin"
-    HOST_ARCHIVE="ffhn-${VERSION}-${HOST_TARGET}.tar.gz"
+    HOST_ARCHIVE="ffhn-${RELEASE_VERSION}-${HOST_TARGET}.tar.gz"
     ;;
   Linux/x86_64)
     HOST_TARGET="x86_64-unknown-linux-musl"
-    HOST_ARCHIVE="ffhn-${VERSION}-${HOST_TARGET}.tar.gz"
+    HOST_ARCHIVE="ffhn-${RELEASE_VERSION}-${HOST_TARGET}.tar.gz"
     ;;
   *)
     printf 'unsupported host for local post-release binary verification: %s/%s\n' "$(uname -s)" "$(uname -m)" >&2
@@ -404,21 +408,21 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 gh release download "$TAG" \
   -p "$HOST_ARCHIVE" \
-  -p "ffhn-${VERSION}-checksums.txt" \
+  -p "ffhn-${RELEASE_VERSION}-checksums.txt" \
   -D "$TMP_DIR"
 
 (
   cd "$TMP_DIR"
   if command -v shasum >/dev/null 2>&1; then
-    grep "  ${HOST_ARCHIVE}$" "ffhn-${VERSION}-checksums.txt" | shasum -a 256 -c
+    grep "  ${HOST_ARCHIVE}$" "ffhn-${RELEASE_VERSION}-checksums.txt" | shasum -a 256 -c
   else
-    grep "  ${HOST_ARCHIVE}$" "ffhn-${VERSION}-checksums.txt" | sha256sum -c
+    grep "  ${HOST_ARCHIVE}$" "ffhn-${RELEASE_VERSION}-checksums.txt" | sha256sum -c
   fi
 
   tar -xzf "$HOST_ARCHIVE"
-  VERSION_OUTPUT="$("./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --version | tr -d '\r')"
-  [ "$VERSION_OUTPUT" = "ffhn ${VERSION}" ]
-  "./ffhn-${VERSION}-${HOST_TARGET}/ffhn" --help | grep "status"
+  VERSION_OUTPUT="$("./ffhn-${RELEASE_VERSION}-${HOST_TARGET}/ffhn" --version | tr -d '\r')"
+  [ "$VERSION_OUTPUT" = "ffhn ${RELEASE_VERSION}" ]
+  "./ffhn-${RELEASE_VERSION}-${HOST_TARGET}/ffhn" --help | grep "status"
 )
 
 trap - EXIT
@@ -537,10 +541,10 @@ git -C "$PRIMARY_CHECKOUT" rev-parse HEAD
 git -C "$PRIMARY_CHECKOUT" status --short
 ```
 
-If a temporary `release-prep/${VERSION}` branch was created only to capture dirty release-candidate state and the shipped `main` history has absorbed it, delete that stale prep branch explicitly:
+If a temporary `release-prep/${RELEASE_VERSION}` branch was created only to capture dirty release-candidate state and the shipped `main` history has absorbed it, delete that stale prep branch explicitly:
 
 ```bash
-git -C "$PRIMARY_CHECKOUT" branch -d "release-prep/${VERSION}"
+git -C "$PRIMARY_CHECKOUT" branch -d "release-prep/${RELEASE_VERSION}"
 ```
 
 Requirements before declaring the release session complete:

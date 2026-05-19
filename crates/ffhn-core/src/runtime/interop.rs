@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn ffhn_htmlcut_interop_contract_remains_miri_sound() {
-        let target: TargetDocument = toml::from_str(
+        let selector_target: TargetDocument = toml::from_str(
             r#"
 schema_name = "ffhn.target"
 schema_version = 4
@@ -222,25 +222,100 @@ canonicalization = []
 "#,
         )
         .expect("target toml");
-        target.validate().expect("validated target");
+        selector_target.validate().expect("validated target");
 
-        let plan = build_htmlcut_plan(target.selection_config(), target.compare_config_internal())
-            .expect("plan");
-        prepare_plan(&plan).expect("prepared plan");
-        let target_id = crate::TargetId::new("demo").expect("target id");
-        let input = build_htmlcut_input(
-            &target_id,
+        let selector_plan = build_htmlcut_plan(
+            selector_target.selection_config(),
+            selector_target.compare_config_internal(),
+        )
+        .expect("plan");
+        prepare_plan(&selector_plan).expect("prepared plan");
+        let selector_target_id = crate::TargetId::new("demo").expect("target id");
+        let selector_input = build_htmlcut_input(
+            &selector_target_id,
             "<main><article><a href=\"guide.html\">Guide</a></article></main>".to_owned(),
             &Url::parse("https://example.com/docs/index.html").expect("final url"),
         )
         .expect("input");
 
-        let result = execute_plan(&input, &plan).expect("execute plan");
-        result.validate().expect("validated result");
-        assert_eq!(result.candidate_count, 1);
+        let selector_result = execute_plan(&selector_input, &selector_plan).expect("execute plan");
+        selector_result.validate().expect("validated result");
+        assert_eq!(selector_result.candidate_count, 1);
         assert_eq!(
-            result.selected_matches[0].outer_html_output,
+            selector_result.selected_matches[0].outer_html_output,
             "<a href=\"https://example.com/docs/guide.html\">Guide</a>"
+        );
+
+        let delimiter_target: TargetDocument = toml::from_str(
+            r#"
+schema_name = "ffhn.target"
+schema_version = 4
+target_id = "release-notes"
+display_name = "Release notes"
+enabled = true
+
+[target]
+kind = "http"
+source_url = "https://example.com/releases"
+
+[fetch]
+engine = "http"
+method = "GET"
+timeout_ms = 15000
+max_bytes = 2000000
+user_agent = "ffhn/test"
+follow_redirects = true
+accept = "text/html"
+
+[selection]
+kind = "delimiter_pair"
+start = "BEGIN PAYLOAD"
+end = "END PAYLOAD"
+mode = "literal"
+include_start = false
+include_end = false
+match = "single"
+
+[compare]
+basis = "text"
+whitespace = "normalize"
+rewrite_urls = false
+canonicalization = []
+"#,
+        )
+        .expect("delimiter target toml");
+        delimiter_target
+            .validate()
+            .expect("validated delimiter target");
+
+        let delimiter_plan = build_htmlcut_plan(
+            delimiter_target.selection_config(),
+            delimiter_target.compare_config_internal(),
+        )
+        .expect("delimiter plan");
+        prepare_plan(&delimiter_plan).expect("prepared delimiter plan");
+        let delimiter_target_id =
+            crate::TargetId::new("release-notes").expect("delimiter target id");
+        let delimiter_input = build_htmlcut_input(
+            &delimiter_target_id,
+            "<html><head><title>Release Notes</title></head><body><main>IGNORE BEGIN PAYLOAD Release 7.0.0 END PAYLOAD IGNORE</main></body></html>".to_owned(),
+            &Url::parse("https://example.com/releases").expect("delimiter final url"),
+        )
+        .expect("delimiter input");
+
+        let delimiter_result =
+            execute_plan(&delimiter_input, &delimiter_plan).expect("delimiter execute plan");
+        delimiter_result
+            .validate()
+            .expect("validated delimiter result");
+        assert_eq!(
+            delimiter_result.source.document_title.as_deref(),
+            Some("Release Notes")
+        );
+        assert_eq!(delimiter_result.candidate_count, 1);
+        assert_eq!(
+            delimiter_result.selected_matches[0].text_output,
+            "Release 7.0.0"
         );
     }
 
