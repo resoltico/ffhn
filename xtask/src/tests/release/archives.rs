@@ -114,7 +114,7 @@ fn release_smoke_enforces_the_packaged_one_line_version_contract() {
             .join("docs/release-protocol.md"),
     )
     .expect("read docs/release-protocol.md");
-    assert!(protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${VERSION}\" ]"));
+    assert!(protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${RELEASE_VERSION}\" ]"));
     assert!(!protocol.contains("sed -n '2p'"));
     assert!(
         !protocol.contains("DESCRIPTION=\"$(./scripts/workspace-package-field.sh description)\"")
