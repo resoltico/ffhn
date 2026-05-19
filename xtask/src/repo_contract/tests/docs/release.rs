@@ -41,7 +41,7 @@ fn public_release_docs_match_the_canonical_release_target_script() {
         );
     }
 
-    let protocol_assets = crate::release::release_asset_names(&repo_root, "${VERSION}")
+    let protocol_assets = crate::release::release_asset_names(&repo_root, "${RELEASE_VERSION}")
         .expect("release protocol asset names from canonical script");
     for asset in &protocol_assets {
         assert!(
@@ -77,8 +77,12 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
         "docs/release-protocol.md must document the Dependabot large-PR file-list fallback"
     );
     assert!(
-        release_protocol.contains("release-prep/${VERSION}"),
+        release_protocol.contains("release-prep/${RELEASE_VERSION}"),
         "docs/release-protocol.md must document dirty release-candidate capture via release-prep/"
+    );
+    assert!(
+        release_protocol.contains("RELEASE_VERSION=\"<set the intended release version"),
+        "docs/release-protocol.md must name the intended release version explicitly instead of deriving branch and tag names from the pre-bump workspace version"
     );
     assert!(
         release_protocol.contains("git -C \"$RELEASE_WORKTREE\" checkout --detach"),
@@ -105,7 +109,7 @@ fn release_protocol_documents_verified_release_closeout_invariants() {
         "docs/release-protocol.md must document the CI workflow_dispatch recovery path"
     );
     assert!(
-        release_protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${VERSION}\" ]"),
+        release_protocol.contains("[ \"$VERSION_OUTPUT\" = \"ffhn ${RELEASE_VERSION}\" ]"),
         "docs/release-protocol.md must verify the packaged one-line ffhn --version contract exactly"
     );
     assert!(
