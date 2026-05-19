@@ -6,9 +6,10 @@ Licensed under the MIT License. See LICENSE file for details.
 ================================================================================
 
 The ffhn binary includes compiled Rust crates from crates.io, plus htmlcut-core
-sourced from https://github.com/resoltico/HTMLCut. The complete dependency graph
-is recorded in Cargo.lock. The sections below cover the licenses and attributions
-required for binary distribution.
+and its vendored `htmlcut-*` companion crates sourced from
+https://github.com/resoltico/HTMLCut. The complete dependency graph is recorded
+in Cargo.lock. The sections below cover the licenses and attributions required
+for binary distribution.
 
 For a full machine-readable license report, run:
   cargo install cargo-about
@@ -60,14 +61,12 @@ The following crates are licensed under the Mozilla Public License 2.0:
 
   cssparser     — Servo project, Mozilla
   selectors     — Servo project, Mozilla
-  servo_arc     — Servo project, Mozilla
 
 These crates are pulled in transitively through htmlcut-core. MPL-2.0 is a
-file-level copyleft license. ffhn currently applies a local provenance fix to
-`servo_arc` through [patch.crates-io] while keeping the same upstream license.
-The patched sources live under `patches/rust/servo_arc/`. The MPL-2.0 license
-text and source are available at https://github.com/servo/servo and their
-respective crates.io pages.
+file-level copyleft license. FFHN does not change that license family; HTMLCut's
+vendored `selectors` copy remains MPL-2.0 upstream source. The MPL-2.0 license
+text and source are available at https://github.com/servo/servo and the
+corresponding crates.io pages.
 
 ================================================================================
 ISC — ring and derived cryptographic code
@@ -99,20 +98,6 @@ Additional ISC-licensed crates: rustls-webpki, rustls-native-certs,
 rustls-pki-types, webpki-roots, untrusted.
 
 rustls itself is tri-licensed MIT OR Apache-2.0 OR ISC.
-
-================================================================================
-Patched Rust crates carried locally
-================================================================================
-
-ffhn currently vendors focused source patches for these crates because the
-published dependency graph exercised by `htmlcut-core` does not yet ship a
-released strict-provenance fix:
-
-  servo_arc 0.4.3 — patched locally under `patches/rust/servo_arc/`
-  tendril   0.5.0 — patched locally under `patches/rust/tendril/`
-
-These local copies retain their upstream licenses. See `patches/README.md` for
-the current scope and the removal cue.
 
 ================================================================================
 Unicode-3.0 — ICU data crates

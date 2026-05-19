@@ -5,6 +5,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped the maintained `htmlcut-core` dependency to `10.2.0`, removed FFHN's
+  temporary workspace-root `servo_arc` and `tendril` overrides, and now rely on
+  HTMLCut's shipped downstream-safe selector/parser stack instead of carrying a
+  local release-gap patch layer.
+- FFHN no longer parses CSS selectors through `scraper` during target validation; it now
+  validates CSS-selector and delimiter-pair contracts through HTMLCut's interop plan surface
+  so the contract check matches the upstream execution stack FFHN actually runs.
+
+### Fixed
+
+- The maintained FFHN-to-HTMLCut strict-provenance proof now exercises both a CSS-selector
+  target and a delimiter-pair target against the shipped `htmlcut-core v10.2.0`
+  dependency graph, and the maintainer docs/NOTICE now describe that upstream
+  ownership truthfully instead of pointing at removed FFHN-local patch overrides.
+
 ## [8.0.0] - 2026-05-17
 
 ### Changed
