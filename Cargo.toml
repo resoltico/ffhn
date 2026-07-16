@@ -8,7 +8,7 @@ exclude = ["semver-baseline/ffhn-core"]
 resolver = "3"
 
 [workspace.package]
-version = "8.1.0"
+version = "9.0.0"
 edition = "2024"
 rust-version = "1.97"
 description = "Deterministic typed JSON and HTML measurement for HTTP and local file sources"
@@ -20,7 +20,7 @@ homepage = "https://github.com/resoltico/ffhn"
 [workspace.dependencies]
 assert_cmd = "2.2.2"
 clap = { version = "4.6.1", features = ["derive"] }
-ffhn-core = { path = "crates/ffhn-core", version = "=8.1.0" }
+ffhn-core = { path = "crates/ffhn-core", version = "=9.0.0" }
 fs2 = "0.4.3"
 htmlcut-core = { version = "=11.0.0", git = "https://github.com/resoltico/HTMLCut.git", tag = "v11.0.0", package = "htmlcut-core" }
 predicates = "3.1.4"

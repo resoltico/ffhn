@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0] - 2026-07-16
+
 ### Added
 
 - Added deterministic JSON Pointer and HTML scalar measurements for HTTP and local UTF-8 sources, with explicit source/fetch contracts, exactly one selected HTML match, exact original evidence, structured HTMLCut diagnostics, and safe final-response URL handling for relative HTML links.
