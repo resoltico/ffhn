@@ -14,12 +14,5 @@ mod error;
 mod execute;
 mod metadata;
 mod render;
-#[cfg(test)]
-mod tests;
 
 pub use execute::run;
-
-#[cfg(test)]
-pub(crate) use args::*;
-#[cfg(test)]
-pub(crate) use metadata::*;

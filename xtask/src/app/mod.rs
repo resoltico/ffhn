@@ -10,7 +10,7 @@ mod hygiene;
 mod semver;
 
 #[cfg(all(test, unix))]
-pub(crate) use check::{run_audit, run_check, run_coverage, run_semver_check};
+pub(crate) use check::{run_audit, run_check, run_coverage, run_miri, run_semver_check};
 #[cfg(test)]
 pub(crate) use command::TEST_REPO_ROOT_ENV;
 pub(crate) use command::remove_dir_if_exists;
@@ -71,8 +71,8 @@ enum Task {
     )]
     Coverage,
     #[command(
-        about = "Run only the maintained FFHN-to-HTMLCut strict-provenance Miri proof.",
-        long_about = "Run only the maintained FFHN-to-HTMLCut strict-provenance Miri proof that exercises FFHN's HTMLCut selector-validation and selector-execution boundary under the pinned nightly QA toolchain."
+        about = "Run only the maintained typed-observation strict-provenance Miri proof.",
+        long_about = "Run only the maintained typed-observation strict-provenance Miri proof under the pinned nightly QA toolchain."
     )]
     Miri,
     #[command(

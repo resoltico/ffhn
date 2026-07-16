@@ -1,162 +1,24 @@
 ffhn
 Copyright (c) 2026 Ervins Strauhmanis
 
-Licensed under the MIT License. See LICENSE file for details.
+Licensed under the MIT License. See LICENSE for details.
 
-================================================================================
+The ffhn binary includes crates from crates.io and `htmlcut-core` plus its `htmlcut-*` companion
+crates from the public HTMLCut v11.0.0 source at
+https://github.com/resoltico/HTMLCut. Cargo.lock is the complete, exact dependency-source record
+for a build. `cargo deny check advisories bans licenses sources` verifies the allowed license and
+source policy for that graph before release.
 
-The ffhn binary includes compiled Rust crates from crates.io, plus htmlcut-core
-and its vendored `htmlcut-*` companion crates sourced from
-https://github.com/resoltico/HTMLCut. The complete dependency graph is recorded
-in Cargo.lock. The sections below cover the licenses and attributions required
-for binary distribution.
+HTMLCut is MIT-licensed. Its parser stack includes the MPL-2.0 `cssparser`, `cssparser-macros`,
+`dtoa-short`, and Servo-derived `htmlcut-selectors` crates. MPL-2.0 is file-level copyleft; its
+terms and covered sources remain available from their published upstream source packages. The
+HTMLCut repository is intentionally an allowed Git source in `deny.toml`.
 
-For a full machine-readable license report, run:
-  cargo install cargo-about
-  cargo about generate about.hbs
+Other allowed dependency-license families are 0BSD, Apache-2.0, BSD-3-Clause,
+CDLA-Permissive-2.0, ISC, MIT, Unicode-3.0, and Unlicense. The graph includes ISC-licensed `ring`
+and related cryptographic components; Unicode and CDLA data components; and standard Rust ecosystem
+crates under the listed permissive or dual licenses. The applicable notice and license text for a
+dependency is the one published with that dependency's resolved source.
 
-================================================================================
-MIT / Apache-2.0 (dual-licensed)
-================================================================================
-
-The following crates are dual-licensed MIT OR Apache-2.0. Users may choose
-either license. The Apache License, Version 2.0 is available at:
-  https://www.apache.org/licenses/LICENSE-2.0
-
-Representative crates (not exhaustive — see Cargo.lock for the full list):
-
-  clap, encoding_rs, fs2, hashbrown, http, httparse, idna, once_cell,
-  percent-encoding, predicates, regex, serde, serde_json, sha2, syn,
-  tempfile, thiserror, time, toml, url, ureq, and others.
-
-================================================================================
-MIT (standalone)
-================================================================================
-
-Representative crates licensed under MIT only:
-
-  ego-tree, phf, scraper, and others.
-
-htmlcut-core is MIT-licensed and sourced from:
-  https://github.com/resoltico/HTMLCut
-  Copyright (c) 2026 Ervins Strauhmanis
-
-================================================================================
-MIT / Unlicense (dual-licensed)
-================================================================================
-
-The following crates are dual-licensed MIT OR Unlicense. The Unlicense is a
-public-domain-equivalent dedication available at: https://unlicense.org/
-
-Representative crates (not exhaustive — see Cargo.lock for the full list):
-
-  aho-corasick, memchr, walkdir, and others.
-
-================================================================================
-MPL-2.0 — Mozilla Public License 2.0
-================================================================================
-
-The following crates are licensed under the Mozilla Public License 2.0:
-  https://www.mozilla.org/en-US/MPL/2.0/
-
-  cssparser     — Servo project, Mozilla
-  selectors     — Servo project, Mozilla
-
-These crates are pulled in transitively through htmlcut-core. MPL-2.0 is a
-file-level copyleft license. FFHN does not change that license family; HTMLCut's
-vendored `selectors` copy remains MPL-2.0 upstream source. The MPL-2.0 license
-text and source are available at https://github.com/servo/servo and the
-corresponding crates.io pages.
-
-================================================================================
-ISC — ring and derived cryptographic code
-================================================================================
-
-The ring crate (https://github.com/briansmith/ring) is used under the ISC
-license. ring includes code derived from BoringSSL, which is maintained by
-Google and is itself derived from OpenSSL.
-
-ring copyright and attribution:
-
-  Portions copyright 2015-2016 Brian Smith.
-  Portions copyright 2006-2009, 2011 Google Inc.
-  Portions derived from BoringSSL, maintained by Google.
-
-  Permission to use, copy, modify, and/or distribute this software for any
-  purpose with or without fee is hereby granted, provided that the above
-  copyright notice and this permission notice appear in all copies.
-
-  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
-  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
-  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-Additional ISC-licensed crates: rustls-webpki, rustls-native-certs,
-rustls-pki-types, webpki-roots, untrusted.
-
-rustls itself is tri-licensed MIT OR Apache-2.0 OR ISC.
-
-================================================================================
-Unicode-3.0 — ICU data crates
-================================================================================
-
-The following crates contain Unicode CLDR and ICU data and are licensed under
-the Unicode License v3:
-  https://www.unicode.org/copyright.html
-
-  icu_collections, icu_locale_core, icu_normalizer, icu_normalizer_data,
-  icu_properties, icu_properties_data, icu_provider
-
-  Copyright (c) 2006 IBM Corporation and Others. All Rights Reserved.
-  This software and its associated documentation files are subject to the
-  terms of the Unicode License Agreement (https://www.unicode.org/license.txt).
-
-================================================================================
-CDLA-Permissive-2.0 — webpki-root-certs
-================================================================================
-
-The webpki-root-certs crate contains CA certificate data sourced from the
-Common CA Database (CCADB), licensed under the Community Data License
-Agreement — Permissive, Version 2.0:
-  https://cdla.dev/permissive-2-0/
-
-================================================================================
-BSD-3-Clause — 3-Clause BSD License
-================================================================================
-
-One or more transitive dependencies use the BSD-3-Clause license. BSD-3-Clause
-requires preserving copyright notices and the license text, and prohibits using
-contributor names for endorsement without permission. See Cargo.lock and the
-individual crate pages on crates.io for the specific copyright holders and full
-license text.
-
-================================================================================
-0BSD — Zero-Clause BSD License
-================================================================================
-
-One or more transitive dependencies use the Zero-Clause BSD License, a
-permissive license with no attribution requirements. See Cargo.lock for the
-full list.
-
-================================================================================
-Unlicense — The Unlicense
-================================================================================
-
-One or more transitive dependencies are released as public domain under The
-Unlicense. No attribution is required. MIT/Unlicense dual-licensed crates are
-listed in the MIT / Unlicense section above. See Cargo.lock for the full list.
-
-================================================================================
-Trademark Notice
-================================================================================
-
-"Mozilla", "Firefox", and related marks are trademarks of the Mozilla
-Foundation. The Servo project is a Mozilla Research project.
-Use of these names in this document is descriptive only.
-
-ffhn is not affiliated with, endorsed by, or sponsored by the Mozilla
-Foundation, Google, the Unicode Consortium, or any other organization whose
-open-source components are included in this binary.
+FFHN is not affiliated with, endorsed by, or sponsored by the upstream projects whose open-source
+components are included in the binary.

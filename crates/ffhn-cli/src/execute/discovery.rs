@@ -100,11 +100,64 @@ where
 }
 
 pub(super) fn contract_message(error: CoreError) -> String {
-    match error {
-        CoreError::Contract(message)
-        | CoreError::HtmlcutInterop(message)
-        | CoreError::Internal(message) => message,
-        CoreError::PersistTransaction { summary, .. } => summary,
-        other => other.to_string(),
+    error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn discovery_handles_explicit_missing_invalid_and_directory_entries() {
+        let temporary = tempdir().expect("temporary directory");
+        let root = temporary.path();
+        let explicit = RunCommand {
+            watch_root: root.to_path_buf(),
+            targets: vec![TargetId::new("demo").expect("target")],
+            all: false,
+            jobs: 1,
+            dry_run: false,
+            output_format: crate::args::OutputFormat::Json,
+        };
+        assert!(matches!(
+            selected_targets(&explicit),
+            Ok(SelectedTargets::Explicit(_))
+        ));
+        assert!(discover_watch_root_targets(&root.join("missing")).is_err());
+        let file = root.join("not-a-directory");
+        fs::write(&file, "file").expect("file");
+        assert!(discover_watch_root_targets(&file).is_err());
+
+        fs::create_dir(root.join("valid")).expect("valid dir");
+        fs::write(root.join("valid/target.toml"), "target").expect("target");
+        fs::create_dir(root.join("invalid!")).expect("invalid dir");
+        fs::write(root.join("invalid!/target.toml"), "target").expect("target");
+        fs::create_dir(root.join("ignored")).expect("ignored dir");
+        let discovered = discover_watch_root_targets(root).expect("discovery");
+        assert_eq!(discovered.len(), 2);
+        assert_eq!(discovered[0].requested_id, "invalid!");
+        assert!(discovered[0].validated_id.is_none());
+        assert!(discovered[0].validation_message.is_some());
+        assert_eq!(
+            discovered[1].validated_id.as_ref().map(TargetId::as_str),
+            Some("valid")
+        );
+
+        let all = RunCommand {
+            all: true,
+            ..explicit
+        };
+        assert!(matches!(
+            selected_targets(&all),
+            Ok(SelectedTargets::Discovered(_))
+        ));
+        let entries = vec![
+            Ok(root.join("valid")),
+            Ok(root.join("not-a-directory")),
+            Err(io::Error::other("entry failure")),
+        ];
+        assert!(collect_watch_root_directories(root, entries).is_err());
+        assert!(contract_message(CoreError::contract("message")).contains("message"));
     }
 }

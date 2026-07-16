@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 #[cfg(unix)]
-use crate::app::{run_audit, run_check, run_coverage, run_semver_check, run_spec};
+use crate::app::{run_audit, run_check, run_coverage, run_miri, run_semver_check, run_spec};
 #[cfg(unix)]
 use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratch_dir};
 
@@ -262,6 +262,48 @@ fn run_coverage_reports_line_only_failures() {
 
 #[cfg(unix)]
 #[test]
+fn command_entrypoints_reject_unavailable_pinned_dependencies_before_mutating_artifacts() {
+    let repo_root = tempdir().expect("tempdir");
+    let bin_dir = repo_root.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    write_repo_scaffold(repo_root.path());
+    write_coverage_cargo_stub(&bin_dir, "{\"data\":[]}");
+
+    with_test_environment(&bin_dir, Some(repo_root.path()), || {
+        write_executable(
+            &bin_dir.join("cargo"),
+            "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    semver-checks) printf 'cargo-semver-checks 0.0.0\\n' ; exit 0 ;;\n    llvm-cov) printf 'cargo-llvm-cov 0.0.0\\n' ; exit 0 ;;\n    audit) printf 'cargo-audit 0.0.0\\n' ; exit 0 ;;\n  esac\nfi\nexit 1\n",
+        );
+
+        let semver_error =
+            run_semver_check(repo_root.path()).expect_err("wrong semver tool must be rejected");
+        assert!(semver_error.to_string().contains("cargo-semver-checks"));
+
+        let coverage_error =
+            run_coverage(repo_root.path()).expect_err("wrong coverage tool must be rejected");
+        assert!(coverage_error.to_string().contains("cargo-llvm-cov"));
+
+        let audit_error =
+            run_audit(repo_root.path(), None).expect_err("wrong audit tool must be rejected");
+        assert!(audit_error.to_string().contains("cargo-audit"));
+
+        write_executable(&bin_dir.join("shellcheck"), "#!/bin/sh\nexit 1\n");
+        let check_error =
+            run_check(repo_root.path()).expect_err("unavailable shellcheck must fail");
+        assert!(
+            check_error
+                .to_string()
+                .contains("required command `shellcheck`")
+        );
+
+        write_executable(&bin_dir.join("rustup"), "#!/bin/sh\nexit 1\n");
+        let miri_error = run_miri(repo_root.path()).expect_err("unavailable rustup must fail");
+        assert!(miri_error.to_string().contains("required command `rustup`"));
+    });
+}
+
+#[cfg(unix)]
+#[test]
 fn run_from_routes_check_semver_coverage_and_miri_subcommands_through_the_repo_root_override() {
     let repo_root = tempdir().expect("tempdir");
     let bin_dir = repo_root.path().join("bin");
@@ -412,7 +454,7 @@ fn run_semver_check_prepares_the_isolated_target_tree_before_launch() {
     write_repo_scaffold(repo_root.path());
     write_executable(
         &bin_dir.join("cargo"),
-        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    semver-checks) printf 'cargo-semver-checks 0.47.0\\n' ; exit 0 ;;\n    audit) printf 'cargo-audit 0.22.1\\n' ; exit 0 ;;\n    deny) printf 'cargo-deny 0.19.4\\n' ; exit 0 ;;\n    nextest) printf 'cargo-nextest 0.9.133\\n' ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"semver-checks\" ]; then\n  test -d \"$CARGO_TARGET_DIR\"\n  test -d \"$CARGO_TARGET_DIR/debug\"\n  test -d \"$CARGO_TARGET_DIR/debug/deps\"\nfi\nexit 0\n",
+        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    semver-checks) printf 'cargo-semver-checks 0.48.0\\n' ; exit 0 ;;\n    audit) printf 'cargo-audit 0.22.2\\n' ; exit 0 ;;\n    deny) printf 'cargo-deny 0.20.2\\n' ; exit 0 ;;\n    nextest) printf 'cargo-nextest 0.9.140\\n' ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"semver-checks\" ]; then\n  test -d \"$CARGO_TARGET_DIR\"\n  test -d \"$CARGO_TARGET_DIR/debug\"\n  test -d \"$CARGO_TARGET_DIR/debug/deps\"\nfi\nexit 0\n",
     );
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
@@ -510,7 +552,7 @@ fn with_test_environment<T>(
     updated_path.push(&original_path);
     write_executable(
         &bin_dir.join("rustc"),
-        "#!/bin/sh\ncase \"$1\" in\n  +1.95.0|+nightly-2026-05-11) printf 'rustc 1.95.0 (test stub)\\n' ;;\n  --version) printf 'rustc 1.95.0 (test stub)\\n' ;;\n  *) printf 'rustc 1.95.0 (test stub)\\n' ;;\nesac\n",
+        "#!/bin/sh\ncase \"$1\" in\n  +1.97.0|+nightly-2026-05-11) printf 'rustc 1.97.0 (test stub)\\n' ;;\n  --version) printf 'rustc 1.97.0 (test stub)\\n' ;;\n  *) printf 'rustc 1.97.0 (test stub)\\n' ;;\nesac\n",
     );
     write_executable(
         &bin_dir.join("shellcheck"),

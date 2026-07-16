@@ -28,7 +28,7 @@ fn workspace_version_from_manifest_requires_a_version_line() {
 #[test]
 fn workspace_version_from_manifest_ignores_dependency_version_tables() {
     let manifest = r#"
-[workspace.dependencies.htmlcut-core]
+[workspace.dependencies.example-dependency]
 version = "2.0.0"
 
 [workspace.package]
@@ -161,6 +161,94 @@ fn refresh_semver_baseline_reports_missing_git_refs() {
             .to_string()
             .contains("failed to read Cargo.toml from git ref v9.9.9")
     );
+}
+
+#[test]
+fn refresh_semver_baseline_reports_archive_failures_after_reading_the_workspace_manifest() {
+    let repo_root = tempdir().expect("tempdir");
+    fs::write(
+        repo_root.path().join("Cargo.toml"),
+        "[workspace.package]\nversion = \"2.0.0\"\n",
+    )
+    .expect("write workspace manifest");
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "workspace without core"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    let error = refresh_semver_baseline(repo_root.path(), "v2.0.0")
+        .expect_err("archive without the published core crate must fail");
+
+    assert!(error.to_string().contains("command failed with status"));
+}
+
+#[cfg(unix)]
+#[test]
+fn refresh_semver_baseline_reports_tar_extraction_failures() {
+    let repo_root = tempdir().expect("tempdir");
+    write_semver_fixture(
+        repo_root.path(),
+        "2.0.0",
+        "pub const RELEASE_LINE: &str = \"published\";\n",
+    );
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed published snapshot"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    let bin_dir = repo_root.path().join("bin");
+    write_test_executable(&bin_dir.join("tar"), "#!/bin/sh\nexit 1\n");
+    let error = with_path_prefix(&bin_dir, || {
+        refresh_semver_baseline(repo_root.path(), "v2.0.0")
+            .expect_err("tar extraction failure must be reported")
+    });
+
+    assert!(error.to_string().contains("command failed with status"));
+}
+
+#[test]
+fn refresh_semver_baseline_reports_invalid_workspace_stub_source() {
+    let repo_root = tempdir().expect("tempdir");
+    write_semver_fixture(
+        repo_root.path(),
+        "2.0.0",
+        "pub const RELEASE_LINE: &str = \"published\";\n",
+    );
+    fs::write(repo_root.path().join("Cargo.toml"), "[workspace\n")
+        .expect("write malformed workspace manifest");
+    run_git(repo_root.path(), &["init", "-q"]);
+    run_git(repo_root.path(), &["config", "user.name", "FFHN Tests"]);
+    run_git(
+        repo_root.path(),
+        &["config", "user.email", "ffhn@example.invalid"],
+    );
+    run_git(repo_root.path(), &["add", "Cargo.toml", "crates/ffhn-core"]);
+    run_git(
+        repo_root.path(),
+        &["commit", "-qm", "seed malformed workspace"],
+    );
+    run_git(repo_root.path(), &["tag", "v2.0.0"]);
+
+    let error = refresh_semver_baseline(repo_root.path(), "v2.0.0")
+        .expect_err("malformed workspace manifest must be rejected");
+
+    assert!(error.to_string().contains("TOML parse error"));
 }
 
 #[test]
@@ -366,4 +454,35 @@ edition = "2024"
     assert!(updated.contains("[workspace.package]"));
     assert!(!updated.contains("[workspace.dependencies]"));
     assert!(!updated.contains("[workspace.lints"));
+}
+
+#[cfg(unix)]
+fn write_test_executable(path: &Path, contents: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::create_dir_all(path.parent().expect("parent")).expect("create executable parent");
+    fs::write(path, contents).expect("write executable");
+    let mut permissions = fs::metadata(path).expect("metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).expect("chmod");
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn with_path_prefix<T>(prefix: &Path, operation: impl FnOnce() -> T) -> T {
+    let _guard = PROCESS_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut updated_path = std::ffi::OsString::from(prefix);
+    updated_path.push(":");
+    updated_path.push(&original_path);
+
+    // SAFETY: PROCESS_ENV_LOCK serializes every test that mutates PATH for the full operation.
+    unsafe { std::env::set_var("PATH", &updated_path) };
+    let result = operation();
+    // SAFETY: PROCESS_ENV_LOCK is still held, so restoring PATH cannot race another test.
+    unsafe { std::env::set_var("PATH", original_path) };
+    result
 }

@@ -89,10 +89,6 @@ pub struct ExecutionModeContract {
     pub summary: &'static str,
     /// Whether the mode persists `state.json`.
     pub writes_state: bool,
-    /// Whether the mode persists `last_run.json`.
-    pub writes_last_run: bool,
-    /// Whether the mode delivers notification hooks.
-    pub delivers_notifications: bool,
 }
 
 /// One canonical CLI hard limitation.
@@ -138,6 +134,46 @@ impl UserFacingDocumentContract {
             "could not write {}",
             self.display_label.to_ascii_lowercase()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rendered_contract_messages_use_detail_only_when_the_template_supports_it() {
+        let with_detail = CliHardLimitContract {
+            id: "limit",
+            operation_id: Some("run"),
+            display_label: "Limit",
+            summary: "Summary",
+            cli_usage_error_template: "duplicate {detail}",
+        };
+        assert_eq!(
+            with_detail.render_cli_usage_error(Some("demo")),
+            "duplicate demo"
+        );
+        assert_eq!(
+            with_detail.render_cli_usage_error(None),
+            "duplicate {detail}"
+        );
+        let without_detail = CliHardLimitContract {
+            cli_usage_error_template: "fixed",
+            ..with_detail
+        };
+        assert_eq!(
+            without_detail.render_cli_usage_error(Some("ignored")),
+            "fixed"
+        );
+        assert_eq!(
+            UserFacingDocumentContract {
+                id: "doc",
+                display_label: "Run Report"
+            }
+            .render_cli_write_error(),
+            "could not write run report"
+        );
     }
 }
 

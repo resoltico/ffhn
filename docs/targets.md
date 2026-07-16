@@ -1,383 +1,310 @@
 ---
 afad: "4.0"
 domain: TARGETS
-updated: "2026-05-17"
+updated: "2026-07-16"
 route:
-  keywords: [target schema, ffhn.target, http target, file target, canonicalization, notifications, target id]
-  questions: ["how is ffhn.target structured?", "what are the ffhn target defaults and validation rules?", "how do ffhn notification routes work?"]
+  keywords: [target schema, ffhn.target, JSON Pointer, typed observation, decimal, reset]
+  questions: ["how is a v2 JSON target structured?", "which typed values does FFHN support?", "when is reset required?"]
 ---
 
 # Target Configuration
 
-FFHN loads one `ffhn.target` document from `<watch_root>/<target_id>/target.toml`.
-
-Every target document requires:
-
-1. `schema_name = "ffhn.target"`
-2. `schema_version = 4`
-3. `target_id`
-4. `display_name`
-5. `enabled`
-6. `[target]`
-7. `[fetch]`
-8. `[selection]`
-9. `[compare]`
-
-Optional sections are `[storage]`, `[[notification_endpoints]]`, `[[notification_routes]]`, top-level `[extensions]`, and reserved
-`[fetch.extensions]`. FFHN preserves those extension objects structurally but does not interpret
-them semantically.
-
-`enabled` has three user-facing effects:
-
-1. live explicit runs return `skipped_disabled`
-2. `run --all` excludes the target from discovery when the directory has a `target.toml` marker and that document is otherwise valid
-3. explicit dry-runs continue through validation, fetch, extraction, and compare
-
-The checked-in public examples at [watchlist/demo/target.toml](../watchlist/demo/target.toml) and
-[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md)
-are repo-contract-tested against the current schema, so they are the canonical example entrypoints
-in this repository.
-
-## `target_id` Rules
-
-`target_id` is part of the durable filesystem contract.
-
-It must:
-
-1. start with `[a-z0-9]`
-2. stay within 64 characters
-3. use only lowercase ASCII letters, digits, `_`, and `-`
-4. use only single internal separators
-5. not end with `_` or `-`
-6. not use reserved device names such as `con`, `prn`, `nul`, `com1`, or `lpt1`
-
-Examples:
-
-1. valid: `demo`, `demo_1`, `demo-1`
-2. invalid: `Demo`, `demo__1`, `demo--1`, `demo_`, `con`
-
-## Source Kinds
-
-FFHN supports two target source families.
-
-### HTTP targets
+FFHN loads one v2 target from `<watch_root>/<target_id>/target.toml`. A target owns one scalar
+measurement projection (`json_pointer`, `html_text`, or `html_attribute`), one declared semantic
+type, and an explicit ordered list of named conditions. It requires `schema_name = "ffhn.target"`, `schema_version = 9`, `target_id`,
+`display_name`, `enabled`, `escalate_after`, `declared_type`, `conditions`, `[target]`, `[fetch]`, and
+`[projection]`. `[outbox]` and `[[routes]]` are optional operational delivery configuration.
+Unknown fields are rejected.
 
 ```toml
+schema_name = "ffhn.target"
+schema_version = 9
+target_id = "price"
+display_name = "Current Price"
+enabled = true
+escalate_after = 3
+declared_type = "money"
+
+[[conditions]]
+condition_id = "price-rise"
+
+[conditions.predicate]
+kind = "delta_pct"
+reference = "last_accepted_observation"
+threshold = "5.0000001"
+
 [target]
 kind = "http"
-source_url = "https://example.com"
+source_url = "https://example.test/price.json"
 
 [fetch]
 engine = "http"
 user_agent = "ffhn/example"
-accept = "text/html"
+accept = "application/json"
+
+[projection]
+kind = "json_pointer"
+pointer = "/price"
+
+[type_params]
+currency = "USD"
+locale = "en_us"
 ```
 
-Rules:
+## Delivery routes and durable outbox
 
-1. `source_url` must be an absolute `http` or `https` URL
-2. `file_path` is forbidden
-3. `fetch.engine` must be `http`
-
-### File targets
-
-```toml
-[target]
-kind = "file"
-file_path = "/absolute/path/to/page.html"
-
-[fetch]
-engine = "file"
-max_bytes = 2000000
-```
-
-Rules:
-
-1. `file_path` must be an absolute filesystem path
-2. `source_url` is forbidden
-3. `fetch.engine` must be `file`
-
-The `file_path` above is schematic. For a checked-in runnable file-target example that materializes
-a real absolute path to included sample HTML, use
-[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md).
-
-## Fetch Section
-
-Network-fetch defaults:
-
-| Field | Default |
-| --- | --- |
-| `method` | `GET` |
-| `timeout_ms` | `15000` |
-| `max_bytes` | `2000000` |
-| `follow_redirects` | `true` |
-
-Shared validation:
-
-1. `max_bytes` must be in `1024..=104857600`
-2. `method` is currently the fixed vocabulary value `GET`
-
-### HTTP fetch rules
-
-Additional HTTP-only rules:
-
-1. `timeout_ms` must be in `1000..=600000`
-2. `user_agent` is required
-3. `accept` is required
-4. `headers` keys and values must be non-empty when present
-5. `fetch.engine = "file"` is forbidden
-
-HTTP responses with no `Content-Type` header are accepted and decoded as UTF-8 by default.
-`fetch_unsupported_content_type` is reserved for responses that do send a non-HTML/XHTML media
-type.
-
-### File fetch rules
-
-Additional file-only rules:
-
-1. `fetch.engine` must be `file`
-2. `max_bytes` is optional and defaults to `2000000`
-3. `method`, `timeout_ms`, `user_agent`, `follow_redirects`, `accept`, and `headers` are not part of the file-fetch schema
-4. local file bytes must decode as UTF-8, or FFHN returns `fetch_decode_error`
-
-## Selection Section
-
-FFHN supports two selection strategies:
-
-1. `kind = "css_selector"`
-2. `kind = "delimiter_pair"`
-
-Shared fields:
-
-1. `match = "single" | "first" | "nth"`
-
-Selection tells FFHN how to locate one fragment. It does not decide how FFHN compares that
-fragment. Projection choices such as rendered text versus HTML now live under `[compare]`.
-
-### Candidate selection
-
-The `match` shape is part of the selection type itself:
-
-1. `match = "single"` and `match = "first"` carry no additional fields
-2. `match = "nth"` requires `index`, and that index must be positive
-3. supplying `index` for `single` or `first` is a decode error, not a later runtime validation warning
-
-### CSS selector strategy
-
-Required:
-
-1. `selector`
-
-Shape rule:
-
-1. FFHN rejects delimiter-only fields during decode because `css_selector` and `delimiter_pair` are distinct tagged shapes, not one partially-filled bag
-
-### Delimiter-pair strategy
-
-Required:
-
-1. `start`
-2. `end`
-3. `mode = "literal" | "regex"`
-4. `include_start`
-5. `include_end`
-
-Additional rules:
-
-1. `selector` is rejected during decode because it belongs only to the CSS-selector shape
-2. `flags` are allowed only when `mode = "regex"`
-
-## Compare Section
-
-Compare owns the projection that FFHN turns into a durable compare artifact.
-
-Supported compare bases:
-
-1. `basis = "text"`
-2. `basis = "inner_html"`
-3. `basis = "outer_html"`
-
-Text compare example:
+Delivery is opt-in: omit `[[routes]]` for a measurement-only target. An optional `[outbox]` table
+sets bounded, deterministic retry behavior. Its defaults are `max_pending = 100`,
+`max_attempts = 5`, `base_backoff_ms = 1000`, and `max_backoff_ms = 300000`. The valid ranges are
+`max_pending = 1..=100000`, `max_attempts = 1..=100`, `base_backoff_ms = 1..=86400000`, and
+`max_backoff_ms = base_backoff_ms..=604800000`.
 
 ```toml
-[compare]
-basis = "text"
-whitespace = "normalize"
-rewrite_urls = false
-canonicalization = []
-```
+[outbox]
+max_pending = 100
+max_attempts = 5
+base_backoff_ms = 1000
+max_backoff_ms = 300000
 
-Outer-HTML compare example:
+[[routes]]
+route_id = "condition-log"
+route_family = "on_condition"
 
-```toml
-[compare]
-basis = "outer_html"
-rewrite_urls = false
-canonicalization = []
-```
-
-Rules:
-
-1. `compare.whitespace = "preserve" | "normalize"` is required when `basis = "text"`
-2. `compare.whitespace` is forbidden when `basis = "inner_html"` or `basis = "outer_html"`
-3. `compare.rewrite_urls = true | false` defaults to `false`
-4. `compare.canonicalization` defaults to `[]`
-5. FFHN always normalizes line endings to LF before hashing the final compare value
-
-`compare.rewrite_urls` follows HTMLCut's effective-base rules:
-
-1. HTTP targets pass their final `http` or `https` fetch URL into HTMLCut as the input base URL
-2. file targets do not invent an input base URL from `file://...`
-3. file targets can rewrite relative URLs when the document itself resolves an effective HTTP(S) base, such as `<base href="https://example.com/docs/">`
-4. when `rewrite_urls = true` and no effective HTTP(S) base resolves, FFHN keeps the extraction successful and surfaces the HTMLCut warning code `EFFECTIVE_BASE_URL_UNRESOLVED` in `warning_codes`
-
-The canonicalization pipeline is an ordered list of:
-
-1. `trim`
-2. `collapse_whitespace`
-3. `normalize_newlines`
-4. `strip_regex`
-5. `lowercase`
-
-When `compare.canonicalization` is empty or omitted, FFHN hashes the LF-normalized compare-basis
-projection directly without any additional caller-configured transforms.
-
-FFHN persists two different artifacts for successful baselines:
-
-1. `outer.html` is the selected outer HTML after FFHN line-ending normalization
-2. `compare.txt` is the final compare value after basis projection, URL rewriting, optional text
-   whitespace shaping, and any configured canonicalizers
-
-`normalize_newlines` remains a stable explicit vocabulary value, but it now declares an otherwise
-implicit step in the caller-visible compare pipeline rather than serving as a hidden special case.
-
-`strip_regex` additionally requires:
-
-1. `pattern`
-2. optional regex `flags`
-
-The supported regex flags are:
-
-1. `case_insensitive`
-2. `multi_line`
-3. `dot_matches_new_line`
-4. `swap_greed`
-5. `ignore_whitespace`
-
-## Storage
-
-`[storage]` controls retained successful snapshots.
-
-```toml
-[storage]
-history_limit = 10
-```
-
-Rules:
-
-1. `history_limit` defaults to `10`
-2. `history_limit` must be in `1..=256`
-3. the count is total retained successful snapshots, including `snapshots/current`
-
-That means the history directory can hold at most `history_limit - 1` older snapshots.
-
-## Notifications
-
-Notifications are best-effort delivery routes. FFHN models them in two layers:
-
-1. `[[notification_endpoints]]` define reusable delivery adapters
-2. `[[notification_routes]]` bind run outcomes to one named endpoint
-
-The current adapter vocabulary has one member: `process_stdin`.
-
-POSIX append-only JSONL sink:
-
-```toml
-[[notification_endpoints]]
-name = "log-json"
+[routes.adapter]
 kind = "process_stdin"
 program = "/bin/sh"
-args = ["-c", "cat >> /tmp/ffhn-report.jsonl"]
+args = ["-c", "cat >> /tmp/ffhn-condition-events.jsonl"]
 timeout_ms = 1000
 
-[[notification_routes]]
-name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
-endpoint = "log-json"
+[[routes]]
+route_id = "run-log"
+route_family = "on_run"
+
+[routes.adapter]
+kind = "process_stdin"
+program = "/bin/sh"
+args = ["-c", "cat >> /tmp/ffhn-run-events.jsonl"]
+timeout_ms = 1000
 ```
 
-PowerShell append-only JSONL sink:
+An event id is `sha256(stable_json({ target_id, route_family, key }))`. An event-predicate
+condition (`changed`, `delta_abs`, `delta_pct`, or `crosses`) uses its `condition_id` and accepted
+`observation_seq` as the key; a level condition uses its `condition_id` and the entry transition
+time. Evaluation issues use condition id, issue kind, and sequence. Source escalations use reason
+class and the episode start; permanent contract errors use contract digest, error code, and first
+seen time; reset and initialization use kind and contract digest. Thus retries retain one event id,
+while a later eligible observation or episode is a distinct event.
+
+Routes are strictly ordered by `route_id`; identifiers use the same lowercase letter, digit, and
+single internal `-` or `_` form as condition ids. `route_family` is `on_condition` for named
+condition triggers, or `on_run` for initialization, reset, source escalation, permanent contract
+errors, and condition evaluation issues. The only current adapter is `process_stdin`: `program`
+must be an absolute path, every supplied argument must be nonblank, and `timeout_ms` is in
+`100..=60000`.
+
+For each staged route, FFHN computes a deterministic event id and stores one compact
+`ffhn.process_stdin` version-2 JSON payload as immutable bytes. Its typed `event_key` preserves
+every exact hash input, including a level condition's `entry_at`, and state loading recomputes the
+event id from that key before delivery. The child process receives those exact bytes followed by one
+newline, so a simple append sink produces JSON Lines. A retry never rebuilds the payload from later
+state or a run report. Successful records are removed; a failed record retries at
+`commit_time + min(base_backoff_ms * 2^(attempt_count - 1), max_backoff_ms)` with no jitter; the
+terminal attempt is reported as dead-lettered and removed. When the bounded queue is full, FFHN
+never evicts an older record: it drops only the new record and records `outbox_overflow` in the run
+report while still committing measurement state.
+
+FFHN invokes a route only after the state/outbox commit is crash durable. It synchronizes the
+staged and installed state file before delivery; on Unix it also synchronizes the directory metadata
+that names the replacement. A synchronization failure prevents delivery. One drain handles only
+records that were due when that drain began, so a retry scheduled from its retry-state commit time
+always waits for a later drain.
+
+Persisted payload bytes are not opaque input: state loading requires canonical stable JSON for
+`ffhn.process_stdin` version 2, rejects unknown or malformed fields, and requires the payload's
+target, derived event id, route, and route family to match its enclosing pending record. A malformed,
+inconsistently bound, or hash-shaped-but-invented payload makes the state invalid and is never
+delivered. The human summary is also checked against the stored event facts, so it cannot drift from
+the structured payload.
+
+Delivery configuration is operational and does not change the measurement contract digest. A
+pending record nevertheless keeps its route identity and family: removing its route or moving it
+between `on_run` and `on_condition` makes the stored state invalid. Restore the matching route to
+drain it, or use the explicit reset lifecycle to discard it.
+
+## Sources and projection
+
+`target.kind` and `fetch.engine` must match. HTTP targets use an absolute `http` or `https`
+`source_url`, plus required `user_agent` and `accept`; defaults are a 15,000 ms timeout,
+2,000,000 bytes, and following redirects. File targets use an absolute UTF-8 `file_path`.
+`fetch.max_bytes` must be in `1024..=104857600`.
+
+`json_pointer` accepts the empty pointer for a scalar root or an RFC 6901 path such as
+`/inventory/current`; only `~0` and `~1` escapes are valid. Arrays and objects are rejected because
+one target measures one scalar leaf.
+
+`html_text` and `html_attribute` use HTMLCut's public selection strategy, candidate selection, and
+rendering tables. FFHN always builds HTMLCut's structured result internally so it can retain public
+match metadata, but `output` is not a target field and `html_structured` is not an FFHN projection.
+An HTML target must select one candidate (`single`, `first`, or `nth`); `all` is rejected. An
+`html_text` target may use HTMLCut's CSS-selector or delimiter-pair strategy; an `html_attribute`
+target additionally requires a CSS-selector strategy and a `name`.
 
 ```toml
-[[notification_endpoints]]
-name = "log-json"
-kind = "process_stdin"
-program = "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
-args = [
-  "-NoLogo",
-  "-NoProfile",
-  "-Command",
-  "[System.IO.File]::AppendAllText($args[0], [Console]::In.ReadToEnd())",
-  "C:\\Temp\\ffhn-report.jsonl",
-]
-timeout_ms = 1000
+[projection]
+kind = "html_attribute"
+name = "content"
 
-[[notification_routes]]
-name = "log-json"
-on = ["changed", "failed_transient", "failed_permanent"]
-endpoint = "log-json"
+[projection.selection.strategy]
+kind = "css_selector"
+selector = "meta#price"
+
+[projection.selection.selection]
+mode = "single"
+
+[projection.selection.rendering]
+whitespace = "rendered"
+rewrite_urls = false
 ```
 
-FFHN writes one compact JSON document followed by a newline to the route process stdin, so simple
-append-based sinks produce valid JSONL. Use the shell host and absolute paths that exist on the
-target machine. The checked-in
-[examples/file-target-with-notifications/README.md](../examples/file-target-with-notifications/README.md)
-shows the same append-only pattern through repo-owned POSIX and PowerShell helpers.
+Use `html_attribute` with `meta[content]` and `name = "content"`, or `time[datetime]` and
+`name = "datetime"`, for those common HTML metadata values. Attribute evidence and comparison are
+always the original public CSS match attribute.
 
-Defaults:
+CSS `html_text` targets may optionally canonicalize only their typed comparison projection:
 
-| Field | Default |
-| --- | --- |
-| `notification_endpoints.timeout_ms` | `5000` |
+```toml
+[projection]
+kind = "html_text"
 
-Rules:
+[projection.selection.strategy]
+kind = "css_selector"
+selector = "article.price a"
 
-1. `notification_endpoints.name` values must be unique within the target
-2. `notification_routes.name` values must be unique within the target
-3. `notification_routes.on` must list at least one unique run outcome
-4. `notification_routes.endpoint` must reference an existing `notification_endpoints.name`
-5. `notification_endpoints.kind` must be `process_stdin`
-6. `notification_endpoints.program` must be an absolute path
-7. every `notification_endpoints.args` entry must be non-empty
-8. `notification_endpoints.timeout_ms` must be in `100..60000`
+[projection.selection.selection]
+mode = "single"
 
-Supported `on` values match the run-outcome vocabulary:
+[projection.selection.rendering]
+whitespace = "rendered"
+rewrite_urls = false
 
-1. `initialized`
-2. `changed`
-3. `unchanged`
-4. `failed_transient`
-5. `failed_permanent`
-6. `skipped_disabled`
+[projection.selection.dom_canonicalization]
+ignore_attributes = ["href", "data-nonce"]
+strip_whitespace_nodes = true
+```
 
-`skipped_disabled` deliveries arise only from live runs on disabled targets. `run --all` keeps
-valid disabled targets visible in the batch result as `skipped_disabled` entries, and dry-run
-never delivers notifications.
+HTMLCut first selects from the original DOM. FFHN retains its original selected text as
+`raw_selected`; only the text rendered from HTMLCut's detached canonical clone becomes
+`comparison_projection` and is parsed into the typed value. Candidate counts, diagnostics, and
+CSS match metadata remain facts from the original selected DOM. There is no implicit attribute
+deny-list.
 
-FFHN sends the validated pre-delivery `ffhn.notification_payload` document to the route process on
-stdin and also sets these environment variables:
+`dom_canonicalization` is valid only for CSS `html_text` targets. FFHN rejects it for delimiter
+selection and `html_attribute` targets with the permanent `htmlcut_plan_invalid` error, because
+an attribute measurement always uses original metadata and cannot have a clone-based comparison.
+The resulting `config_invalid` run report retains HTMLCut's plan digest, reason, and any public
+diagnostics rather than reducing the rejection to unstructured text.
+`sort_attributes` and `strip_comments` are not supported fields and are rejected rather than
+silently ignored.
 
-1. `FFHN_TARGET_ID`
-2. `FFHN_RUN_OUTCOME`
-3. `FFHN_FAILURE_CAUSE`
-4. `FFHN_RUN_MODE`
-5. `FFHN_FAILURE_CLASS` (empty string for non-failure outcomes)
+HTML HTTP sources cannot contain URL userinfo, because HTMLCut must receive a safe public input
+base URL. That is a permanent `htmlcut_input_invalid` configuration error, not a source outage.
+When redirects are enabled, FFHN passes the final successful response URL—not the original request
+URL—as HTMLCut's input base for relative URL resolution. Source decoding, JSON syntax, a missing
+JSON pointer, a non-scalar JSON projection, and transient HTML selection failures never create or
+advance accepted state. They persist source-health facts without changing the accepted baseline,
+sequence, or condition state.
 
-That stdin payload wraps the run report snapshot FFHN had before delivery results were appended, so
-`run_report.notifications` is empty and `run_report.persist.last_run_write.status` is
-`not_attempted`. If an earlier live persist substep already failed,
-`run_report.persist.state_commit.status` may already be `failed` inside the stdin payload.
+## Typed values
 
-Route-process failures do not rewrite the run result, but they remain operationally significant:
-FFHN records them in `run_report.notifications`, captures stderr text when it can, and makes the
-CLI exit with code `1`.
+`declared_type` is one of `integer`, `decimal`, `money`, `semver`, or `datetime`.
+
+| Type | Representation | Canonical form | Parameters |
+| --- | --- | --- | --- |
+| `integer` | `i128` | decimal integer text | none |
+| `decimal` | `rust_decimal::Decimal` | normalized exact decimal text | optional `locale` |
+| `money` | exact decimal plus tag | normalized exact decimal text | uppercase `currency`; optional `locale` |
+| `semver` | `semver::Version` | normalized SemVer text | none |
+| `datetime` | `time::OffsetDateTime` | RFC3339 UTC text | `format`; optional `assumed_offset` |
+
+Decimal and money parsing is exact. Values outside Rust Decimal's 96-bit, scale-28 boundary are
+`value_unparseable`; FFHN never rounds or truncates. Numeric grammars are `invariant` (default,
+no grouping), `en_us` (comma grouping and dot decimal), and `de_de` (dot grouping and comma
+decimal). A date-time carries an explicit offset or a configured `assumed_offset`; FFHN never
+uses the machine-local time zone. `format = "rfc3339"` already requires an explicit offset, so an
+assumed offset is valid only with a configured format that omits one.
+
+## Named conditions
+
+`conditions` is a top-level array of tables ordered strictly by `condition_id`. A condition id is
+target-local, stable, lowercase, at most 64 characters, and uses only single internal `-` or `_`
+separators. An intentionally policy-free target must declare `conditions = []`; omission is not a
+legacy default.
+
+All threshold literals are quoted to preserve their exact configured grammar. `delta_pct.threshold`
+is an invariant decimal percentage; every other threshold uses the target's declared type grammar.
+FFHN rejects a numeric predicate for `semver` or `datetime`, a strictly negative delta threshold,
+invalid typed literals, cross-currency comparisons, and hysteresis thresholds that conflict with
+their direction. Signed zero is numerically zero, so `"-0"` is valid for either delta threshold.
+
+| `kind` | Required fields | Supported types | Result and trigger rule |
+| --- | --- | --- | --- |
+| `changed` | `reference` | all | canonical identity differs; every satisfied evaluation triggers |
+| `delta_abs` | `reference`, `threshold` | integer, decimal, money | exact absolute delta reaches threshold; every satisfied evaluation triggers |
+| `delta_pct` | `reference`, `threshold` | integer, decimal, money | exact percentage delta reaches threshold; every satisfied evaluation triggers |
+| `crosses` | `threshold`, `direction` | all | pre-run accepted value crosses threshold; every satisfied evaluation triggers |
+| `lt`, `gt` | `threshold` | all | strict level comparison; triggers only on entry or re-entry |
+| `band` | `enter_threshold`, `exit_threshold`, `direction` | all | directional hysteresis level; triggers only on entry or re-entry |
+
+`direction = "rising"` crosses from below to at-or-above its threshold. A rising band enters at or
+above `enter_threshold` and remains active at or above `exit_threshold`, so its enter threshold
+must be greater than or equal to its exit threshold. `falling` is symmetric: it crosses from above
+to at-or-below, enters at or below, remains active at or below, and requires an enter threshold no
+greater than its exit threshold. A second same-direction crossing requires an intervening return to
+the other side of the threshold; every qualifying crossing triggers.
+
+Reference predicates accept `last_accepted_observation`, `fixed_initial_baseline`, or
+`last_condition_transition`. The last transition is always scoped to the condition being evaluated.
+An absent reference produces `unavailable`; valid arithmetic that overflows produces
+`arithmetic_overflow`; a runtime zero percentage reference produces `zero_reference`. These are
+condition outcomes, not measurement outcomes. Decimal arithmetic is checked and exact, so FFHN
+does not decide by rounded division. Integer percentage comparison retains the full `i128` domain,
+including cross-sign extremes; it never narrows accepted integers into decimal storage.
+
+The live runtime invokes the policy staging algebra with contexts derived
+only from pre-run state, then retains that exact result with the resulting accepted observation,
+monotonic sequence, and per-condition state in one staged run through commit. It materializes
+those preserved eligibilities as durable routing without re-evaluating policy. A foreign reference
+is `unavailable`, never an implicit conversion. `last_condition_transition` remains scoped to its
+condition. `arithmetic_overflow`, `zero_reference`, and `unavailable` update that condition's result
+but do not block a valid accepted observation from advancing.
+
+`escalate_after` is the positive number of consecutive identical source-suspect failures that
+reaches one escalation eligibility. Source health records the reason, count, first failure time,
+and latest diagnostic; a changed reason starts a new episode, while a valid observation restores
+health. The fixed source-suspect vocabulary is `fetch_failed`, `json_malformed`,
+`json_missing_pointer_target`, `json_non_scalar_pointer_target`, `value_unparseable`,
+`htmlcut_no_match`, `htmlcut_ambiguous_match`, `htmlcut_missing_attribute`,
+`htmlcut_match_index_out_of_range`, and `htmlcut_internal_failure`. HTMLCut failures retain their
+reason, candidate count when known, plan digest, and public diagnostics. Invalid JSON Pointer and
+HTML contract errors are permanent-error episodes instead: they never change source health,
+accepted state, or condition state. The permanent vocabulary is closed: `invalid_json_pointer`,
+`htmlcut_plan_invalid`, `htmlcut_input_invalid`, `htmlcut_invalid_selector`,
+`htmlcut_invalid_slice_pattern`, `htmlcut_unsupported_value_type`,
+`html_attribute_requires_css_selector`, and `html_selection_must_select_one`.
+
+## Contract identity and reset
+
+FFHN stores a stable SHA-256 digest over the source-kind-tagged target, fetch policy, projection,
+declared type, parser identity and grammar version, type parameters, and every named condition
+including its id, predicate, references, thresholds, direction, and `escalate_after`. HTML
+projections additionally bind HTMLCut's extraction-semantics version. JSON projections deliberately
+do not. The per-execution HTMLCut plan digest is evidence in an HTML observation or diagnostic, not
+the target contract identity. A mismatch returns `refused_contract_digest` before acquisition,
+comparison, or mutation.
+
+Routes and outbox policy are deliberately excluded from that digest. They change delivery
+operations, not the value being measured or its condition interpretation.
+
+Run `ffhn reset --watch-root <PATH> --target <ID>` to accept a changed definition. Reset acquires
+the target lock and blind-deletes FFHN-owned storage while preserving `target.toml`; it does not
+parse, translate, or preserve storage contents.

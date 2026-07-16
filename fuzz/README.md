@@ -1,131 +1,44 @@
 ---
 afad: "4.0"
 domain: FUZZING
-updated: "2026-05-16"
+updated: "2026-07-14"
 route:
-  keywords: [fuzzing, cargo-fuzz, libfuzzer, seeds, nightly sanitizer, dry-run harness, report validation]
-  questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn seed smokes?", "which fuzzing checks are automatic versus manual?"]
+  keywords: [fuzzing, cargo-fuzz, JSON Pointer, HTMLCut, typed observation, target TOML, state report]
+  questions: ["what does the ffhn fuzz package cover?", "how do I run the ffhn fuzzers?", "which fuzzing checks are automatic versus manual?"]
 ---
 
 # Fuzz Package
 
-`fuzz/` is a standalone `cargo-fuzz` package. `./check.sh` security-audits its lockfile, lint-checks its maintained harnesses, and compile-smokes its binaries, but live sanitizer-backed fuzz execution is a separate manual workflow.
+`fuzz/` is FFHN's standalone `cargo-fuzz` package. The required gate audits its lockfile, lint-checks the harnesses, and compile-smokes them. Live sanitizer-backed fuzzing remains a deliberate manual activity.
 
-## Automatic Versus Manual
+## Harnesses
 
-Automatic through `./check.sh`:
+| Fuzzer | V2 surface | Purpose |
+| --- | --- | --- |
+| `target_toml_documents` | `TargetDocument` | Decode arbitrary target TOML and validate JSON and HTML measurement contracts. |
+| `state_and_report_json_documents` | State and emitted reports | Decode arbitrary JSON into v2 documents and run their validators. |
+| `dry_run_file_targets` | File source plus JSON Pointer acquisition | Execute a dry-run against generated JSON input without mutating durable state. |
+
+There is no retained v1 corpus. New minimized inputs belong only to a current harness and must demonstrate a v2 regression before being checked in.
+
+## Automatic Checks
 
 ```bash
-cargo audit --file fuzz/Cargo.lock -D warnings
+cargo xtask audit --file fuzz/Cargo.lock
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings
-cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz
+cargo +<qa-nightly-toolchain> fuzz check --fuzz-dir fuzz
 ```
 
-Manual live fuzzing:
+## Manual Campaigns
 
-1. requires `cargo-fuzz`
-2. requires the pinned QA nightly toolchain from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
-3. should normally be run from `fuzz/`
-4. will write rebuildable Cargo output under FFHN's managed sibling artifact roots plus campaign outputs under `fuzz/artifacts/`, and may extend corpora if you do not clean up afterward
-
-## Fuzzer Inventory
-
-| Fuzzer | Target module(s) | Checked-in corpus | Primary concern |
-| --- | --- | ---: | --- |
-| `dry_run_file_targets` | `ffhn_core::fetch`, `ffhn_core::runtime::run` | `fuzz/corpus/dry_run_file_targets` | file-source dry-run extraction drift |
-| `state_and_report_json_documents` | `ffhn_core::model::report`, `ffhn_core::model::state` | `fuzz/corpus/state_and_report_json_documents` | schema validation drift |
-| `target_toml_documents` | `ffhn_core::model::target` | `fuzz/corpus/target_toml_documents` | target-contract drift |
-
-Each corpus directory may contain both hand-named seed cases and minimized regression inputs, so raw file counts drift over time and are not themselves a maintained contract.
-Hand-named seeds whose filename contains `invalid` are intentional negative cases; the repo-contract suite asserts that FFHN keeps rejecting them.
-
-## Representative Coverage Map
-
-The table below names the main maintained source files each harness exercises; it is representative rather than exhaustive.
-
-| Source module | Covered by |
-| --- | --- |
-| `crates/ffhn-core/src/fetch.rs` | `dry_run_file_targets` |
-| `crates/ffhn-core/src/fetch/file.rs` | `dry_run_file_targets` |
-| `crates/ffhn-core/src/model/report.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/report/batch.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/report/notification.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/report/run.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/report/status.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/state.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/value/relative_artifact_path.rs` | `state_and_report_json_documents` |
-| `crates/ffhn-core/src/model/value/target_id.rs` | `target_toml_documents` |
-| `crates/ffhn-core/src/model/target/defaults.rs` | `target_toml_documents`, `dry_run_file_targets` |
-| `crates/ffhn-core/src/model/target/types.rs` | `target_toml_documents`, `dry_run_file_targets` |
-| `crates/ffhn-core/src/model/target/validation.rs` | `target_toml_documents`, `dry_run_file_targets` |
-| `crates/ffhn-core/src/runtime/run/execute.rs` | `dry_run_file_targets` |
-
-## Maintained Seed-Smoke Commands
-
-From the repository root:
+From the repository root, use the pinned QA nightly toolchain declared in `tooling/rust-tooling.env`:
 
 ```bash
 QA_NIGHTLY_TOOLCHAIN="$(sed -n 's/^RUST_QA_NIGHTLY_TOOLCHAIN=//p' tooling/rust-tooling.env)"
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz target_toml_documents fuzz/corpus/target_toml_documents -- -runs=200
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz state_and_report_json_documents fuzz/corpus/state_and_report_json_documents -- -runs=200
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz dry_run_file_targets fuzz/corpus/dry_run_file_targets -- -runs=200
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz target_toml_documents
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz state_and_report_json_documents
+cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run --fuzz-dir fuzz dry_run_file_targets
 ```
 
-From inside `fuzz/`:
-
-```bash
-QA_NIGHTLY_TOOLCHAIN="$(sed -n 's/^RUST_QA_NIGHTLY_TOOLCHAIN=//p' ../tooling/rust-tooling.env)"
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run target_toml_documents corpus/target_toml_documents -- -runs=200
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run state_and_report_json_documents corpus/state_and_report_json_documents -- -runs=200
-cargo +"${QA_NIGHTLY_TOOLCHAIN}" fuzz run dry_run_file_targets corpus/dry_run_file_targets -- -runs=200
-```
-
-Those commands are the maintained seed-smoke path because they:
-
-1. exercise the checked-in corpus directly
-2. stay bounded instead of becoming open-ended fuzz campaigns
-3. validate the current contract surfaces that FFHN depends on most heavily
-
-Run the fuzzers one at a time. `cargo-fuzz` takes an exclusive lock on `fuzz/Cargo.lock`, so parallel launches just contend with each other instead of increasing useful coverage.
-
-## Harness Notes
-
-### `dry_run_file_targets`
-
-Purpose:
-
-1. exercise file-backed target fetch plus extraction
-2. verify dry-run can reach a valid structured report
-3. verify dry-run does not mutate persisted state snapshots or run reports
-
-### `state_and_report_json_documents`
-
-Purpose:
-
-1. decode arbitrary JSON into `ffhn.state`
-2. decode arbitrary JSON into `ffhn.run_report`
-3. decode arbitrary JSON into `ffhn.notification_payload`
-4. decode arbitrary JSON into `ffhn.batch_run_report`
-5. decode arbitrary JSON into `ffhn.status_report`
-6. keep Windows absolute and UNC snapshot artifact paths rejected at deserialize time
-
-### `target_toml_documents`
-
-Purpose:
-
-1. decode arbitrary TOML into `ffhn.target`
-2. enforce target-id, source, fetch, selection, compare, storage, and notification rules
-3. keep file-target fetch restrictions stable, including rejection of HTTP-only knobs
-4. keep durable target-id escape attempts rejected during deserialize as well as later validation
-
-## Cleanup
-
-After manual fuzzing, remove generated build and artifact output:
-
-```bash
-cargo xtask hygiene clean --mode rebuildable
-rm -rf fuzz/artifacts
-```
-
-Only keep newly generated corpus entries if you deliberately want to promote them into the checked-in fuzz inputs.
+Run one campaign at a time because `cargo-fuzz` owns the fuzz lockfile. Remove generated artifacts after an exploratory campaign with `cargo xtask hygiene clean --mode rebuildable` and `rm -rf fuzz/artifacts`.

@@ -1,85 +1,69 @@
-# FFHN — repeatable HTML monitoring for websites and local files
+# FFHN — deterministic typed measurements
 
-FFHN (Focused Fragment History Notifier) monitors one exact HTML fragment from a web page or
-local HTML file. You define the target once in TOML, FFHN fetches and extracts that fragment,
-compares it with the saved baseline, and emits a structured report you can use in a terminal,
-cron job, process hook, or pipeline.
+FFHN acquires one JSON or HTML scalar from an HTTP endpoint or local UTF-8 file, validates it against a declared semantic type, and persists accepted evidence as an auditable v2 state document. It supports exact integers, decimals, money, Semantic Versions, explicit-offset date-times, and named typed policy conditions. It deliberately does not infer values or use machine-local time zones. Condition and source-health state are persisted, and optional delivery routes use a durable per-target outbox with immutable process-stdin payloads.
 
-## What It Does
+## Install
 
-Use FFHN when you care about one known fragment and need repeatable checks instead of manual
-checking or one-off scripts.
+Download the archive for your platform from [GitHub Releases](https://github.com/resoltico/ffhn/releases). Each public release ships these maintained binary assets:
 
-- Watch a CSS-selected fragment from a live URL or a local HTML file
-- Save each check as a TOML target file and rerun it unchanged later
-- Emit one stable result document for live runs, dry-runs, status checks, and batches
-- Preview checks with `--dry-run` before wiring them into automation
-- Route matching live outcomes into process-based notification hooks
+- `ffhn-<version>-aarch64-apple-darwin.tar.gz`
+- `ffhn-<version>-x86_64-apple-darwin.tar.gz`
+- `ffhn-<version>-x86_64-unknown-linux-musl.tar.gz`
+- `ffhn-<version>-x86_64-pc-windows-msvc.zip`
 
-## Quick Start
+Download `ffhn-<version>-checksums.txt` with the matching archive, validate its SHA-256 entry, extract the archive, and add the contained `ffhn` executable to your `PATH`. Source archives are also available as `ffhn-source-<version>.zip` and `ffhn-source-<version>.tar.gz`.
 
-This example monitors one HTML fragment on a live page. If you want a self-contained local-file
-path that does not depend on a live website, use the
-[Portable quick start](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start).
+## Quick start
 
-1. Create `checks/quarterly-report/target.toml`:
+Create `checks/price/target.toml`:
 
 ```toml
-# checks/quarterly-report/target.toml
-schema_name    = "ffhn.target"
-schema_version = 4
-target_id      = "quarterly-report"
-display_name   = "Quarterly Report"
-enabled        = true
+schema_name = "ffhn.target"
+schema_version = 9
+target_id = "price"
+display_name = "Current Price"
+enabled = true
+escalate_after = 3
+declared_type = "money"
+conditions = []
 
 [target]
-kind       = "http"
-source_url = "https://company.com/quarterly"
+kind = "http"
+source_url = "https://example.test/price.json"
 
 [fetch]
-engine           = "http"
-user_agent       = "ffhn/example"
-accept           = "text/html"
-follow_redirects = true
+engine = "http"
+user_agent = "ffhn/example"
+accept = "application/json"
 
-[selection]
-kind     = "css_selector"
-match    = "single"
-selector = "section.financials"
+[projection]
+kind = "json_pointer"
+pointer = "/price"
 
-[compare]
-basis            = "outer_html"
-rewrite_urls     = false
-canonicalization = []
+[type_params]
+currency = "USD"
 ```
 
-2. Run one live check:
+Run and inspect it:
 
 ```bash
-ffhn run --watch-root ./checks --target quarterly-report --format summary
+ffhn run --watch-root ./checks --target price --format summary
+ffhn status --watch-root ./checks --target price --format json-pretty
 ```
 
-On the first live run, FFHN creates the baseline for `quarterly-report` and prints a short summary
-that tells you whether the fragment was initialized, changed, unchanged, skipped, or failed.
-
-3. Inspect the saved machine-readable state:
+A target-definition change is intentionally refused once state exists. Reset it explicitly:
 
 ```bash
-ffhn status --watch-root ./checks --target quarterly-report --format json-pretty
+ffhn reset --watch-root ./checks --target price
 ```
 
-This prints the structured `ffhn.status_report` document for that target, including whether the
-target is enabled and whether a saved baseline exists.
+The reset keeps `target.toml`, acquires the same target lock as runs, and blindly clears FFHN-owned storage. It never translates old artifacts.
 
-## Documentation Index
-
-- [Portable quick start](https://github.com/resoltico/ffhn/blob/main/docs/getting-started.md#portable-quick-start): the shortest verified path from install to a real FFHN run
-- [Full docs index](https://github.com/resoltico/ffhn/blob/main/docs/README.md): the maintained map of every document under `docs/`
-- [CLI reference](https://github.com/resoltico/ffhn/blob/main/docs/cli.md): commands, output formats, exit codes, and discovery rules
-- [Target reference](https://github.com/resoltico/ffhn/blob/main/docs/targets.md): the `ffhn.target` contract and validation rules
-- [Report reference](https://github.com/resoltico/ffhn/blob/main/docs/run-reports.md): `ffhn.run_report`, `ffhn.batch_run_report`, and reason-code semantics
+See [docs/targets.md](docs/targets.md) for the target contract,
+[docs/cli.md](docs/cli.md) for commands, and
+[examples/file-target-json/README.md](examples/file-target-json/README.md) for a local runnable
+JSON example.
 
 ## Legal
 
-FFHN is released under the [MIT License](LICENSE). See [NOTICE](NOTICE) and [PATENTS](PATENTS.md)
-for the remaining legal files.
+FFHN is released under the [MIT License](LICENSE). See [NOTICE](NOTICE) and [PATENTS](PATENTS.md).

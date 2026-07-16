@@ -1,0 +1,29 @@
+[
+  {
+    "name": "ignored href changes only the detached comparison text",
+    "selector": "article.measurement a",
+    "source": "<article class=\"measurement\" data-nonce=\"volatile\"><a href=\"/offer\">1.00</a>  \n</article>",
+    "ignore_attributes": ["href"],
+    "strip_whitespace_nodes": false,
+    "raw_selected": "1.00 [/offer]",
+    "comparison_projection": "1.00"
+  },
+  {
+    "name": "whitespace-only nodes change only the detached comparison text",
+    "selector": "pre",
+    "source": "<pre>Alpha<span></span>  \n  <span></span>Beta</pre>",
+    "ignore_attributes": [],
+    "strip_whitespace_nodes": true,
+    "raw_selected": "Alpha\n  Beta",
+    "comparison_projection": "Alpha Beta"
+  },
+  {
+    "name": "ignoring a non-textual attribute leaves clone comparison unchanged",
+    "selector": "article.measurement a",
+    "source": "<article class=\"measurement\" data-nonce=\"volatile\"><a href=\"/offer\">1.00</a></article>",
+    "ignore_attributes": ["data-nonce"],
+    "strip_whitespace_nodes": false,
+    "raw_selected": "1.00 [/offer]",
+    "comparison_projection": "1.00 [/offer]"
+  }
+]

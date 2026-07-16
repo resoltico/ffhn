@@ -9,10 +9,11 @@ use clap::{
 };
 use ffhn_core::{
     CLI_ARGUMENT_ALL_ID, CLI_ARGUMENT_DRY_RUN_ID, CLI_ARGUMENT_FORMAT_ID, CLI_ARGUMENT_JOBS_ID,
-    CLI_ARGUMENT_TARGET_ID, CLI_ARGUMENT_WATCH_ROOT_ID, CLI_OPERATION_RUN_ID,
-    CLI_OPERATION_STATUS_ID, CliArgumentContract, CliArgumentValueKind, CliOperationContract,
-    TargetId, duplicate_target_ids_usage_error, positive_batch_concurrency_usage_error,
-    run_operation, run_target_selection_usage_error, status_operation,
+    CLI_ARGUMENT_TARGET_ID, CLI_ARGUMENT_WATCH_ROOT_ID, CLI_OPERATION_RESET_ID,
+    CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID, CliArgumentContract, CliArgumentValueKind,
+    CliOperationContract, TargetId, duplicate_target_ids_usage_error,
+    positive_batch_concurrency_usage_error, reset_operation, run_operation,
+    run_target_selection_usage_error, status_operation,
 };
 
 use crate::metadata::{FFHN_DESCRIPTION, FFHN_VERSION, TOOL_NAME};
@@ -31,6 +32,8 @@ pub enum Command {
     Run(RunCommand),
     /// Read one target's current machine-readable status.
     Status(StatusCommand),
+    /// Blindly remove one target's isolated v2 storage root.
+    Reset(ResetCommand),
 }
 
 /// Output presentation mode for successful FFHN documents.
@@ -72,6 +75,17 @@ pub struct StatusCommand {
     pub output_format: OutputFormat,
 }
 
+/// Reset-command arguments.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ResetCommand {
+    /// Watch root directory containing per-target subdirectories.
+    pub watch_root: PathBuf,
+    /// Target id whose v2 storage root must be deleted.
+    pub target: TargetId,
+    /// Output format for the emitted document.
+    pub output_format: OutputFormat,
+}
+
 pub(crate) fn build_cli_command() -> ClapCommand {
     ClapCommand::new(TOOL_NAME)
         .version(FFHN_VERSION)
@@ -80,6 +94,7 @@ pub(crate) fn build_cli_command() -> ClapCommand {
         .subcommand_required(true)
         .subcommand(build_operation_subcommand(run_operation()))
         .subcommand(build_operation_subcommand(status_operation()))
+        .subcommand(build_operation_subcommand(reset_operation()))
 }
 
 pub(crate) fn parse_cli<I, T>(args: I) -> Result<Cli, ClapError>
@@ -156,6 +171,24 @@ pub(crate) fn matches_to_cli(matches: &ArgMatches) -> Result<Cli, ClapError> {
                 output_format: *submatches
                     .get_one::<OutputFormat>(CLI_ARGUMENT_FORMAT_ID)
                     .expect("status output format default"),
+            }),
+        });
+    }
+
+    if operation_id == CLI_OPERATION_RESET_ID {
+        return Ok(Cli {
+            command: Command::Reset(ResetCommand {
+                watch_root: submatches
+                    .get_one::<PathBuf>(CLI_ARGUMENT_WATCH_ROOT_ID)
+                    .expect("reset watch-root default")
+                    .clone(),
+                target: submatches
+                    .get_one::<TargetId>(CLI_ARGUMENT_TARGET_ID)
+                    .expect("reset target")
+                    .clone(),
+                output_format: *submatches
+                    .get_one::<OutputFormat>(CLI_ARGUMENT_FORMAT_ID)
+                    .expect("reset output format default"),
             }),
         });
     }
@@ -288,6 +321,7 @@ fn detect_misplaced_operation_flag(raw_args: &[OsString]) -> Option<ClapError> {
     if first == "--"
         || first == "run"
         || first == "status"
+        || first == "reset"
         || first == "--help"
         || first == "-h"
         || first == "--version"
@@ -378,6 +412,7 @@ mod tests {
         for allowed_first in [
             "run",
             "status",
+            "reset",
             "--help",
             "-h",
             "--version",
@@ -435,5 +470,104 @@ mod tests {
 
         let args = [OsString::from("ffhn"), OsString::from_vec(vec![0xff, 0xfe])];
         assert!(detect_misplaced_operation_flag(&args).is_none());
+    }
+
+    #[test]
+    fn parses_current_run_status_and_reset_commands_and_rejects_invalid_run_selection() {
+        let run = parse_cli([
+            "ffhn",
+            "run",
+            "--watch-root",
+            "/tmp/watch",
+            "--target",
+            "one",
+            "--target",
+            "two",
+            "--jobs",
+            "2",
+            "--dry-run",
+            "--format",
+            "json-pretty",
+        ])
+        .expect("run command");
+        assert!(matches!(&run.command, Command::Run(_)));
+        assert_eq!(
+            output_format_for_command(&run.command),
+            OutputFormat::JsonPretty
+        );
+        assert!(parse_cli(["ffhn", "--target", "demo"]).is_err());
+        for (operation, expected_format) in [
+            ("status", OutputFormat::Summary),
+            ("reset", OutputFormat::Json),
+        ] {
+            let parsed = parse_cli([
+                "ffhn",
+                operation,
+                "--watch-root",
+                "/tmp/watch",
+                "--target",
+                "demo",
+                "--format",
+                if operation == "status" {
+                    "summary"
+                } else {
+                    "json"
+                },
+            ])
+            .expect("single target command");
+            assert_eq!(output_format_for_command(&parsed.command), expected_format);
+        }
+        assert!(parse_cli(["ffhn", "run", "--watch-root", "/tmp/watch"]).is_err());
+        assert!(parse_cli(["ffhn", "run", "--target", "demo", "--target", "demo"]).is_err());
+        assert!(parse_cli(["ffhn", "run", "--target", "demo", "--jobs", "0"]).is_err());
+        assert!(parse_cli(["ffhn", "run", "--target", "demo", "--jobs", "many"]).is_err());
+        assert!(parse_jobs("3").is_ok());
+        assert_eq!(
+            duplicate_target_id(&[
+                TargetId::new("a").expect("id"),
+                TargetId::new("a").expect("id")
+            ]),
+            Some("a")
+        );
+    }
+
+    fn output_format_for_command(command: &Command) -> OutputFormat {
+        match command {
+            Command::Run(command) => command.output_format,
+            Command::Status(command) => command.output_format,
+            Command::Reset(command) => command.output_format,
+        }
+    }
+
+    #[test]
+    fn help_building_and_unknown_matches_cover_the_catalog_driven_adapter() {
+        let mut help = Vec::new();
+        build_cli_command()
+            .write_long_help(&mut help)
+            .expect("help");
+        let help = String::from_utf8(help).expect("UTF-8");
+        assert!(help.contains("run"));
+        assert!(help.contains("reset"));
+        let matches = ClapCommand::new("ffhn")
+            .subcommand(ClapCommand::new("other"))
+            .try_get_matches_from(["ffhn", "other"])
+            .expect("matches");
+        assert_eq!(
+            matches_to_cli(&matches)
+                .expect_err("unknown operation")
+                .kind(),
+            ErrorKind::InvalidSubcommand
+        );
+        let mut rendered = String::new();
+        append_help_section(&mut rendered, "Empty", &[]);
+        assert!(rendered.is_empty());
+        append_help_section(&mut rendered, "One", &["line"]);
+        append_help_section(&mut rendered, "Two", &["line"]);
+        assert!(rendered.contains("One:"));
+        assert!(
+            operation_usage_error(ErrorKind::ValueValidation, "message", "ffhn run")
+                .to_string()
+                .contains("message")
+        );
     }
 }

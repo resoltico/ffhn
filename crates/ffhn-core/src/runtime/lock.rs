@@ -1,227 +1,197 @@
 use std::fs::{self, File, OpenOptions};
-use std::io;
+use std::thread;
 use std::time::Duration;
-#[cfg(test)]
-use std::{cell::RefCell, collections::VecDeque, thread_local};
 
 use fs2::FileExt;
 
 use crate::{CoreError, TargetPaths};
 
-#[derive(Debug)]
-pub(crate) struct RunLock {
-    file: File,
+pub(super) struct TargetLock(File);
+
+impl Drop for TargetLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 #[derive(Debug)]
-pub(crate) enum ExclusiveLockError {
+pub(super) enum LockError {
     Unavailable,
     Io(CoreError),
 }
 
-#[cfg(test)]
-thread_local! {
-    static TRY_LOCK_EXCLUSIVE_OVERRIDE: RefCell<Option<io::ErrorKind>> = const { RefCell::new(None) };
-    static LOCK_SHARED_OVERRIDE: RefCell<VecDeque<io::ErrorKind>> = const { RefCell::new(VecDeque::new()) };
-}
-
-impl Drop for RunLock {
-    fn drop(&mut self) {
-        let _ = self.file.unlock();
+pub(super) fn lock_exclusive(paths: &TargetPaths) -> Result<TargetLock, LockError> {
+    let path = paths.run_lock_file();
+    let file = open_lock_file(&path).map_err(LockError::Io)?;
+    match file.try_lock_exclusive() {
+        Ok(()) => Ok(TargetLock(file)),
+        Err(error) => Err(exclusive_lock_error(&path, error)),
     }
 }
 
-pub(crate) fn try_lock_exclusive(paths: &TargetPaths) -> Result<RunLock, ExclusiveLockError> {
-    fs::create_dir_all(paths.lock_dir())
-        .map_err(|error| ExclusiveLockError::Io(CoreError::io(paths.lock_dir(), error)))?;
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(paths.run_lock_file())
-        .map_err(|error| ExclusiveLockError::Io(CoreError::io(paths.run_lock_file(), error)))?;
-    match attempt_exclusive_lock(&file) {
-        Ok(()) => Ok(RunLock { file }),
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            Err(ExclusiveLockError::Unavailable)
-        }
-        Err(error) => Err(ExclusiveLockError::Io(CoreError::io(
-            paths.run_lock_file(),
-            error,
-        ))),
-    }
-}
-
-fn attempt_exclusive_lock(file: &File) -> io::Result<()> {
-    #[cfg(test)]
-    if let Some(kind) = TRY_LOCK_EXCLUSIVE_OVERRIDE.with(|state| *state.borrow()) {
-        return Err(io::Error::from(kind));
-    }
-
-    file.try_lock_exclusive()
-}
-
-#[cfg(test)]
-pub(crate) fn with_exclusive_lock_error_injected<T>(
-    kind: io::ErrorKind,
-    callback: impl FnOnce() -> T,
-) -> T {
-    struct ResetGuard;
-
-    impl Drop for ResetGuard {
-        fn drop(&mut self) {
-            TRY_LOCK_EXCLUSIVE_OVERRIDE.with(|state| *state.borrow_mut() = None);
-        }
-    }
-
-    TRY_LOCK_EXCLUSIVE_OVERRIDE.with(|state| {
-        let mut state = state.borrow_mut();
-        assert!(state.is_none(), "exclusive lock override already set");
-        *state = Some(kind);
-    });
-
-    let _reset = ResetGuard;
-    callback()
-}
-
-pub(crate) fn lock_shared(paths: &TargetPaths) -> Result<RunLock, CoreError> {
-    fs::create_dir_all(paths.lock_dir()).map_err(|error| CoreError::io(paths.lock_dir(), error))?;
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(paths.run_lock_file())
-        .map_err(|error| CoreError::io(paths.run_lock_file(), error))?;
-
+pub(super) fn lock_shared(paths: &TargetPaths) -> Result<TargetLock, CoreError> {
+    let path = paths.run_lock_file();
+    let file = open_lock_file(&path)?;
     loop {
-        match attempt_shared_lock(&file) {
-            Ok(()) => break,
-            // Some cross-process filesystems surface shared-lock contention as WouldBlock
-            // instead of sleeping inside lock_shared(); retry until the stable view is available.
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
-                ) =>
-            {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(error) => return Err(CoreError::io(paths.run_lock_file(), error)),
+        match classify_shared_lock_attempt(FileExt::try_lock_shared(&file), &path)? {
+            SharedLockAttempt::Acquired => return Ok(TargetLock(file)),
+            SharedLockAttempt::Retry => thread::sleep(Duration::from_millis(5)),
         }
     }
-
-    Ok(RunLock { file })
 }
 
-fn attempt_shared_lock(file: &File) -> io::Result<()> {
-    #[cfg(test)]
-    if let Some(kind) = LOCK_SHARED_OVERRIDE.with(|state| state.borrow_mut().pop_front()) {
-        return Err(io::Error::from(kind));
-    }
-
-    file.lock_shared()
-}
-
-#[cfg(test)]
-pub(crate) fn with_shared_lock_errors_injected<T>(
-    kinds: &[io::ErrorKind],
-    callback: impl FnOnce() -> T,
-) -> T {
-    struct ResetGuard;
-
-    impl Drop for ResetGuard {
-        fn drop(&mut self) {
-            LOCK_SHARED_OVERRIDE.with(|state| state.borrow_mut().clear());
+/// Opens a normal FFHN-owned lock file, rejecting pre-existing device, directory, and link nodes.
+///
+/// Advisory locking is permissive on several platforms (notably Linux accepts a FIFO), so the
+/// node check is part of the lock contract rather than an incidental platform restriction.
+fn open_lock_file(path: &std::path::Path) -> Result<File, CoreError> {
+    let parent = path.parent().expect("lock path parent");
+    fs::create_dir_all(parent).map_err(|error| CoreError::io(parent, error))?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            return Err(CoreError::contract(
+                "FFHN run lock must be a regular file, not a link or special filesystem node",
+            ));
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(CoreError::io(path, error)),
+    }
+    OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|error| CoreError::io(path, error))
+}
+
+fn lock_is_unavailable(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
     }
 
-    LOCK_SHARED_OVERRIDE.with(|state| {
-        let mut state = state.borrow_mut();
-        assert!(state.is_empty(), "shared lock override already set");
-        state.extend(kinds.iter().copied());
-    });
+    #[cfg(windows)]
+    {
+        matches!(error.raw_os_error(), Some(32 | 33))
+    }
 
-    let _reset = ResetGuard;
-    callback()
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn exclusive_lock_error(path: &std::path::Path, error: std::io::Error) -> LockError {
+    if lock_is_unavailable(&error) {
+        LockError::Unavailable
+    } else {
+        LockError::Io(CoreError::io(path, error))
+    }
+}
+
+fn shared_lock_should_retry(error: &std::io::Error) -> bool {
+    lock_is_unavailable(error) || error.kind() == std::io::ErrorKind::Interrupted
+}
+
+#[derive(Debug)]
+enum SharedLockAttempt {
+    Acquired,
+    Retry,
+}
+
+fn classify_shared_lock_attempt(
+    result: std::io::Result<()>,
+    path: &std::path::Path,
+) -> Result<SharedLockAttempt, CoreError> {
+    match result {
+        Ok(()) => Ok(SharedLockAttempt::Acquired),
+        Err(error) if shared_lock_should_retry(&error) => Ok(SharedLockAttempt::Retry),
+        Err(error) => Err(CoreError::io(path, error)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-
-    // Windows allows within-process re-locking on the same file region; cross-process locking
-    // still works, but cannot be tested inside a single test binary.
-    #[cfg(unix)]
-    #[test]
-    fn exclusive_lock_blocks_another_exclusive_lock() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
-
-        let _first = try_lock_exclusive(&paths).expect("first exclusive lock");
-        assert!(matches!(
-            try_lock_exclusive(&paths),
-            Err(ExclusiveLockError::Unavailable)
-        ));
-    }
 
     #[test]
-    fn exclusive_lock_keeps_filesystem_errors_distinct_from_contention() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
-        std::fs::create_dir_all(paths.target_dir()).expect("create target dir");
-        std::fs::write(paths.lock_dir(), "blocked").expect("block lock path");
+    fn lock_error_classification_preserves_contention_and_io_failures() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = temporary.path().join("demo.lock");
 
         assert!(matches!(
-            try_lock_exclusive(&paths),
-            Err(ExclusiveLockError::Io(CoreError::Io { .. }))
+            exclusive_lock_error(&path, std::io::Error::from(std::io::ErrorKind::WouldBlock)),
+            LockError::Unavailable
         ));
-    }
-
-    #[test]
-    fn exclusive_lock_surfaces_non_contention_lock_failures() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
-
-        with_exclusive_lock_error_injected(io::ErrorKind::Other, || {
-            assert!(matches!(
-                try_lock_exclusive(&paths),
-                Err(ExclusiveLockError::Io(CoreError::Io { .. }))
-            ));
-        });
-    }
-
-    #[test]
-    fn shared_locks_can_coexist() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
-
-        let _first = lock_shared(&paths).expect("first shared lock");
-        let _second = lock_shared(&paths).expect("second shared lock");
-    }
-
-    #[test]
-    fn shared_lock_retries_retryable_failures_until_it_succeeds() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
-
-        with_shared_lock_errors_injected(
-            &[io::ErrorKind::WouldBlock, io::ErrorKind::Interrupted],
-            || {
-                let _lock = lock_shared(&paths).expect("shared lock after retry");
-            },
+        assert!(matches!(
+            exclusive_lock_error(&path, std::io::Error::other("lock backend refused")),
+            LockError::Io(_)
+        ));
+        assert!(matches!(
+            classify_shared_lock_attempt(Ok(()), &path),
+            Ok(SharedLockAttempt::Acquired)
+        ));
+        assert!(matches!(
+            classify_shared_lock_attempt(
+                Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
+                &path
+            ),
+            Ok(SharedLockAttempt::Retry)
+        ));
+        assert!(matches!(
+            classify_shared_lock_attempt(
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted)),
+                &path
+            ),
+            Ok(SharedLockAttempt::Retry)
+        ));
+        assert!(
+            classify_shared_lock_attempt(
+                Err(std::io::Error::other("shared lock backend refused")),
+                &path
+            )
+            .expect_err("non-retryable shared lock errors must surface")
+            .to_string()
+            .contains("shared lock backend refused")
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
-    fn shared_lock_surfaces_non_retryable_failures() {
-        let temp = tempdir().expect("tempdir");
-        let paths = TargetPaths::new(temp.path(), "demo");
+    fn non_windows_unknown_lock_errors_are_not_contention() {
+        assert!(!lock_is_unavailable(&std::io::Error::other(
+            "unrelated lock failure"
+        )));
+    }
 
-        with_shared_lock_errors_injected(&[io::ErrorKind::Other], || {
-            assert!(matches!(lock_shared(&paths), Err(CoreError::Io { .. })));
-        });
+    #[cfg(windows)]
+    #[test]
+    fn windows_lock_sharing_codes_are_classified_as_unavailable() {
+        for code in [32, 33] {
+            assert!(lock_is_unavailable(&std::io::Error::from_raw_os_error(
+                code
+            )));
+        }
+        assert!(!lock_is_unavailable(&std::io::Error::from_raw_os_error(5)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_node_metadata_failures_are_not_hidden() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let lock_root = temporary.path().join("locked");
+        fs::create_dir(&lock_root).expect("lock root");
+        let original_permissions = fs::metadata(&lock_root)
+            .expect("lock root metadata")
+            .permissions();
+        fs::set_permissions(&lock_root, fs::Permissions::from_mode(0o000))
+            .expect("restrict lock root");
+        let error = open_lock_file(&lock_root.join("demo.lock"));
+        fs::set_permissions(&lock_root, original_permissions).expect("restore lock root");
+
+        assert!(error.is_err());
     }
 }

@@ -18,6 +18,7 @@ pub fn stable_digest<T: Serialize>(value: &T) -> Result<String, CoreError> {
 }
 
 /// Computes the SHA-256 digest of one value after stable serialization with one field omitted.
+#[cfg(test)]
 pub fn stable_digest_omitting_field<T: Serialize>(
     value: &T,
     field: &str,

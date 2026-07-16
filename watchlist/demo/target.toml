@@ -1,12 +1,15 @@
 schema_name = "ffhn.target"
-schema_version = 4
+schema_version = 9
 target_id = "demo"
-display_name = "Example Main Article"
+display_name = "Example Repository Stars"
 enabled = true
+escalate_after = 3
+declared_type = "integer"
+conditions = []
 
 [target]
 kind = "http"
-source_url = "https://example.com"
+source_url = "https://api.github.com/repos/resoltico/ffhn"
 
 [fetch]
 engine = "http"
@@ -15,20 +18,8 @@ timeout_ms = 15000
 max_bytes = 2000000
 user_agent = "ffhn/demo"
 follow_redirects = true
-accept = "text/html,application/xhtml+xml"
+accept = "application/json"
 
-[selection]
-kind = "css_selector"
-selector = "body"
-match = "single"
-
-[compare]
-basis = "text"
-whitespace = "normalize"
-rewrite_urls = false
-
-[[compare.canonicalization]]
-kind = "trim"
-
-[[compare.canonicalization]]
-kind = "collapse_whitespace"
+[projection]
+kind = "json_pointer"
+pointer = "/stargazers_count"

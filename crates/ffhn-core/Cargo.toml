@@ -11,10 +11,11 @@ publish = false
 description = "Deterministic monitoring engine for FFHN."
 
 [dependencies]
-encoding_rs.workspace = true
 fs2.workspace = true
 htmlcut-core.workspace = true
 regex.workspace = true
+rust_decimal.workspace = true
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
