@@ -142,4 +142,14 @@ mod tests {
         assert_eq!(parsed.as_str(), "demo-1");
         assert!(serde_json::from_str::<TargetId>("\"Demo\"").is_err());
     }
+
+    #[test]
+    fn target_id_traits_preserve_the_validated_value() {
+        let identifier = TargetId::new("demo-1").expect("target id");
+        assert_eq!(identifier.as_ref(), "demo-1");
+        assert_eq!(identifier.to_string(), "demo-1");
+        assert_eq!(String::from(identifier.clone()), "demo-1");
+        assert_eq!("demo-1".parse::<TargetId>().expect("parsed"), identifier);
+        assert_eq!(TargetId::try_from("demo-1").expect("converted"), identifier);
+    }
 }

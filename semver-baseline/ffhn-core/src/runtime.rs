@@ -1,12 +1,12 @@
-mod domain;
-pub(crate) mod interop;
+mod acquire;
+mod delivery;
+mod execution;
 mod lock;
-mod persist;
-mod run;
-mod state;
-mod status;
+mod report;
 mod storage;
-mod target_load;
+#[cfg(test)]
+mod tests;
 
-pub(crate) use run::{RunOptions, run_batch, run_once, run_once_with_options};
-pub(crate) use status::{status, validate_target};
+pub(crate) use execution::{
+    reset, run_batch, run_once, run_once_with_mode, status, validate_target,
+};
