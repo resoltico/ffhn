@@ -328,14 +328,19 @@ mod tests {
     }
 
     #[test]
-    fn storage_root_validation_distinguishes_missing_and_unusable_target_directories() {
+    fn storage_root_validation_treats_a_missing_target_directory_as_absent() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let missing = TargetPaths::try_new(temporary.path(), "missing").expect("target paths");
         assert_eq!(
             checked_storage_root(&missing).expect("missing target"),
             None
         );
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn storage_root_validation_surfaces_non_directory_target_ancestors() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
         let blocked_watch_root = temporary.path().join("watch-root-file");
         fs::write(&blocked_watch_root, "not a directory").expect("watch root file");
         let unusable = TargetPaths::try_new(blocked_watch_root, "demo").expect("target paths");
