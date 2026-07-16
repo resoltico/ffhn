@@ -60,7 +60,7 @@ jobs:
         run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: false
 
@@ -155,7 +155,7 @@ jobs:
         run: bash ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: cross-platform-${{ matrix.id }}
           cache-bin: false
@@ -225,7 +225,7 @@ jobs:
           rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target_triple }}
           cache-bin: false
