@@ -33,7 +33,7 @@ pub(super) fn lock_exclusive(paths: &TargetPaths) -> Result<TargetLock, LockErro
         .map_err(|error| LockError::Io(CoreError::io(&path, error)))?;
     match file.try_lock_exclusive() {
         Ok(()) => Ok(TargetLock(file)),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Err(LockError::Unavailable),
+        Err(error) if lock_is_unavailable(&error) => Err(LockError::Unavailable),
         Err(error) => Err(LockError::Io(CoreError::io(path, error))),
     }
 }
@@ -53,14 +53,28 @@ pub(super) fn lock_shared(paths: &TargetPaths) -> Result<TargetLock, CoreError> 
         match FileExt::try_lock_shared(&file) {
             Ok(()) => return Ok(TargetLock(file)),
             Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                ) =>
+                if lock_is_unavailable(&error)
+                    || error.kind() == std::io::ErrorKind::Interrupted =>
             {
                 thread::sleep(Duration::from_millis(5))
             }
             Err(error) => return Err(CoreError::io(&path, error)),
         }
+    }
+}
+
+fn lock_is_unavailable(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        matches!(error.raw_os_error(), Some(32 | 33))
+    }
+
+    #[cfg(not(windows))]
+    {
+        false
     }
 }

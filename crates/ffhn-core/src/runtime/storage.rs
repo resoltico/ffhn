@@ -8,6 +8,7 @@ use crate::{CoreError, StateDocument, TargetDocument, TargetPaths};
 
 /// Reset is intentionally the only path that accepts an arbitrary root node.
 pub(super) fn blind_remove_storage_root(path: &std::path::Path) -> Result<bool, CoreError> {
+    require_existing_parent_is_directory(path)?;
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => {
             fs::remove_dir_all(path).map_err(|error| CoreError::io(path, error))?;
@@ -152,6 +153,16 @@ fn sync_directory(_path: &Path) -> io::Result<()> {
 }
 
 fn checked_storage_root(paths: &TargetPaths) -> Result<Option<PathBuf>, CoreError> {
+    match fs::symlink_metadata(paths.target_dir()) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(CoreError::contract(
+                "FFHN target directory must be a directory",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(CoreError::io(paths.target_dir(), error)),
+    }
     let root = paths.storage_root();
     match fs::symlink_metadata(&root) {
         Ok(metadata) if metadata.file_type().is_symlink() => Err(CoreError::contract(
@@ -162,6 +173,23 @@ fn checked_storage_root(paths: &TargetPaths) -> Result<Option<PathBuf>, CoreErro
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(CoreError::io(&root, error)),
     }
+}
+
+fn require_existing_parent_is_directory(path: &Path) -> Result<(), CoreError> {
+    let mut current = path.parent();
+    while let Some(parent) = current {
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => return Ok(()),
+            Ok(_) => {
+                return Err(CoreError::contract(
+                    "FFHN storage root parent must be a directory",
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => current = parent.parent(),
+            Err(error) => return Err(CoreError::io(parent, error)),
+        }
+    }
+    Ok(())
 }
 
 /// Returns whether the state entry exists, rejecting links and non-regular nodes.
