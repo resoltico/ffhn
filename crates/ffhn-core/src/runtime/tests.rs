@@ -1784,7 +1784,7 @@ fn post_commit_outbox_write_failures_remain_structured_delivery_evidence() {
     let condition = "[[conditions]]\ncondition_id = \"changed\"\n\n[conditions.predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"";
     let storage_root = paths.storage_root();
     let route_args = format!(
-        "[\"-c\", \"chmod 500 \\\"$1\\\"\", \"--\", {:?}]",
+        "[\"-c\", \"cat >/dev/null; chmod 500 \\\"$1\\\"\", \"--\", {:?}]",
         storage_root.to_string_lossy()
     );
     write_delivery_target(&paths, &route_args, 4, 3, condition);
@@ -1824,7 +1824,7 @@ fn post_commit_outbox_write_failures_remain_structured_delivery_evidence() {
     let reset_root = paths.storage_root();
     let target = fs::read_to_string(paths.target_file()).expect("target");
     let reset_args = format!(
-        "[\"-c\", \"chmod 500 \\\"$1\\\"\", \"--\", {:?}]",
+        "[\"-c\", \"cat >/dev/null; chmod 500 \\\"$1\\\"\", \"--\", {:?}]",
         reset_root.to_string_lossy()
     );
     fs::write(
