@@ -9,6 +9,9 @@ mod paths;
 mod runtime;
 mod stable_json;
 
+#[cfg(test)]
+mod test_support;
+
 pub use contract::{
     CLI_ARGUMENT_ALL_ID, CLI_ARGUMENT_DRY_RUN_ID, CLI_ARGUMENT_FORMAT_ID, CLI_ARGUMENT_JOBS_ID,
     CLI_ARGUMENT_TARGET_ID, CLI_ARGUMENT_WATCH_ROOT_ID, CLI_OPERATION_RESET_ID,

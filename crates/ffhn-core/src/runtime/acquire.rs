@@ -672,8 +672,9 @@ mod tests {
     }
 
     fn html_text_target(selector: &str, dom_canonicalization: &str) -> TargetDocument {
+        let source_path = crate::test_support::absolute_file_path("source.html");
         let document: TargetDocument = toml::from_str(&format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"html_text\"\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n[projection.selection.selection]\nmode = \"single\"\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{dom_canonicalization}\n"
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"html_text\"\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n[projection.selection.selection]\nmode = \"single\"\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{dom_canonicalization}\n"
         ))
         .expect("HTML text target");
         document.validate().expect("valid HTML text target");
@@ -1011,9 +1012,10 @@ mod tests {
             Some(SourceSuspectReason::FetchFailed)
         );
 
-        let html_target: TargetDocument = toml::from_str(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"html_text\"\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = \"article\"\n[projection.selection.selection]\nmode = \"single\"\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n",
-        )
+        let source_path = crate::test_support::absolute_file_path("source.html");
+        let html_target: TargetDocument = toml::from_str(&format!(
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"html_text\"\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = \"article\"\n[projection.selection.selection]\nmode = \"single\"\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n",
+        ))
         .expect("HTML target");
         assert_eq!(
             acquire_json_scalar(&html_target, "<article>1</article>")

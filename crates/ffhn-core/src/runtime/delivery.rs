@@ -561,9 +561,11 @@ mod tests {
     const SECOND: &str = "2026-07-15T12:00:01Z";
 
     fn routed_target() -> TargetDocument {
-        let target: TargetDocument = toml::from_str(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n\n[[conditions]]\ncondition_id = \"changed\"\n\n[conditions.predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"\n\n[[conditions]]\ncondition_id = \"low\"\n\n[conditions.predicate]\nkind = \"lt\"\nthreshold = \"75\"\n\n[[routes]]\nroute_id = \"condition\"\nroute_family = \"on_condition\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = \"/bin/true\"\ntimeout_ms = 1000\n\n[[routes]]\nroute_id = \"run\"\nroute_family = \"on_run\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = \"/bin/true\"\ntimeout_ms = 1000\n",
-        )
+        let source_path = crate::test_support::absolute_file_path("source.json");
+        let program = crate::test_support::PROCESS_PROGRAM;
+        let target: TargetDocument = toml::from_str(&format!(
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n\n[[conditions]]\ncondition_id = \"changed\"\n\n[conditions.predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"\n\n[[conditions]]\ncondition_id = \"low\"\n\n[conditions.predicate]\nkind = \"lt\"\nthreshold = \"75\"\n\n[[routes]]\nroute_id = \"condition\"\nroute_family = \"on_condition\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = {program:?}\ntimeout_ms = 1000\n\n[[routes]]\nroute_id = \"run\"\nroute_family = \"on_run\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = {program:?}\ntimeout_ms = 1000\n",
+        ))
         .expect("target TOML");
         target.validate().expect("valid target");
         target

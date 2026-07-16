@@ -1855,9 +1855,10 @@ fn non_lockable_lock_nodes_surface_io_errors() {
 
 #[test]
 fn direct_acquisition_fetch_and_error_helpers_cover_scalar_transport_boundaries() {
-    let document = toml::from_str::<TargetDocument>(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-        )
+    let source_path = crate::test_support::absolute_file_path("source.json");
+    let document = toml::from_str::<TargetDocument>(&format!(
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+        ))
         .expect("target");
     assert_eq!(
         acquire_json_scalar(&document, r#"{"value":"text"}"#).expect("string"),
@@ -1896,9 +1897,9 @@ fn direct_acquisition_fetch_and_error_helpers_cover_scalar_transport_boundaries(
     assert!(read_file_source(&file.to_string_lossy(), 10).is_err());
     assert!(read_file_source("/does/not/exist", 10).is_err());
     assert!(read_file_source(&temporary.path().to_string_lossy(), 10).is_err());
-    let mismatched: TargetDocument = toml::from_str(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"http\"\nuser_agent = \"test\"\naccept = \"application/json\"\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-        )
+    let mismatched: TargetDocument = toml::from_str(&format!(
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"http\"\nuser_agent = \"test\"\naccept = \"application/json\"\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+        ))
         .expect("mismatched target");
     assert!(fetch_source(&mismatched).is_err());
     let http: TargetDocument = toml::from_str(

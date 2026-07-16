@@ -598,9 +598,10 @@ mod coverage_tests {
     use super::*;
 
     fn integer_target() -> TargetDocument {
-        let target: TargetDocument = toml::from_str(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"coverage\"\ndisplay_name = \"Coverage\"\nenabled = true\nescalate_after = 1\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/coverage.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-        )
+        let source_path = crate::test_support::absolute_file_path("coverage.json");
+        let target: TargetDocument = toml::from_str(&format!(
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"coverage\"\ndisplay_name = \"Coverage\"\nenabled = true\nescalate_after = 1\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+        ))
         .expect("target TOML");
         target.validate().expect("valid target");
         target

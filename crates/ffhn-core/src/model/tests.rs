@@ -13,8 +13,9 @@ use super::target::{
 use super::*;
 
 fn target(declared_type: &str, type_params: &str) -> TargetDocument {
+    let source_path = crate::test_support::absolute_file_path("source.json");
     let document: TargetDocument = toml::from_str(&format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n{type_params}\n"
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n{type_params}\n"
         ))
         .expect("target toml");
     document.validate().expect("valid target");
@@ -46,11 +47,12 @@ fn html_target(
     declared_type: &str,
     type_params: &str,
 ) -> TargetDocument {
+    let source_path = crate::test_support::absolute_file_path("source.html");
     let attribute = attribute_name
         .map(|name| format!("name = {name:?}\n"))
         .unwrap_or_default();
     let document: TargetDocument = toml::from_str(&format!(
-        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.html\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"{projection_kind}\"\n{attribute}\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n\n[projection.selection.selection]\nmode = \"single\"\n\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{type_params}\n"
+        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"html\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"{projection_kind}\"\n{attribute}\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n\n[projection.selection.selection]\nmode = \"single\"\n\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{type_params}\n"
     ))
     .expect("HTML target TOML");
     document.validate().expect("valid HTML target");
@@ -606,7 +608,7 @@ fn contract_digest_binds_every_measurement_and_policy_input() {
     let changed = mutate_target(&document, |wire| {
         wire["target"] = serde_json::json!({
             "kind": "file",
-            "file_path": "/tmp/other-source.json",
+            "file_path": crate::test_support::absolute_file_path("other-source.json"),
         });
     });
     assert_ne!(
@@ -693,7 +695,7 @@ fn delivery_configuration_is_operational_but_pending_records_cannot_be_rerouted(
             "route_family": "on_run",
             "adapter": {
                 "kind": "process_stdin",
-                "program": "/bin/sh",
+                "program": crate::test_support::PROCESS_PROGRAM,
                 "args": [],
                 "timeout_ms": 1000,
             }
@@ -783,7 +785,7 @@ fn persisted_process_payloads_are_canonical_and_bound_to_their_pending_records()
             "route_family": "on_run",
             "adapter": {
                 "kind": "process_stdin",
-                "program": "/bin/sh",
+                "program": crate::test_support::PROCESS_PROGRAM,
                 "args": [],
                 "timeout_ms": 1000,
             }
@@ -948,13 +950,17 @@ fn delivery_value_objects_enforce_the_complete_operational_contract() {
         assert!(policy.validate().is_err(), "{field} must be bounded");
     }
 
+    let successful_args = crate::test_support::SUCCESSFUL_PROCESS_ARGS
+        .iter()
+        .map(|argument| (*argument).to_owned())
+        .collect::<Vec<_>>();
     let valid_route: DeliveryRoute = serde_json::from_value(serde_json::json!({
         "route_id": "primary",
         "route_family": "on_run",
         "adapter": {
             "kind": "process_stdin",
-            "program": "/bin/sh",
-            "args": ["-c", "exit 0"],
+            "program": crate::test_support::PROCESS_PROGRAM,
+            "args": successful_args,
             "timeout_ms": 100,
         }
     }))
@@ -964,7 +970,11 @@ fn delivery_value_objects_enforce_the_complete_operational_contract() {
     assert_eq!(valid_route.route_family(), RouteFamily::OnRun);
     assert_eq!(
         valid_route.adapter().process_stdin(),
-        ("/bin/sh", &["-c".to_owned(), "exit 0".to_owned()][..], 100)
+        (
+            crate::test_support::PROCESS_PROGRAM,
+            &successful_args[..],
+            100,
+        )
     );
     validate_routes(&[]).expect("empty route list");
     validate_routes(std::slice::from_ref(&valid_route)).expect("one route");
@@ -984,7 +994,7 @@ fn delivery_value_objects_enforce_the_complete_operational_contract() {
     let later: DeliveryRoute = serde_json::from_value(serde_json::json!({
         "route_id": "zeta",
         "route_family": "on_condition",
-        "adapter": {"kind": "process_stdin", "program": "/bin/true", "timeout_ms": 60000}
+        "adapter": {"kind": "process_stdin", "program": crate::test_support::PROCESS_PROGRAM, "timeout_ms": 60000}
     }))
     .expect("later route");
     assert!(validate_routes(&[later, valid_route]).is_err());

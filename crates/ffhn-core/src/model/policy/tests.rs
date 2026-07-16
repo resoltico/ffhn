@@ -114,9 +114,10 @@ fn condition_id_is_stable_target_local_identity() {
 
 #[test]
 fn policy_configuration_is_a_hard_schema_eight_contract() {
-    let without_conditions = toml::from_str::<TargetDocument>(
-        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-    );
+    let source_path = crate::test_support::absolute_file_path("source.json");
+    let without_conditions = toml::from_str::<TargetDocument>(&format!(
+        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+    ));
     assert!(without_conditions.is_err());
 
     let mut wrong_version = target("integer", "", "conditions = []");
@@ -1194,7 +1195,8 @@ fn policy_staging_rejects_current_observations_outside_the_target_contract() {
 }
 
 fn target_toml(declared_type: &str, type_params: &str, conditions: &str) -> String {
+    let source_path = crate::test_support::absolute_file_path("source.json");
     format!(
-        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\n{conditions}\n{type_params}\n[target]\nkind = \"file\"\nfile_path = \"/tmp/source.json\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n"
+        "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\n{conditions}\n{type_params}\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n"
     )
 }
