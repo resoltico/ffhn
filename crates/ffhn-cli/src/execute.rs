@@ -195,12 +195,12 @@ mod tests {
         let directory = root.join(id);
         fs::create_dir_all(&directory).expect("target directory");
         let source = directory.join("source.json");
+        let source_path = format!("{:?}", source.to_string_lossy());
         fs::write(&source, value).expect("source");
         fs::write(
             directory.join("target.toml"),
             format!(
-                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{id}\"\ndisplay_name = \"{id}\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-                source.display()
+                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{id}\"\ndisplay_name = \"{id}\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
             ),
         )
         .expect("target");

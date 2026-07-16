@@ -5,12 +5,13 @@ use tempfile::tempdir;
 
 fn write_target(target_dir: &std::path::Path) {
     fs::create_dir_all(target_dir).expect("create target directory");
-    fs::write(target_dir.join("source.json"), r#"{"price":"1.00"}"#).expect("write source");
+    let source = target_dir.join("source.json");
+    fs::write(&source, r#"{"price":"1.00"}"#).expect("write source");
+    let source_path = format!("{:?}", source.to_string_lossy());
     fs::write(
         target_dir.join("target.toml"),
         format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"decimal\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/price\"\n",
-            target_dir.join("source.json").display()
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"decimal\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/price\"\n",
         ),
     )
     .expect("write target");

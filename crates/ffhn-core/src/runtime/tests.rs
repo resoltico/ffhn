@@ -48,13 +48,16 @@ fn write_target_with_conditions(
     pointer: &str,
     conditions: &str,
 ) {
+    let source_path = format!(
+        "{:?}",
+        paths.target_dir().join("source.json").to_string_lossy()
+    );
     fs::create_dir_all(paths.target_dir()).expect("create target directory");
     fs::write(
             paths.target_file(),
             format!(
-                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\n{conditions}\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"{pointer}\"\n{type_params}\n",
+                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"{declared_type}\"\n{conditions}\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"{pointer}\"\n{type_params}\n",
                 paths.target_id(),
-                paths.target_dir().join("source.json").display(),
             ),
         )
         .expect("write target");
@@ -68,6 +71,10 @@ fn write_html_target(
     declared_type: &str,
     type_params: &str,
 ) {
+    let source_path = format!(
+        "{:?}",
+        paths.target_dir().join("source.html").to_string_lossy()
+    );
     let attribute = attribute_name
         .map(|name| format!("name = {name:?}\n"))
         .unwrap_or_default();
@@ -75,9 +82,8 @@ fn write_html_target(
     fs::write(
         paths.target_file(),
         format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"{projection_kind}\"\n{attribute}\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n\n[projection.selection.selection]\nmode = \"single\"\n\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{type_params}\n",
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"HTML\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"{declared_type}\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"{projection_kind}\"\n{attribute}\n[projection.selection.strategy]\nkind = \"css_selector\"\nselector = {selector:?}\n\n[projection.selection.selection]\nmode = \"single\"\n\n[projection.selection.rendering]\nwhitespace = \"rendered\"\nrewrite_urls = false\n{type_params}\n",
             paths.target_id(),
-            paths.target_dir().join("source.html").display(),
         ),
     )
     .expect("write HTML target");
@@ -119,13 +125,16 @@ fn write_portable_delivery_target(
     )
     .to_string();
     let program = toml::Value::String(program.display().to_string()).to_string();
+    let source_path = format!(
+        "{:?}",
+        paths.target_dir().join("source.json").to_string_lossy()
+    );
     fs::create_dir_all(paths.target_dir()).expect("create target directory");
     fs::write(
         paths.target_file(),
         format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n{conditions}\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n\n[outbox]\nmax_pending = {max_pending}\nmax_attempts = {max_attempts}\nbase_backoff_ms = 10\nmax_backoff_ms = 20\n\n[[routes]]\nroute_id = \"condition\"\nroute_family = \"on_condition\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = {program}\nargs = {arguments}\ntimeout_ms = 1000\n",
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"{}\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n{conditions}\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n\n[outbox]\nmax_pending = {max_pending}\nmax_attempts = {max_attempts}\nbase_backoff_ms = 10\nmax_backoff_ms = 20\n\n[[routes]]\nroute_id = \"condition\"\nroute_family = \"on_condition\"\n\n[routes.adapter]\nkind = \"process_stdin\"\nprogram = {program}\nargs = {arguments}\ntimeout_ms = 1000\n",
             paths.target_id(),
-            paths.target_dir().join("source.json").display(),
         ),
     )
     .expect("write portable delivery target");
@@ -1211,11 +1220,11 @@ fn live_runtime_stages_named_conditions_against_pre_run_temporal_state() {
     let (_temporary, paths) = fixture_paths();
     fs::create_dir_all(paths.target_dir()).expect("create target directory");
     let source = paths.target_dir().join("source.json");
+    let source_path = format!("{:?}", source.to_string_lossy());
     fs::write(
         paths.target_file(),
         format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n\n[[conditions]]\ncondition_id = \"changed\"\n\n[conditions.predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-            source.display(),
+            "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\n\n[[conditions]]\ncondition_id = \"changed\"\n\n[conditions.predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
         ),
     )
     .expect("write target");
