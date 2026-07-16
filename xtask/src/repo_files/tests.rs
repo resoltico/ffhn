@@ -53,9 +53,8 @@ fn maintained_repo_owned_paths_skip_watchlist_runtime_artifacts_and_mac_metadata
 
     fs::write(repo_root.join("AGENTS.md"), "# agents\n").expect("write AGENTS.md");
     fs::create_dir_all(repo_root.join("examples/file-example")).expect("create examples dir");
-    fs::create_dir_all(repo_root.join("watchlist/demo/lock")).expect("create lock dir");
-    fs::create_dir_all(repo_root.join("watchlist/demo/snapshots/current"))
-        .expect("create snapshots dir");
+    fs::create_dir_all(repo_root.join("watchlist/demo/.ffhn")).expect("create state dir");
+    fs::create_dir_all(repo_root.join("watchlist/.ffhn-locks")).expect("create lock dir");
 
     fs::write(repo_root.join("examples/.DS_Store"), "ignore").expect("write .DS_Store");
     fs::write(repo_root.join("examples/._release-notes.html"), "ignore")
@@ -70,15 +69,9 @@ fn maintained_repo_owned_paths_skip_watchlist_runtime_artifacts_and_mac_metadata
         "schema_name = \"ffhn.target\"\n",
     )
     .expect("write starter target");
-    fs::write(repo_root.join("watchlist/demo/state.json"), "{}\n").expect("write runtime state");
-    fs::write(repo_root.join("watchlist/demo/last_run.json"), "{}\n")
-        .expect("write runtime last run");
-    fs::write(repo_root.join("watchlist/demo/lock/run.lock"), "lock\n").expect("write run lock");
-    fs::write(
-        repo_root.join("watchlist/demo/snapshots/current/outer.html"),
-        "<main>runtime</main>\n",
-    )
-    .expect("write runtime snapshot");
+    fs::write(repo_root.join("watchlist/demo/.ffhn/state.json"), "{}\n")
+        .expect("write runtime state");
+    fs::write(repo_root.join("watchlist/.ffhn-locks/demo.lock"), "lock\n").expect("write run lock");
 
     let paths = maintained_repo_owned_paths(repo_root).expect("maintained repo-owned paths");
 
@@ -87,10 +80,8 @@ fn maintained_repo_owned_paths_skip_watchlist_runtime_artifacts_and_mac_metadata
     assert!(paths.contains(&repo_root.join("watchlist/demo/target.toml")));
     assert!(!paths.contains(&repo_root.join("examples/.DS_Store")));
     assert!(!paths.contains(&repo_root.join("examples/._release-notes.html")));
-    assert!(!paths.contains(&repo_root.join("watchlist/demo/state.json")));
-    assert!(!paths.contains(&repo_root.join("watchlist/demo/last_run.json")));
-    assert!(!paths.contains(&repo_root.join("watchlist/demo/lock/run.lock")));
-    assert!(!paths.contains(&repo_root.join("watchlist/demo/snapshots/current/outer.html")));
+    assert!(!paths.contains(&repo_root.join("watchlist/demo/.ffhn/state.json")));
+    assert!(!paths.contains(&repo_root.join("watchlist/.ffhn-locks/demo.lock")));
 }
 
 #[cfg(unix)]
@@ -111,4 +102,43 @@ fn maintained_repo_owned_paths_skip_non_file_non_directory_entries() {
     let paths = maintained_repo_owned_paths(repo_root).expect("maintained repo-owned paths");
 
     assert!(!paths.contains(&repo_root.join("examples/file-example/broken-link.html")));
+}
+
+#[test]
+fn regular_file_collection_skips_retired_runtime_roots_and_metadata_files() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path();
+    fs::create_dir_all(root.join("keep/nested")).expect("kept directory");
+    for directory in ["target", "dist", "lock", "snapshots"] {
+        fs::create_dir_all(root.join(directory)).expect("retired runtime directory");
+        fs::write(root.join(directory).join("ignored.txt"), "ignored\n").expect("ignored file");
+    }
+    fs::write(root.join("keep/nested/kept.txt"), "kept\n").expect("kept file");
+    fs::write(root.join(".DS_Store"), "ignored\n").expect("metadata");
+    fs::write(root.join("._kept.txt"), "ignored\n").expect("AppleDouble metadata");
+
+    let mut paths = Vec::new();
+    collect_regular_files(root, &mut paths).expect("collect regular files");
+    assert_eq!(paths, vec![root.join("keep/nested/kept.txt")]);
+    assert!(collect_regular_files(&root.join("missing"), &mut paths).is_err());
+}
+
+#[test]
+fn repository_inventory_ignores_missing_roots_and_incomplete_watchlist_entries() {
+    let repo = tempfile::tempdir().expect("temporary directory");
+    let repo_root = repo.path();
+
+    assert!(
+        public_markdown_paths(repo_root)
+            .expect("empty public markdown")
+            .is_empty()
+    );
+
+    fs::create_dir_all(repo_root.join("watchlist/empty")).expect("watchlist directory");
+    fs::write(repo_root.join("watchlist/not-a-target"), "not a directory").expect("watchlist file");
+    assert!(
+        watchlist_target_config_paths(repo_root)
+            .expect("incomplete watchlist")
+            .is_empty()
+    );
 }

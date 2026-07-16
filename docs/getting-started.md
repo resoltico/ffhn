@@ -1,259 +1,50 @@
 ---
 afad: "4.0"
 domain: GETTING_STARTED
-updated: "2026-05-16"
+updated: "2026-07-15"
 route:
-  keywords: [getting started, install, quick start, release package, sample page, windows]
-  questions: ["how do I install ffhn?", "how do I try ffhn quickly?", "what is the fastest verified ffhn sample flow?", "where are the packaged install commands?"]
+  keywords: [getting started, JSON file, decimal, run, reset]
+  questions: ["how do I create my first target?", "how do I run a local JSON source?"]
 ---
 
 # Getting Started
 
-Use this page for the fastest path from zero to one repeatable FFHN check.
-
-If you want the short storefront overview first, start at [../README.md](../README.md).
-
-## Start Paths
-
-- Build from source if you are already working in Rust or cloning the repository.
-- Install a release package if you want a ready-made platform binary and use the portable local-file quick start below.
-- Use the checked-in file-target sample if you already have a repository checkout and want the shortest verified live run.
-
-## Build From Source
-
-```bash
-cargo build --release --locked -p ffhn-cli --bin ffhn
-../.ffhn-artifacts/target/release/ffhn --help
-```
-
-Maintained source builds use the stable workspace toolchain pinned in [../rust-toolchain.toml](../rust-toolchain.toml). The exact maintainer toolchain set lives in [../tooling/rust-tooling.env](../tooling/rust-tooling.env). Regular builds and normal CLI usage do not need the pinned QA nightly toolchain; that path is only part of the maintained Miri proof, coverage, and fuzzing workflows.
-FFHN keeps Cargo output in the managed sibling roots documented in [hygiene.md](hygiene.md), so the compiled binary lands under the active configured target root instead of the repository tree. On Windows, the equivalent built binary path is `..\\.ffhn-artifacts\\target\\release\\ffhn.exe`.
-
-If you want to run without building first, the repository checkout path is:
-
-```bash
-cargo run --release --locked -p ffhn-cli --bin ffhn -- --help
-```
-
-## Install Prebuilt Release Package
-
-### macOS Or Linux
-
-```bash
-VERSION="<published-version>" # for example: 4.0.0
-case "$(uname -s)/$(uname -m)" in
-  Darwin/arm64) TARGET="aarch64-apple-darwin" ;;
-  Darwin/x86_64) TARGET="x86_64-apple-darwin" ;;
-  Linux/x86_64) TARGET="x86_64-unknown-linux-musl" ;;
-  *)
-    printf 'unsupported host for packaged FFHN install: %s/%s\n' "$(uname -s)" "$(uname -m)" >&2
-    exit 1
-    ;;
-esac
-
-curl -fsSLO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-${TARGET}.tar.gz"
-curl -fsSLO "https://github.com/resoltico/ffhn/releases/download/v${VERSION}/ffhn-${VERSION}-checksums.txt"
-if command -v shasum >/dev/null 2>&1; then
-  grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | shasum -a 256 -c
-else
-  grep "  ffhn-${VERSION}-${TARGET}.tar.gz$" "ffhn-${VERSION}-checksums.txt" | sha256sum -c
-fi
-tar -xzf "ffhn-${VERSION}-${TARGET}.tar.gz"
-mkdir -p "$HOME/.local/bin"
-install "ffhn-${VERSION}-${TARGET}/ffhn" "$HOME/.local/bin/ffhn"
-export PATH="$HOME/.local/bin:$PATH"
-ffhn --help
-```
-
-### Windows PowerShell
-
-```powershell
-$Version = "<published-version>" # for example: 4.0.0
-$Target = "x86_64-pc-windows-msvc"
-Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-$Target.zip" -OutFile "ffhn-$Version-$Target.zip"
-Invoke-WebRequest "https://github.com/resoltico/ffhn/releases/download/v$Version/ffhn-$Version-checksums.txt" -OutFile "ffhn-$Version-checksums.txt"
-$Expected = ((Select-String -Path "ffhn-$Version-checksums.txt" -Pattern "  ffhn-$Version-$Target\.zip$").Line -replace ' .*', '').ToLowerInvariant()
-$Actual = (Get-FileHash "ffhn-$Version-$Target.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($Actual -ne $Expected) { throw "checksum mismatch" }
-Expand-Archive "ffhn-$Version-$Target.zip" -DestinationPath .
-New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
-Copy-Item "ffhn-$Version-$Target\ffhn*" "$HOME\bin"
-$env:Path = "$HOME\bin;$env:Path"
-ffhn --help
-```
-
-Each prebuilt release package contains the platform binary plus `README.md`, `LICENSE`, `NOTICE`, `PATENTS.md`, and `changelog.md`. The release asset inventory, platform matrix, and packaging policy live in [platform-support.md](platform-support.md).
-
-## Portable Quick Start
-
-Use this path when you have the binary installed from a release package or when you want one self-contained local example without relying on checked-in repository assets.
-
-Create one disposable local-file target and run it once on macOS or Linux:
+Create a temporary local JSON source and target:
 
 ```bash
 WATCH_ROOT="$(mktemp -d)"
-TARGET_DIR="$WATCH_ROOT/demo_file"
-HTML_FILE="$WATCH_ROOT/demo.html"
-mkdir -p "$TARGET_DIR"
-cat >"$HTML_FILE" <<'HTML'
-<html><body><main><h1>Quarterly Report</h1><p>Office line item</p></main></body></html>
-HTML
-cat >"$TARGET_DIR/target.toml" <<EOF
+mkdir -p "$WATCH_ROOT/price"
+printf '%s\n' '{"price":"12.50"}' >"$WATCH_ROOT/price/price.json"
+cat >"$WATCH_ROOT/price/target.toml" <<EOF
 schema_name = "ffhn.target"
-schema_version = 4
-target_id = "demo_file"
-display_name = "Demo File"
+schema_version = 9
+target_id = "price"
+display_name = "Example Price"
 enabled = true
+escalate_after = 3
+declared_type = "decimal"
+conditions = []
 
 [target]
 kind = "file"
-file_path = "$HTML_FILE"
+file_path = "$WATCH_ROOT/price/price.json"
 
 [fetch]
 engine = "file"
+max_bytes = 1024
 
-[selection]
-kind = "css_selector"
-match = "single"
-selector = "main"
-
-[compare]
-basis = "text"
-whitespace = "normalize"
-rewrite_urls = false
-canonicalization = []
+[projection]
+kind = "json_pointer"
+pointer = "/price"
 EOF
-ffhn run --watch-root "$WATCH_ROOT" --target demo_file --format summary
+ffhn run --watch-root "$WATCH_ROOT" --target price
+ffhn status --watch-root "$WATCH_ROOT" --target price --format json-pretty
 ```
 
-Keep that same `$WATCH_ROOT` in your shell for the next commands.
+The first run is `initialized`. Change `12.50` to `12.500` and run again: the raw evidence differs
+but normalized decimal comparison yields `unchanged`. Change it to `13.00` for `changed`.
 
-Create the same disposable local-file target from PowerShell:
+Changing the target definition causes `refused_contract_digest`. Run `ffhn reset` for that target
+before accepting observations under the new definition.
 
-```powershell
-$WatchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
-$TargetDir = Join-Path $WatchRoot "demo_file"
-$HtmlFile = Join-Path $WatchRoot "demo.html"
-New-Item -ItemType Directory -Force $TargetDir | Out-Null
-Set-Content -Path $HtmlFile -Encoding utf8 -NoNewline -Value '<html><body><main><h1>Quarterly Report</h1><p>Office line item</p></main></body></html>'
-$TomlFilePath = $HtmlFile -replace '\\','/'
-@"
-schema_name = "ffhn.target"
-schema_version = 4
-target_id = "demo_file"
-display_name = "Demo File"
-enabled = true
-
-[target]
-kind = "file"
-file_path = "$TomlFilePath"
-
-[fetch]
-engine = "file"
-
-[selection]
-kind = "css_selector"
-match = "single"
-selector = "main"
-
-[compare]
-basis = "text"
-whitespace = "normalize"
-rewrite_urls = false
-canonicalization = []
-"@ | Set-Content -Path (Join-Path $TargetDir "target.toml") -Encoding utf8
-ffhn run --watch-root $WatchRoot --target demo_file --format summary
-```
-
-Keep that same `$WatchRoot` in your PowerShell session for the next commands.
-
-Inspect the current status for that same target:
-
-```bash
-ffhn status --watch-root "$WATCH_ROOT" --target demo_file --format json-pretty
-```
-
-```powershell
-ffhn status --watch-root $WatchRoot --target demo_file --format json-pretty
-```
-
-Inspect everything without mutating snapshots or run reports:
-
-```bash
-ffhn run --watch-root "$WATCH_ROOT" --target demo_file --dry-run --format summary
-```
-
-```powershell
-ffhn run --watch-root $WatchRoot --target demo_file --dry-run --format summary
-```
-
-When you are done with that disposable target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.
-
-## Repository Sample Quick Start
-
-FFHN expects one directory per target under a watch root. The default watch root is `./watchlist`, but the shortest checked-in sample flow in this repository uses the file-target example inside a disposable watch root.
-
-Materialize and run the checked-in local example once on macOS or Linux:
-
-```bash
-WATCH_ROOT="$(mktemp -d)"
-./examples/file-target-with-notifications/materialize-target.sh \
-  "$WATCH_ROOT/release_notes/target.toml"
-ffhn run --watch-root "$WATCH_ROOT" --target release_notes --format summary
-```
-
-Keep that same `$WATCH_ROOT` in your shell for the next commands.
-
-Materialize and run the same example once from PowerShell:
-
-```powershell
-$WatchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
-New-Item -ItemType Directory -Force $WatchRoot | Out-Null
-.\examples\file-target-with-notifications\materialize-target.ps1 `
-  "$WatchRoot\release_notes\target.toml"
-ffhn run --watch-root $WatchRoot --target release_notes --format summary
-```
-
-Keep that same `$WatchRoot` in your PowerShell session for the next commands.
-
-Inspect the current status for that same checked-in example target:
-
-```bash
-ffhn status --watch-root "$WATCH_ROOT" --target release_notes --format json-pretty
-```
-
-```powershell
-ffhn status --watch-root $WatchRoot --target release_notes --format json-pretty
-```
-
-Run the full watch root in parallel:
-
-```bash
-ffhn run --watch-root "$WATCH_ROOT" --all --jobs 4 --format summary
-```
-
-```powershell
-ffhn run --watch-root $WatchRoot --all --jobs 4 --format summary
-```
-
-Inspect that same checked-in example without mutating snapshots or run reports:
-
-```bash
-ffhn run --watch-root "$WATCH_ROOT" --target release_notes --dry-run --format summary
-```
-
-```powershell
-ffhn run --watch-root $WatchRoot --target release_notes --dry-run --format summary
-```
-
-When you are done with that disposable repository-backed target, remove it with `rm -rf "$WATCH_ROOT"` on macOS or Linux, or `Remove-Item -Recurse -Force $WatchRoot` in PowerShell.
-
-The checked-in `watchlist/demo` directory remains a maintained minimal HTTP starter target. Live runs create local runtime artifacts such as `state.json`, `last_run.json`, and `snapshots/` under that directory, and both `run` and `status` may create `lock/` on first use for locking. Those generated artifacts are ignored by Git.
-
-## Next Docs
-
-- [README.md](../README.md): short product-facing overview
-- [cli.md](cli.md): command behavior, exit codes, and `--all` discovery
-- [targets.md](targets.md): how to define what FFHN watches
-- [reports.md](reports.md) and [run-reports.md](run-reports.md): emitted and persisted JSON
-- [examples/README.md](../examples/README.md): checked-in runnable examples
+For a checked-in materializer, see [examples/file-target-json](../examples/file-target-json/README.md).

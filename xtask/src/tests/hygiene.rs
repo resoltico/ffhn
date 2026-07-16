@@ -239,6 +239,28 @@ fn prepare_artifact_layout_reports_create_dir_failures() {
     });
 }
 
+#[test]
+fn prepare_coverage_artifact_layout_reports_nested_root_creation_failures() {
+    let repo_root = tempdir().expect("repo tempdir");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        let nested_target = coverage_cargo_target_dir(repo_root.path());
+        fs::create_dir_all(nested_target.parent().expect("nested target parent"))
+            .expect("create nested target parent");
+        fs::write(&nested_target, "blocking file").expect("write blocking file");
+
+        let error =
+            prepare_artifact_layout(repo_root.path(), CommandArtifactLayout::ManagedCoverage)
+                .expect_err("file at nested coverage root should fail create_dir_all");
+
+        assert!(
+            error
+                .to_string()
+                .contains("failed to create managed hygiene artifact root")
+        );
+    });
+}
+
 #[cfg(unix)]
 #[test]
 fn prepare_artifact_layout_reports_cache_marker_failures() {
@@ -324,6 +346,65 @@ fn helper_functions_surface_filesystem_errors() {
             .to_string()
             .contains("failed to inspect hygiene artifact root")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn hygiene_report_surfaces_managed_root_inspection_failures() {
+    let repo_root = tempdir().expect("repo tempdir");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        let artifact_parent = repo_root.path().join(".managed-artifacts");
+        fs::create_dir_all(&artifact_parent).expect("create artifact parent");
+        let mut permissions = fs::metadata(&artifact_parent)
+            .expect("metadata")
+            .permissions();
+        permissions.set_mode(0o000);
+        fs::set_permissions(&artifact_parent, permissions.clone()).expect("chmod artifact parent");
+
+        let error = hygiene_report(repo_root.path())
+            .expect_err("inaccessible managed artifact roots must be reported");
+
+        permissions.set_mode(0o700);
+        fs::set_permissions(&artifact_parent, permissions)
+            .expect("restore artifact parent permissions");
+
+        assert!(
+            error
+                .to_string()
+                .contains("failed to inspect hygiene artifact root")
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn hygiene_report_surfaces_legacy_root_inspection_failures() {
+    let repo_root = tempdir().expect("repo tempdir");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        let legacy_target = repo_root.path().join("target");
+        fs::create_dir_all(&legacy_target).expect("create legacy target");
+        fs::write(legacy_target.join("payload.bin"), "payload").expect("write payload");
+        let mut permissions = fs::metadata(&legacy_target)
+            .expect("metadata")
+            .permissions();
+        permissions.set_mode(0o000);
+        fs::set_permissions(&legacy_target, permissions.clone()).expect("chmod legacy target");
+
+        let error = hygiene_report(repo_root.path())
+            .expect_err("inaccessible legacy artifact roots must be reported");
+
+        permissions.set_mode(0o700);
+        fs::set_permissions(&legacy_target, permissions)
+            .expect("restore legacy target permissions");
+
+        assert!(
+            error
+                .to_string()
+                .contains("failed to inspect hygiene artifact root")
+        );
+    });
 }
 
 #[test]

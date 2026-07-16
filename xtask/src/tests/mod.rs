@@ -58,17 +58,17 @@ fn write_repo_scaffold(repo_root: &Path) {
     fs::write(
         repo_root.join("tooling/rust-tooling.env"),
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.95\n\
-RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
 RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
-CARGO_AUDIT_VERSION=0.22.1\n\
-CARGO_DENY_VERSION=0.19.4\n\
-CARGO_FUZZ_VERSION=0.13.1\n\
-CARGO_LLVM_COV_VERSION=0.8.5\n\
-CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
     )
     .expect("write rust tooling env");
 }
@@ -120,17 +120,17 @@ fn workspace_package_field(repo_root: &Path, field: &str) -> Option<String> {
 fn sample_tooling() -> RustTooling {
     parse_rust_tooling(
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.95\n\
-RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
 RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
-CARGO_AUDIT_VERSION=0.22.1\n\
-CARGO_DENY_VERSION=0.19.4\n\
-CARGO_FUZZ_VERSION=0.13.1\n\
-CARGO_LLVM_COV_VERSION=0.8.5\n\
-CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
     )
     .expect("parse sample tooling")
 }
@@ -157,19 +157,38 @@ fn parse_rust_tooling_rejects_invalid_and_empty_assignments() {
     let tooling = parse_rust_tooling(
         "# pinned toolchain metadata\n\
 RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.95\n\
-RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
 RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
-CARGO_AUDIT_VERSION=0.22.1\n\
-CARGO_DENY_VERSION=0.19.4\n\
-CARGO_FUZZ_VERSION=0.13.1\n\
-CARGO_LLVM_COV_VERSION=0.8.5\n\
-CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
     )
     .expect("commented tooling manifest");
     assert_eq!(tooling.workspace_edition, "2024");
+}
+
+#[test]
+fn parse_rust_tooling_requires_the_semver_check_version() {
+    let error = parse_rust_tooling(
+        "RUST_WORKSPACE_EDITION=2024\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_OUTDATED_VERSION=0.19.0\n",
+    )
+    .expect_err("missing semver-checks version must be rejected");
+
+    assert_eq!(error, "missing CARGO_SEMVER_CHECKS_VERSION");
 }
 
 fn run_git(repo_root: &Path, args: &[&str]) {

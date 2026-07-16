@@ -5,6 +5,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added deterministic JSON Pointer and HTML scalar measurements for HTTP and local UTF-8 sources, with explicit source/fetch contracts, exactly one selected HTML match, exact original evidence, structured HTMLCut diagnostics, and safe final-response URL handling for relative HTML links.
+- Added typed accepted observations for integer, decimal, money, Semantic Version, and explicit-offset date-time values. Every observation preserves its acquisition evidence, comparison projection, parser identity, declared type parameters, normalized canonical value, and source-specific HTMLCut evidence where applicable.
+- Added named typed policy conditions with exact comparison algebra, per-condition temporal state, fixed initial and last-accepted references, level-state transitions, source-health escalation, permanent-configuration-error episodes, and deterministic `on_condition` and `on_run` eligibility.
+- Added durable process-stdin delivery routes and a per-target outbox. FFHN commits immutable event payload bytes with state before delivery, uses deterministic event identities and bounded retry scheduling, reports overflow without evicting older records, and makes post-process persistence uncertainty explicit in run and reset reports.
+- Added `html_text` DOM canonicalization for CSS selections. FFHN keeps original selected text as raw evidence, uses only a detached HTMLCut clone for comparison text, preserves original candidate and diagnostic facts, has no implicit attribute deny-list, and rejects unsupported projection shapes or clone canonicalization on attribute measurements instead of accepting inert configuration.
+- Added bounded multi-target runs, target discovery, structured run/status/reset reports, explicit output formats, and the `ffhn reset` command. Reset takes the target lock and blindly removes only FFHN-owned storage, leaving the target definition ready for a clean initialization.
+
+### Changed
+
+- Replaced the prior monitoring contracts with the version-2 measurement engine and its target, state, report, snapshot, and notification vocabulary. Existing persisted state is intentionally incompatible: FFHN neither reads nor migrates it, and each target must be explicitly reset before initialization under the new contract.
+- Reworked persistence around isolated target roots, source-kind measurement digests, canonical UTC timestamps, validated evidence, symlink-resistant normal I/O, crash-durable state/outbox commits, and an exact clean-reset lifecycle. A valid observation is the sole path that advances an accepted baseline.
+- Reworked operational failure handling so source outages and unparseable values are temporal health facts, while invalid target and HTMLCut contracts are permanent episodes. Both classifications are typed, closed vocabularies that retain structured diagnostic evidence and cannot be invented in persisted state.
+- Raised the Rust floor and maintained stable toolchain to Rust `1.97`/`1.97.0`, updated HTML measurement support to the public `htmlcut-core v11.0.0` contract, refreshed the Cargo dependency graph and QA tools, and updated immutable GitHub Actions pins.
+- Reworked maintainer and release operations around managed artifact roots, reproducible coverage and Miri proofs, portable delivery fixtures, maintained release assets and checksums, strict post-publication verification, Dependabot closeout, and a post-release semver-baseline refresh.
+
 ## [8.1.0] - 2026-05-19
 
 ### Changed

@@ -1,0 +1,76 @@
+[
+  {
+    "name": "exact decimal preserves numeric presentation",
+    "declared_type": "decimal",
+    "type_params_toml": "",
+    "raw_token": "1.00",
+    "expected": {
+      "raw_selected": "1.00",
+      "comparison_projection": "1.00",
+      "acquisition_kind": "json_pointer",
+      "parser_id": "ffhn.typed-value",
+      "parser_grammar_version": 1,
+      "declared_type": "decimal",
+      "type_params": {},
+      "canonical_value": "1",
+      "parse_diagnostics": []
+    }
+  },
+  {
+    "name": "money retains a string scalar token and explicit currency",
+    "declared_type": "money",
+    "type_params_toml": "[type_params]\ncurrency = \"USD\"\nlocale = \"en_us\"\n",
+    "raw_token": "\"1,234.50\"",
+    "expected": {
+      "raw_selected": "\"1,234.50\"",
+      "comparison_projection": "\"1,234.50\"",
+      "acquisition_kind": "json_pointer",
+      "parser_id": "ffhn.typed-value",
+      "parser_grammar_version": 1,
+      "declared_type": "money",
+      "type_params": {
+        "currency": "USD",
+        "locale": "en_us"
+      },
+      "canonical_value": "1234.5",
+      "parse_diagnostics": []
+    }
+  },
+  {
+    "name": "semver retains escaped source evidence",
+    "declared_type": "semver",
+    "type_params_toml": "",
+    "raw_token": "\"1.2.3\\u002bbuild.7\"",
+    "expected": {
+      "raw_selected": "\"1.2.3\\u002bbuild.7\"",
+      "comparison_projection": "\"1.2.3\\u002bbuild.7\"",
+      "acquisition_kind": "json_pointer",
+      "parser_id": "ffhn.typed-value",
+      "parser_grammar_version": 1,
+      "declared_type": "semver",
+      "type_params": {},
+      "canonical_value": "1.2.3+build.7",
+      "parse_diagnostics": []
+    }
+  },
+  {
+    "name": "datetime normalizes a configured assumed offset",
+    "declared_type": "datetime",
+    "type_params_toml": "[type_params]\nformat = \"[year]-[month]-[day] [hour]:[minute]\"\nassumed_offset = \"+02:00\"\n",
+    "raw_token": "\"2026-07-14 10:00\"",
+    "expected": {
+      "raw_selected": "\"2026-07-14 10:00\"",
+      "comparison_projection": "\"2026-07-14 10:00\"",
+      "acquisition_kind": "json_pointer",
+      "parser_id": "ffhn.typed-value",
+      "parser_grammar_version": 1,
+      "declared_type": "datetime",
+      "type_params": {
+        "format": "[year]-[month]-[day] [hour]:[minute]",
+        "assumed_offset": "+02:00"
+      },
+      "canonical_value": "2026-07-14T08:00:00Z",
+      "parse_diagnostics": []
+    }
+  }
+]

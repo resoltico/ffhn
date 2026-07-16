@@ -11,3 +11,21 @@ pub fn write_cli_error(stderr: &mut (impl Write + ?Sized), message: &str) -> io:
         .unwrap_or(message);
     writeln!(stderr, "error: {normalized}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_optional_error_prefixes_before_rendering() {
+        for (input, expected) in [
+            ("error: one", "error: one\n"),
+            ("error:two", "error: two\n"),
+            ("three", "error: three\n"),
+        ] {
+            let mut output = Vec::new();
+            write_cli_error(&mut output, input).expect("stderr write");
+            assert_eq!(String::from_utf8(output).expect("UTF-8"), expected);
+        }
+    }
+}

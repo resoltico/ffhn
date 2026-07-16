@@ -20,7 +20,7 @@ FFHN keeps its exact Rust toolchain pins in two canonical files:
 
 The pinned QA nightly toolchain exists for three reasons:
 
-1. `cargo +<qa-nightly-toolchain> miri test` is required for the maintained FFHN-to-HTMLCut strict-provenance proof across both the CSS-selector validation seam and the delimiter-pair execution seam
+1. `cargo +<qa-nightly-toolchain> miri test` is required for the maintained typed-observation strict-provenance proof
 2. `cargo +<qa-nightly-toolchain> llvm-cov --branch` is required for the maintained branch-coverage gate
 3. manual `cargo-fuzz` runs require nightly sanitizer flags
 
@@ -58,12 +58,8 @@ Miri-only:
 cargo xtask miri
 ```
 
-That proof exercises one CSS-selector target and one delimiter-pair target
-through HTMLCut interop so FFHN verifies both maintained HTML-backed target
-paths under strict provenance.
-As of the maintained `htmlcut-core v10.2.0` line, that proof now runs against
-HTMLCut's shipped downstream-safe selector/parser stack instead of FFHN-local
-crate overrides.
+That proof executes exact integer, decimal, money, and semantic-version normalization under strict
+provenance. It protects the typed-value boundary and the public HTMLCut interop boundary.
 
 Artifact inventory:
 

@@ -450,24 +450,24 @@ mod tests {
     fn sample_tooling() -> RustTooling {
         crate::tooling::parse_rust_tooling(
             "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.95\n\
-RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
 RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
-CARGO_AUDIT_VERSION=0.22.1\n\
-CARGO_DENY_VERSION=0.19.4\n\
-CARGO_FUZZ_VERSION=0.13.1\n\
-CARGO_LLVM_COV_VERSION=0.8.5\n\
-CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
         )
         .expect("parse tooling")
     }
 
     #[test]
     fn reported_version_extracts_digit_prefixed_segments_and_rejects_plain_text() {
-        assert_eq!(reported_version("cargo-audit 0.22.1"), Some("0.22.1"));
+        assert_eq!(reported_version("cargo-audit 0.22.2"), Some("0.22.2"));
         assert_eq!(reported_version("cargo-audit version unknown"), None);
     }
 
@@ -489,7 +489,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
             CargoQaToolSpec {
                 package_name: "cargo-audit",
                 subcommand_name: "audit",
-                expected_version: "0.22.1",
+                expected_version: "0.22.2",
             },
             "hint",
         )
@@ -515,7 +515,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
             CargoQaToolSpec {
                 package_name: "cargo-audit",
                 subcommand_name: "audit",
-                expected_version: "0.22.1",
+                expected_version: "0.22.2",
             },
             "hint",
         )
@@ -532,7 +532,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
             CargoQaToolSpec {
                 package_name: "cargo-audit",
                 subcommand_name: "audit",
-                expected_version: "0.22.1",
+                expected_version: "0.22.2",
             },
             "hint",
         )
@@ -553,7 +553,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
             CargoQaToolSpec {
                 package_name: "cargo-audit",
                 subcommand_name: "audit",
-                expected_version: "0.22.1",
+                expected_version: "0.22.2",
             },
             "hint",
         )
@@ -574,7 +574,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
             CargoQaToolSpec {
                 package_name: "cargo-audit",
                 subcommand_name: "audit",
-                expected_version: "0.22.1",
+                expected_version: "0.22.2",
             },
             "hint",
         )
@@ -582,7 +582,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
         assert!(
             mismatch
                 .to_string()
-                .contains("is at version 0.1.0, expected 0.22.1")
+                .contains("is at version 0.1.0, expected 0.22.2")
         );
     }
 

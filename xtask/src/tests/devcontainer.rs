@@ -231,7 +231,7 @@ fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
     assert!(dockerfile.contains("apt-get install --yes --no-install-recommends docker.io"));
     assert!(dockerfile.contains("docker buildx version >/dev/null"));
     assert!(!dockerfile.contains("docker.io nodejs npm"));
-    assert!(dockerfile.contains("@devcontainers/cli@0.86.0"));
+    assert!(dockerfile.contains("@devcontainers/cli@0.87.0"));
     assert!(dockerfile.contains("USER root"));
 }
 

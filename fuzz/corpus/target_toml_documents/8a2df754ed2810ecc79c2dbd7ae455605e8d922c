@@ -1,9 +1,0 @@
-schema_name = "ffhn.target"
-schema_version = 1
-put = "outer_html"
-whitespace = "normalize"
-rewride_urls = false
-
-[compare]
-basis = "canonical_text_sha256"
-canonicaiazln = []

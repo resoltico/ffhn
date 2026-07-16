@@ -1,186 +1,130 @@
-//! Core FFHN library implementing the FFHN monitoring engine.
+//! Core FFHN v2 measurement foundation.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-mod canonical;
 mod contract;
 mod error;
-mod fetch;
 mod model;
 mod paths;
 mod runtime;
 mod stable_json;
-mod time;
 
-pub use canonical::apply_canonicalizers;
 pub use contract::{
     CLI_ARGUMENT_ALL_ID, CLI_ARGUMENT_DRY_RUN_ID, CLI_ARGUMENT_FORMAT_ID, CLI_ARGUMENT_JOBS_ID,
-    CLI_ARGUMENT_TARGET_ID, CLI_ARGUMENT_WATCH_ROOT_ID, CLI_INVOCATION_RUN_ALL_ID,
-    CLI_INVOCATION_RUN_BATCH_ID, CLI_INVOCATION_RUN_SINGLE_ID, CLI_INVOCATION_STATUS_ID,
-    CLI_LIMIT_DURABLE_TARGET_IDS_ID, CLI_LIMIT_IMMEDIATE_DISCOVERY_DEPTH_ID,
-    CLI_LIMIT_POSITIVE_BATCH_CONCURRENCY_ID, CLI_LIMIT_RUN_TARGET_SELECTION_ID,
-    CLI_LIMIT_UNIQUE_TARGET_IDS_ID, CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID,
-    CliArgumentContract, CliArgumentValueKind, CliContractCatalog, CliHardLimitContract,
-    CliInvocationContract, CliOperationContract, ExecutionModeContract, UserFacingDocumentContract,
-    batch_run_report_write_error, cli_contract, cli_document, cli_execution_mode, cli_hard_limit,
-    cli_operation, document_write_error, duplicate_target_ids_usage_error,
-    positive_batch_concurrency_limit, positive_batch_concurrency_usage_error, run_operation,
-    run_report_document, run_report_write_error, run_target_selection_usage_error,
-    status_operation, status_report_document, status_report_write_error, unique_target_ids_limit,
+    CLI_ARGUMENT_TARGET_ID, CLI_ARGUMENT_WATCH_ROOT_ID, CLI_OPERATION_RESET_ID,
+    CLI_OPERATION_RUN_ID, CLI_OPERATION_STATUS_ID, CliArgumentContract, CliArgumentValueKind,
+    CliContractCatalog, CliHardLimitContract, CliInvocationContract, CliOperationContract,
+    ExecutionModeContract, UserFacingDocumentContract, cli_contract, cli_operation,
+    duplicate_target_ids_usage_error, positive_batch_concurrency_usage_error, reset_operation,
+    run_operation, run_target_selection_usage_error, status_operation,
 };
 pub use error::CoreError;
-#[cfg(all(test, unix))]
-pub(crate) use model::NotificationAdapter;
-#[cfg(all(test, unix))]
-pub(crate) use model::NotificationEndpoint;
 pub use model::{
-    BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BaselinePhase,
-    BatchOutcomeCounts, BatchRunEntry, BatchRunEntryView, BatchRunReport, BatchRunReportInput,
-    CanonicalizerKind, CanonicalizerSpec, ChangeKind, CompareBasis, CompareConfigView,
-    CssSelectorSelectionView, DelimiterMode, DelimiterPairSelectionView,
-    EXTRACTION_RECORD_SCHEMA_NAME, EXTRACTION_RECORD_SCHEMA_VERSION, ExtractionRecord,
-    FailedRunReportView, FailureClass, FetchConfigView, FetchEngine, FileFetchConfigView,
-    FileTargetSourceView, HttpFetchConfigView, HttpMethod, HttpTargetSourceView,
-    LAST_RUN_SNAPSHOT_SCHEMA_NAME, LAST_RUN_SNAPSHOT_SCHEMA_VERSION, LastRunRecord,
-    LastRunSnapshot, NOTIFICATION_PAYLOAD_SCHEMA_NAME, NOTIFICATION_PAYLOAD_SCHEMA_VERSION,
-    NotificationDeliveryStatus, NotificationPayload, NotificationRouteView, PersistWriteStatus,
-    ProcessErrorDetail, ProcessErrorKind, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION,
-    RegexFlag, RelativeArtifactPath, ReportableRunBodyView, RunBodyView, RunChangeRegion,
-    RunChangeSection, RunCompareView, RunExtractionSection, RunFailureCause, RunFetchView, RunMode,
-    RunNotificationDeliveryView, RunOutcome, RunPersistView, RunReport, RunResult,
+    AcquisitionKind, BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BatchRunReport,
+    Condition, ConditionContext, ConditionEvaluation, ConditionId, ConditionIssue,
+    ConditionOutcome, ConditionPredicate, ConditionReference, DeclaredType, DeliveryAdapter,
+    DeliveryOutcome, DeliveryRoute, DeliveryStatus, FetchConfig, FetchEngine, HtmlSelection,
+    HtmlcutDiagnostic, HtmlcutFailureDetails, HttpMethod, NumericLocale, Observation,
+    OnRunEventCause, OutboxOverflow, OutboxPolicy, PARSER_GRAMMAR_VERSION, PARSER_ID,
+    PermanentErrorCode, PolicyRunInput, ProcessErrorDetail, ProcessErrorKind, Projection,
+    RESET_REPORT_SCHEMA_NAME, RESET_REPORT_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME,
+    RUN_REPORT_SCHEMA_VERSION, ResetReport, RouteFamily, RouteId, RunMode, RunOutcome, RunReport,
     STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
-    STATUS_REPORT_SCHEMA_VERSION, SelectionConfigView, SelectionEvidence, SelectionKind,
-    SelectionMatch, SelectionModeView, SelectionRange, SnapshotDigestSummary, SnapshotReference,
-    SnapshotSlot, StateDocument, StatusReport, StatusSummary, StoredBaseline,
-    SuccessfulRunReportView, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION, TargetDocument, TargetId,
-    TargetSourceView, WhitespaceMode,
-};
-#[cfg(any(test, doctest))]
-pub(crate) use model::{CompareConfig, FetchConfig, TargetSource};
-pub(crate) use model::{
-    FileFetchConfig, NetworkFetchConfig, NotificationDeliveryOutcome, NotificationRoute,
-    RunCompareSection, RunFetchSection, RunNotificationDelivery, RunPersistSection,
-    SelectionConfig, SelectionModeConfig,
+    STATUS_REPORT_SCHEMA_VERSION, SourceSuspectReason, StagedEventEligibility, StagedPolicyRun,
+    StateDocument, StatusKind, StatusReport, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
+    TargetDocument, TargetId, TargetSource, ThresholdDirection, TypeParams,
 };
 pub use paths::TargetPaths;
 
-/// Validates one target document loaded from disk.
-///
-/// # Errors
-///
-/// Returns [`CoreError`] when FFHN cannot validate the watch root directory, cannot read the
-/// target directory, the target document is not valid TOML, or the decoded document violates
-/// FFHN's schema and identity invariants.
+/// Validates a v2 target definition loaded from its watch-root directory.
 pub fn validate_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError> {
     runtime::validate_target(paths)
 }
-
-/// Produces one machine-readable FFHN status report.
-///
-/// # Errors
-///
-/// Returns [`CoreError`] when FFHN cannot validate the watch root directory, cannot read the
-/// target directory, or hits a genuine shared-lock filesystem error while preparing one stable
-/// status view.
-pub fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
-    runtime::status(paths)
-}
-
-/// Executes one FFHN run and returns the structured run report.
-///
-/// # Errors
-///
-/// Returns [`CoreError`] only for process-level failures before FFHN can emit a structured run
-/// report, such as watch-root validation failures or filesystem / serialization failures around
-/// timestamps, locks, or persistence.
+/// Executes one live v2 measurement run.
 pub fn run_once(paths: &TargetPaths) -> Result<RunReport, CoreError> {
     runtime::run_once(paths)
 }
-
-/// Executes one FFHN run in dry-run mode without mutating persisted state artifacts or reports.
-///
-/// # Errors
-///
-/// Returns [`CoreError`] only for process-level failures before FFHN can emit a structured run
-/// report, such as watch-root validation failures or genuine shared-lock filesystem errors.
+/// Executes one v2 measurement run without writing state.
 pub fn run_once_dry_run(paths: &TargetPaths) -> Result<RunReport, CoreError> {
-    runtime::run_once_with_options(paths, runtime::RunOptions::DRY_RUN)
+    runtime::run_once_with_mode(paths, RunMode::DryRun)
 }
-
-/// Executes multiple FFHN targets and returns one aggregate batch report.
-///
-/// # Errors
-///
-/// Returns [`CoreError`] when batch orchestration itself cannot produce the aggregate report, when
-/// `jobs` is zero, or when `targets` contains duplicate target ids.
+/// Executes multiple targets with bounded parallelism.
 pub fn run_batch(
     watch_root: &std::path::Path,
     targets: &[TargetId],
     run_mode: RunMode,
     jobs: usize,
 ) -> Result<BatchRunReport, CoreError> {
-    runtime::run_batch(
-        watch_root,
-        targets,
-        runtime::RunOptions { mode: run_mode },
-        jobs,
-    )
+    let paths = targets
+        .iter()
+        .map(|target| TargetPaths::try_new(watch_root, target.as_str()))
+        .collect::<Result<Vec<_>, _>>()?;
+    runtime::run_batch(paths, run_mode, jobs)
+}
+/// Returns v2 status without mutating v2 state.
+pub fn status(paths: &TargetPaths) -> Result<StatusReport, CoreError> {
+    runtime::status(paths)
+}
+/// Blindly deletes the target's isolated v2 storage root under the target lock.
+pub fn reset(paths: &TargetPaths) -> Result<ResetReport, CoreError> {
+    runtime::reset(paths)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
-    use tempfile::tempdir;
+
+    use super::*;
 
     #[test]
-    fn validate_target_uses_the_public_library_entrypoint() {
-        let temp = tempdir().expect("tempdir");
-        let watch_root = temp.path().join("watchlist");
-        let target_dir = watch_root.join("demo");
-        fs::create_dir_all(&target_dir).expect("create target dir");
-
-        fs::write(
-            target_dir.join("target.toml"),
-            r#"
-schema_name = "ffhn.target"
-schema_version = 4
-target_id = "demo"
-display_name = "Demo"
-enabled = true
-
-[target]
-kind = "http"
-source_url = "https://example.com"
-
-[fetch]
-engine = "http"
-method = "GET"
-timeout_ms = 15000
-max_bytes = 2000000
-user_agent = "ffhn/test"
-follow_redirects = true
-accept = "text/html"
-
-[selection]
-kind = "css_selector"
-selector = "main"
-match = "single"
-
-[compare]
-basis = "text"
-whitespace = "normalize"
-rewrite_urls = false
-
-[[compare.canonicalization]]
-kind = "trim"
-"#,
-        )
-        .expect("write target");
-
+    fn public_v2_entrypoints_preserve_the_typed_measurement_lifecycle() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let watch_root = temporary.path().join("watchlist");
         let paths = TargetPaths::try_new(&watch_root, "demo").expect("target paths");
-        let target = validate_target(&paths).expect("validate target");
-        assert_eq!(target.target_id(), "demo");
-        assert_eq!(target.display_name(), "Demo");
+        fs::create_dir_all(paths.target_dir()).expect("target directory");
+        let source = paths.target_dir().join("source.json");
+        fs::write(&source, r#"{"value":7}"#).expect("source");
+        fs::write(
+            paths.target_file(),
+            format!(
+                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = \"{}\"\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+                source.display()
+            ),
+        )
+        .expect("target");
+
+        assert_eq!(
+            validate_target(&paths).expect("validate").target_id(),
+            "demo"
+        );
+        assert_eq!(
+            run_once_dry_run(&paths).expect("dry run").outcome(),
+            RunOutcome::Initialized
+        );
+        assert_eq!(
+            run_once(&paths).expect("live run").outcome(),
+            RunOutcome::Initialized
+        );
+        assert_eq!(
+            status(&paths).expect("ready status").kind(),
+            StatusKind::Ready
+        );
+        let target = TargetId::new("demo").expect("target id");
+        assert_eq!(
+            run_batch(&watch_root, &[target], RunMode::DryRun, 1)
+                .expect("batch")
+                .reports()
+                .len(),
+            1
+        );
+        assert_eq!(
+            serde_json::to_value(reset(&paths).expect("reset")).expect("reset document")["storage_cleared"],
+            true
+        );
+        assert!(
+            CoreError::internal("invariant gap")
+                .to_string()
+                .contains("invariant gap")
+        );
     }
 }

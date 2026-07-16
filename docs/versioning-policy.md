@@ -1,136 +1,67 @@
 ---
 afad: "4.0"
 domain: MAINTAINER
-updated: "2026-05-14"
+updated: "2026-07-15"
 route:
-  keywords: [versioning policy, schema naming, htmlcut boundary, semver baseline, workspace version]
+  keywords: [versioning policy, typed observation, schema naming, semver baseline, workspace version]
   questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]
 ---
 
 # Versioning Policy
 
-**Purpose**: Define how FFHN versions release tags, public contracts, the upstream HTMLCut interop
-boundary it consumes, and the checked-in semver baseline.
-**Prerequisites**: [contracts.md](contracts.md), [reports.md](reports.md), [targets.md](targets.md),
-and [release-protocol.md](release-protocol.md).
+**Purpose**: Define how FFHN versions its release line, its v2 typed-observation contracts, and the checked-in semver baseline.
+**Prerequisites**: [contracts.md](contracts.md), [reports.md](reports.md), [targets.md](targets.md), and [release-protocol.md](release-protocol.md).
 
-## 1. Version Sources
+## Release Version
 
-FFHN keeps one release-version source of truth:
+`Cargo.toml` `[workspace.package] version` is FFHN's sole release-version source. It supplies both workspace crates, `ffhn --version`, release tags of the form `vX.Y.Z`, and the release asset names. Do not create a second version source in code, documentation, scripts, or workflows.
 
-- `Cargo.toml` `[workspace.package] version`
+## FFHN-Owned Contracts
 
-That version feeds:
+The maintained v2 document families are:
 
-- both workspace crates
-- `ffhn --version`
-- release tags of the form `vX.Y.Z`
-- release asset, package, and checksum-manifest names
+- `ffhn.target` schema version `9`
+- `ffhn.state` schema version `9`
+- `ffhn.run_report` schema version `8`
+- `ffhn.batch_run_report` schema version `8`
+- `ffhn.status_report` schema version `7`
+- `ffhn.reset_report` schema version `3`
 
-Do not create parallel version sources in crate manifests, docs, scripts, or workflows.
+The typed parser identity is also contractual: `parser_id = "ffhn.typed-value"` with `parser_grammar_version = 1`.
 
-## 2. Two Contract Classes
+FFHN evolves these product-owned contracts decisively. A contract change updates the Rust model and validation, relevant schema versions, docs and examples, fuzz harnesses, tests, and the `CHANGELOG.md` Unreleased section in one slice. FFHN does not retain aliases, compatibility parsers, translation layers, or migrations for retired schemas.
 
-FFHN has two different compatibility models.
+## State Boundary
 
-### 2.1 Generic FFHN-owned contracts
+V2 durable state exists only at `<watch-root>/<target>/.ffhn/state.json`. Normal v2 commands never parse v1 artifacts. `ffhn reset --target <ID>` is the explicit clean-break operation: under the target lock it blindly deletes only that target's `.ffhn` storage root, without decoding or inspecting its contents. The next accepted run initializes a new v2 state document.
 
-These are the normal FFHN surfaces:
+Normal state reads and writes accept only an actual `.ffhn` directory and a regular `state.json`
+file. A symlink, directory, or other non-regular state node is invalid state and is refused without
+following it; reset remains the only blind recovery operation and removes only the `.ffhn` root
+node.
 
-- `ffhn.target`
-- `ffhn.extraction_record`
-- `ffhn.state`
-- `ffhn.run_report`
-- `ffhn.last_run_snapshot`
-- `ffhn.notification_payload`
-- `ffhn.batch_run_report`
-- `ffhn.status_report`
-- the core-owned CLI command and document contract
-- stable embedded field vocabularies and named subobjects inside those documents, such as `RunResult.kind`, `RunFailureCause`, `StatusSummary.kind`, notification-delivery outcome values, and the shared structured process-error detail
-- the stable embeddable `ffhn-core` API outside the upstream HTMLCut adapter boundary
+The state contract binds its temporal facts to a source-contract digest. That digest includes the
+complete ordered named-condition policy and `escalate_after`; HTML measurement contracts also bind
+HTMLCut's extraction-semantics version. A run whose target definition yields a different digest
+refuses before acquisition or mutation; reset is required before that changed measurement contract
+can establish state.
 
-These surfaces may change aggressively when architecture quality requires it. FFHN does not carry
-compatibility shims, aliases, or migration layers for generic surfaces.
+## Typed Value Policy
 
-When a generic public contract changes:
+Raw selected JSON scalar tokens are retained byte-for-byte as evidence, including string quoting and
+escapes. HTML text and attribute projections retain their corresponding public HTMLCut output or
+match attribute, plus plan and diagnostic evidence. Comparison uses the normalized typed value. The
+current declared types are `integer`, `decimal`, `money`, `semver`, and `datetime`. Parsing is
+deterministic: decimal and money use `rust_decimal`, semantic versions use `semver`, and date-times
+either carry an offset or declare `assumed_offset`; machine-local time is never a fallback.
 
-1. update the Rust types and validators
-2. update any schema version whose serialized document changed
-3. update docs, examples, and contract lint in the same change
-4. update tests and fuzz seeds so they assert the new contract explicitly
-5. document the released effect in `changelog.md`
+## Semver Baseline Policy
 
-### 2.2 Consumed upstream HTMLCut boundary
+The checked-in `semver-baseline/ffhn-core` directory represents the last published `ffhn-core` API, not the current worktree.
 
-FFHN also consumes one upstream interop boundary:
+1. Refresh it only after the corresponding release has been published.
+2. Until a matching local tag exists, treat the current workspace version as an unreleased major line.
+3. Refresh from an explicit published reference: `cargo xtask refresh-semver-baseline --git-ref vX.Y.Z`.
+4. Never regenerate it from unreleased worktree state.
 
-- module: `htmlcut_core::interop::v1`
-- upstream documents: `htmlcut.plan`, `htmlcut.result`, and `htmlcut.error`
-
-FFHN uses that boundary to ask HTMLCut for one extraction, then translates the answer into
-FFHN-owned reports, extraction evidence, and persisted artifacts. FFHN does not persist upstream
-interop-profile fields inside FFHN-owned documents.
-
-If FFHN needs a different upstream interop boundary:
-
-1. adopt the new HTMLCut interop module explicitly
-2. update FFHN's adapter, validators, and translators in one coherent change
-3. update checked-in examples, docs, tests, and fuzz inputs that exercise the seam
-
-Do not silently blur multiple upstream profiles under one retained FFHN contract.
-
-## 3. Schema Naming Rules
-
-FFHN schema families use stable document names plus explicit integer schema versions.
-
-Examples:
-
-- `ffhn.target`
-- `ffhn.extraction_record`
-- `ffhn.state`
-- `ffhn.run_report`
-- `ffhn.last_run_snapshot`
-- `ffhn.notification_payload`
-- `ffhn.batch_run_report`
-- `ffhn.status_report`
-
-Rules:
-
-- keep schema names product-owned and generic
-- keep `schema_name` and `schema_version` on every maintained public document
-- use the Rust validators and tests as the canonical contract enforcement surface, not prose examples
-
-## 4. HTMLCut Boundary Expectations
-
-Maintainer expectations for the HTMLCut seam:
-
-1. FFHN validates any upstream interop object before trusting it
-2. FFHN translates upstream extraction output into FFHN-owned evidence and persisted artifacts
-3. FFHN rejects upstream features outside FFHN's supported contract instead of leaking them through unchanged
-4. docs, examples, tests, and fuzz seeds stay aligned with the shipped adapter behavior
-
-## 5. Release-Time Expectations
-
-Release preparation is expected to converge the whole shipped contract, not just bump a version.
-
-Before a release is tagged:
-
-1. the workspace version is correct
-2. changelog, README, and maintained docs describe the same shipped surface
-3. checked-in examples validate
-4. the maintainer gate passes
-
-FFHN optimizes for a coherent released system, not for preserving obsolete shapes.
-
-## 6. Semver Baseline Policy
-
-The checked-in semver baseline represents the last published `ffhn-core` API, not the current
-worktree.
-
-Rules:
-
-1. refresh it only after the corresponding release is actually published
-2. treat the current workspace version as an unreleased major line until a matching Git tag `vX.Y.Z` exists locally
-3. refresh it from an explicit published Git ref with `cargo xtask refresh-semver-baseline --git-ref vX.Y.Z`
-4. never regenerate it from unreleased local worktree state
-5. treat it as the comparison target for future semver checks, not as a staging area during feature work
+The baseline protects the published Rust API. It does not authorize retaining obsolete serialized contracts or legacy runtime behavior.

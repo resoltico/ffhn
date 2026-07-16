@@ -1,8 +1,8 @@
 use crate::model::{CommandArtifactLayout, CommandSpec};
 use crate::tooling::RustTooling;
 
-pub(crate) const MIRI_HTMLCUT_INTEROP_TEST_NAME: &str =
-    "runtime::interop::tests::ffhn_htmlcut_interop_contract_remains_miri_sound";
+pub(crate) const MIRI_V2_FOUNDATION_TEST_NAME: &str =
+    "model::v2::tests::typed_parser_covers_exact_integer_decimal_money_and_semver";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MiriPreflightFailure {
@@ -35,7 +35,7 @@ pub(crate) fn miri_command(tooling: &RustTooling) -> CommandSpec {
             "ffhn-core".to_owned(),
             "--lib".to_owned(),
             "--locked".to_owned(),
-            MIRI_HTMLCUT_INTEROP_TEST_NAME.to_owned(),
+            MIRI_V2_FOUNDATION_TEST_NAME.to_owned(),
             "--".to_owned(),
             "--exact".to_owned(),
         ],
@@ -68,7 +68,7 @@ pub(crate) fn miri_preflight_message(
     failures: &[MiriPreflightFailure],
 ) -> String {
     let mut message = String::from(
-        "Rust Miri preflight failed. FFHN keeps stable as the default toolchain, but the maintained FFHN-to-HTMLCut strict-provenance proof runs through `cargo +nightly miri test`.\n",
+        "Rust Miri preflight failed. FFHN keeps stable as the default toolchain, but the maintained typed-observation strict-provenance proof runs through `cargo +nightly miri test`.\n",
     );
 
     let missing_miri = failures.contains(&MiriPreflightFailure::MissingQaNightlyMiri);
@@ -124,23 +124,23 @@ mod tests {
     fn sample_tooling() -> RustTooling {
         parse_rust_tooling(
             "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.95\n\
-RUST_STABLE_TOOLCHAIN=1.95.0\n\
+RUST_WORKSPACE_RUST_VERSION=1.97\n\
+RUST_STABLE_TOOLCHAIN=1.97.0\n\
 RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
 \n\
-CARGO_AUDIT_VERSION=0.22.1\n\
-CARGO_DENY_VERSION=0.19.4\n\
-CARGO_FUZZ_VERSION=0.13.1\n\
-CARGO_LLVM_COV_VERSION=0.8.5\n\
-CARGO_NEXTEST_VERSION=0.9.133\n\
+CARGO_AUDIT_VERSION=0.22.2\n\
+CARGO_DENY_VERSION=0.20.2\n\
+CARGO_FUZZ_VERSION=0.13.2\n\
+CARGO_LLVM_COV_VERSION=0.8.7\n\
+CARGO_NEXTEST_VERSION=0.9.140\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
         )
         .expect("parse tooling")
     }
 
     #[test]
-    fn miri_commands_target_the_ffhn_core_interop_probe() {
+    fn miri_commands_target_the_v2_foundation_probe() {
         let tooling = sample_tooling();
         let probe = miri_probe_command(&tooling);
         let command = miri_command(&tooling);
@@ -163,7 +163,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.47.0\n",
                 "ffhn-core".to_owned(),
                 "--lib".to_owned(),
                 "--locked".to_owned(),
-                MIRI_HTMLCUT_INTEROP_TEST_NAME.to_owned(),
+                MIRI_V2_FOUNDATION_TEST_NAME.to_owned(),
                 "--".to_owned(),
                 "--exact".to_owned(),
             ]
