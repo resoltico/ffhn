@@ -6,7 +6,9 @@ use super::acquire::{
 #[cfg(test)]
 use super::execution::{run_batch as run_batch_internal, run_once_with_mode};
 #[cfg(test)]
-use super::lock::{LockError, lock_exclusive, lock_shared};
+use super::lock::lock_exclusive;
+#[cfg(all(test, unix))]
+use super::lock::{LockError, lock_shared};
 #[cfg(test)]
 use super::report::detail_from_error;
 #[cfg(test)]
