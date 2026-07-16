@@ -326,4 +326,64 @@ mod tests {
             assert_eq!(durability.calls, expected_calls);
         }
     }
+
+    #[test]
+    fn storage_root_validation_distinguishes_missing_and_unusable_target_directories() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let missing = TargetPaths::try_new(temporary.path(), "missing").expect("target paths");
+        assert_eq!(
+            checked_storage_root(&missing).expect("missing target"),
+            None
+        );
+
+        let blocked_watch_root = temporary.path().join("watch-root-file");
+        fs::write(&blocked_watch_root, "not a directory").expect("watch root file");
+        let unusable = TargetPaths::try_new(blocked_watch_root, "demo").expect("target paths");
+        assert!(checked_storage_root(&unusable).is_err());
+    }
+
+    #[test]
+    fn blind_reset_allows_missing_ancestors_and_parentless_paths() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        assert!(
+            !blind_remove_storage_root(&temporary.path().join("missing").join("state"))
+                .expect("missing ancestor is harmless")
+        );
+        assert!(require_existing_parent_is_directory(Path::new("")).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_storage_nodes_are_reported_instead_of_treated_as_absent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let target_directory = temporary.path().join("demo");
+        fs::create_dir(&target_directory).expect("target directory");
+        let paths = TargetPaths::try_new(temporary.path(), "demo").expect("target paths");
+        let original_permissions = fs::metadata(&target_directory)
+            .expect("target metadata")
+            .permissions();
+        fs::set_permissions(&target_directory, fs::Permissions::from_mode(0o000))
+            .expect("restrict target directory");
+        let root_result = checked_storage_root(&paths);
+        fs::set_permissions(&target_directory, original_permissions)
+            .expect("restore target directory");
+        assert!(root_result.is_err());
+
+        let denied = temporary.path().join("denied");
+        fs::create_dir(&denied).expect("denied directory");
+        let original_permissions = fs::metadata(&denied)
+            .expect("denied metadata")
+            .permissions();
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000))
+            .expect("restrict denied directory");
+        let removal_result = blind_remove_storage_root(&denied.join("state"));
+        let parent_result =
+            require_existing_parent_is_directory(&denied.join("nested").join("state"));
+        fs::set_permissions(&denied, original_permissions).expect("restore denied directory");
+
+        assert!(removal_result.is_err());
+        assert!(parent_result.is_err());
+    }
 }
