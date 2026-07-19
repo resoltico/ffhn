@@ -17,7 +17,7 @@ mkdir -p "$WATCH_ROOT/price"
 printf '%s\n' '{"price":"12.50"}' >"$WATCH_ROOT/price/price.json"
 cat >"$WATCH_ROOT/price/target.toml" <<EOF
 schema_name = "ffhn.target"
-schema_version = 9
+schema_version = 12
 target_id = "price"
 display_name = "Example Price"
 enabled = true

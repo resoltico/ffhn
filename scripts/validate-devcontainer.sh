@@ -174,10 +174,10 @@ main() {
     trap cleanup EXIT
 
     printf 'devcontainer validation: build raw contributor image\n'
-    ffhn_docker_build \
+    ffhn_docker_build_with_failure_log "${repo_root}" "contributor-image" \
         --tag "${image_tag}" \
         --file "${dockerfile_path}" \
-        "${repo_root}" >/dev/null
+        "${repo_root}"
 
     printf 'devcontainer validation: probe raw image package contract\n'
     docker run --rm "${image_tag}" bash -lc '
@@ -289,11 +289,11 @@ main() {
         '
 
     printf 'devcontainer validation: build helper image for devcontainer client coverage\n'
-    ffhn_docker_build \
+    ffhn_docker_build_with_failure_log "${repo_root}" "devcontainer-client-helper" \
         --build-arg "BASE_IMAGE=${image_tag}" \
         --tag "${helper_image_tag}" \
         --file "${helper_dockerfile_path}" \
-        "${repo_root}/scripts" >/dev/null
+        "${repo_root}/scripts"
     docker run --rm "${helper_image_tag}" docker buildx version >/dev/null
 
     printf 'devcontainer validation: bring up the committed devcontainer through the client path\n'

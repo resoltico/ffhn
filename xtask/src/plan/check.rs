@@ -17,20 +17,23 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
     let mut plan = Vec::new();
 
     if !scripts.is_empty() {
-        plan.push(CommandSpec::new(
-            "bash",
-            std::iter::once("-n".to_owned()).chain(path_strings(&scripts)),
-            false,
-        ));
-        plan.push(CommandSpec::new(
-            "shellcheck",
-            path_strings(&scripts),
-            false,
-        ));
+        plan.push(
+            CommandSpec::new(
+                "bash",
+                std::iter::once("-n".to_owned()).chain(path_strings(&scripts)),
+                false,
+            )
+            .with_step_id("shell-syntax"),
+        );
+        plan.push(
+            CommandSpec::new("shellcheck", path_strings(&scripts), false)
+                .with_step_id("shellcheck"),
+        );
     }
 
     plan.push(
         CommandSpec::new("cargo", ["fmt", "--check"], false)
+            .with_step_id("format")
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -48,14 +51,17 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("clippy")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
         CommandSpec::new("cargo", ["xtask", "miri"], false)
+            .with_step_id("miri")
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
         CommandSpec::new("cargo", ["xtask", "audit"], false)
+            .with_step_id("audit-workspace")
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -69,6 +75,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("audit-fuzz")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -77,9 +84,10 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ["deny", "check", "advisories", "bans", "licenses", "sources"],
             false,
         )
+        .with_step_id("dependency-policy")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
-    plan.push(semver_check_spec(repo_root)?);
+    plan.push(semver_check_spec(repo_root)?.with_step_id("semver"));
     plan.push(
         CommandSpec::new(
             "cargo",
@@ -92,6 +100,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("fuzz-check")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -109,6 +118,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("fuzz-clippy")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -123,6 +133,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("fuzz-harness")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -139,6 +150,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("tests")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -147,6 +159,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ["test", "--workspace", "--doc", "--all-features", "--locked"],
             false,
         )
+        .with_step_id("doc-tests")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
     plan.push(
@@ -161,6 +174,7 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("rustdoc")
         .with_envs([("RUSTDOCFLAGS", "-D warnings")])
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
@@ -179,13 +193,13 @@ pub(crate) fn check_plan(repo_root: &Path, tooling: &RustTooling) -> DynResult<V
             ],
             false,
         )
+        .with_step_id("dist-build")
         .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace),
     );
-    plan.push(CommandSpec::new(
-        release_binary_path(repo_root),
-        ["--version"],
-        true,
-    ));
+    plan.push(
+        CommandSpec::new(release_binary_path(repo_root), ["--version"], true)
+            .with_step_id("dist-smoke"),
+    );
 
     Ok(plan)
 }

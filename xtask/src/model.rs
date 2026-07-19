@@ -24,6 +24,8 @@ pub(crate) enum CommandArtifactLayout {
 /// One external command in the maintenance plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CommandSpec {
+    /// Stable identifier of the check step that owns this command.
+    pub step_id: String,
     /// Program to execute.
     pub program: PathBuf,
     /// Arguments to pass.
@@ -44,12 +46,19 @@ impl CommandSpec {
         S: Into<String>,
     {
         Self {
+            step_id: "unnamed-command".to_owned(),
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
             env: BTreeMap::new(),
             quiet_stdout,
             artifact_layout: CommandArtifactLayout::Inherit,
         }
+    }
+
+    /// Assigns the stable maintainer-gate step identifier for this command.
+    pub(crate) fn with_step_id(mut self, step_id: impl Into<String>) -> Self {
+        self.step_id = step_id.into();
+        self
     }
 
     /// Attaches environment overrides to the command specification.

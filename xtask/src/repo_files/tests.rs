@@ -47,6 +47,44 @@ fn maintained_rust_source_entries_recurse_and_skip_tests_and_non_rust_files() {
 }
 
 #[test]
+fn source_shape_inventory_includes_unit_integration_and_fuzz_rust_files() {
+    let repo = tempfile::tempdir().expect("tempdir");
+    let repo_root = repo.path();
+
+    for relative_path in [
+        "crates/ffhn-core/src/tests/unit.rs",
+        "crates/ffhn-cli/tests/cli.rs",
+        "xtask/tests/cli.rs",
+        "fuzz/fuzz_targets/target_documents.rs",
+    ] {
+        let path = repo_root.join(relative_path);
+        fs::create_dir_all(path.parent().expect("parent")).expect("create source directory");
+        fs::write(path, "fn scenario() {}\n").expect("write source");
+    }
+    fs::write(
+        repo_root.join("fuzz/fuzz_targets/ignored.txt"),
+        "not Rust source\n",
+    )
+    .expect("write ignored file");
+
+    let paths = maintained_rust_source_entries_including_tests(repo_root)
+        .expect("source-shape inventory")
+        .into_iter()
+        .map(|(_, relative_path)| relative_path)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        paths,
+        vec![
+            "crates/ffhn-cli/tests/cli.rs".to_owned(),
+            "crates/ffhn-core/src/tests/unit.rs".to_owned(),
+            "fuzz/fuzz_targets/target_documents.rs".to_owned(),
+            "xtask/tests/cli.rs".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn maintained_repo_owned_paths_skip_watchlist_runtime_artifacts_and_mac_metadata() {
     let repo = tempfile::tempdir().expect("tempdir");
     let repo_root = repo.path();

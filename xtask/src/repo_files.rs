@@ -32,8 +32,19 @@ const MAINTAINED_REPO_OWNED_FILE_ROOTS: &[&str] = &[
     "scripts",
     "xtask/src",
 ];
-const MAINTAINED_RUST_SOURCE_ROOTS: &[&str] =
+// Coverage instruments the workspace crates only; the standalone fuzz package has its own cargo
+// invocation and is intentionally outside that measured set.
+const COVERED_RUST_SOURCE_ROOTS: &[&str] =
     &["crates/ffhn-core/src", "crates/ffhn-cli/src", "xtask/src"];
+// Source-shape governance covers every maintained Rust compilation unit, including the standalone
+// fuzz harnesses that are compiled through `fuzz/Cargo.toml`.
+const SOURCE_SHAPE_RUST_SOURCE_ROOTS: &[&str] = &[
+    "crates/ffhn-core/src",
+    "crates/ffhn-cli/src",
+    "xtask/src",
+    "fuzz/fuzz_targets",
+];
+const MAINTAINED_RUST_TEST_ROOTS: &[&str] = &["crates/ffhn-cli/tests", "xtask/tests"];
 
 #[cfg(test)]
 pub(crate) fn public_markdown_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
@@ -125,7 +136,7 @@ pub(crate) fn maintained_rust_source_entries(
 ) -> DynResult<Vec<(PathBuf, String)>> {
     let mut entries = Vec::new();
 
-    for relative_root in MAINTAINED_RUST_SOURCE_ROOTS {
+    for relative_root in COVERED_RUST_SOURCE_ROOTS {
         let directory = repo_root.join(relative_root);
         if directory.is_dir() {
             collect_rust_source_entries(repo_root, &directory, &mut entries)?;
@@ -133,6 +144,27 @@ pub(crate) fn maintained_rust_source_entries(
     }
 
     entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
+}
+
+/// Returns every maintained Rust source file, including unit and integration test modules.
+pub(crate) fn maintained_rust_source_entries_including_tests(
+    repo_root: &Path,
+) -> DynResult<Vec<(PathBuf, String)>> {
+    let mut entries = Vec::new();
+
+    for relative_root in SOURCE_SHAPE_RUST_SOURCE_ROOTS
+        .iter()
+        .chain(MAINTAINED_RUST_TEST_ROOTS)
+    {
+        let directory = repo_root.join(relative_root);
+        if directory.is_dir() {
+            collect_all_rust_source_entries(repo_root, &directory, &mut entries)?;
+        }
+    }
+
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    entries.dedup_by(|left, right| left.0 == right.0);
     Ok(entries)
 }
 
@@ -152,6 +184,29 @@ fn collect_rust_source_entries(
                 .any(|component| component.as_os_str() == OsStr::new("tests"))
             && path.file_name() != Some(OsStr::new("tests.rs"))
         {
+            let relative_path = path
+                .strip_prefix(repo_root)
+                .expect("repo file discovery only walks inside the workspace root")
+                .to_string_lossy()
+                .into_owned();
+            entries.push((path, relative_path));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_all_rust_source_entries(
+    repo_root: &Path,
+    directory: &Path,
+    entries: &mut Vec<(PathBuf, String)>,
+) -> DynResult<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_all_rust_source_entries(repo_root, &path, entries)?;
+        } else if path.extension() == Some(OsStr::new("rs")) {
             let relative_path = path
                 .strip_prefix(repo_root)
                 .expect("repo file discovery only walks inside the workspace root")

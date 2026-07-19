@@ -13,6 +13,7 @@ mod release;
 #[cfg(test)]
 mod repo_contract;
 mod repo_files;
+mod structure;
 #[cfg(test)]
 mod tests;
 mod tooling;

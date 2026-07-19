@@ -21,21 +21,29 @@ pub use contract::{
     duplicate_target_ids_usage_error, positive_batch_concurrency_usage_error, reset_operation,
     run_operation, run_target_selection_usage_error, status_operation,
 };
-pub use error::CoreError;
+pub use error::{CoreError, TargetDecodeError};
 pub use model::{
     AcquisitionKind, BATCH_RUN_REPORT_SCHEMA_NAME, BATCH_RUN_REPORT_SCHEMA_VERSION, BatchRunReport,
     Condition, ConditionContext, ConditionEvaluation, ConditionId, ConditionIssue,
-    ConditionOutcome, ConditionPredicate, ConditionReference, DeclaredType, DeliveryAdapter,
-    DeliveryOutcome, DeliveryRoute, DeliveryStatus, FetchConfig, FetchEngine, HtmlSelection,
-    HtmlcutDiagnostic, HtmlcutFailureDetails, HttpMethod, NumericLocale, Observation,
-    OnRunEventCause, OutboxOverflow, OutboxPolicy, PARSER_GRAMMAR_VERSION, PARSER_ID,
-    PermanentErrorCode, PolicyRunInput, ProcessErrorDetail, ProcessErrorKind, Projection,
-    RESET_REPORT_SCHEMA_NAME, RESET_REPORT_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME,
-    RUN_REPORT_SCHEMA_VERSION, ResetReport, RouteFamily, RouteId, RunMode, RunOutcome, RunReport,
-    STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION, STATUS_REPORT_SCHEMA_NAME,
-    STATUS_REPORT_SCHEMA_VERSION, SourceSuspectReason, StagedEventEligibility, StagedPolicyRun,
-    StateDocument, StatusKind, StatusReport, TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION,
-    TargetDocument, TargetId, TargetSource, ThresholdDirection, TypeParams,
+    ConditionOutcome, ConditionPredicate, ConditionReference, ConditionReferenceEvidence,
+    DeclaredType, DeliveryAdapter, DeliveryEventKind, DeliveryFailurePrimary, DeliveryOutcome,
+    DeliveryProcessAttempt, DeliveryRoute, DeliveryStatus, DiagnosticDetail, DiagnosticKind,
+    DiagnosticMessageTruncation, DiagnosticOperation, ExactByteCount, FetchConfig, FetchEngine,
+    FetchFailureDetails, HtmlSelection, HtmlcutBoundaryEvidence, HtmlcutByteRange,
+    HtmlcutDiagnostic, HtmlcutDiagnosticCode, HtmlcutDiagnosticDetails, HtmlcutDiagnosticLevel,
+    HtmlcutErrorClass, HtmlcutFailureDetails, HtmlcutSelectorParse, HtmlcutSelectorParseErrorClass,
+    HtmlcutSliceMarkupMatch, HttpMethod, IntegrationFaultCode, IntegrationFaultEpisodeSnapshot,
+    IoErrorClass, LifecycleFacet, LifecycleSnapshot, NumericLocale, Observation, OnRunEventCause,
+    OutboxOverflow, OutboxPolicy, PARSER_GRAMMAR_VERSION, PARSER_ID, PermanentErrorCode,
+    PermanentErrorEpisodeSnapshot, PolicyConditionResult, PolicyEvaluation, PolicyEventEligibility,
+    PolicyReferenceEvidence, PolicyRunInput, Projection, RESET_REPORT_SCHEMA_NAME,
+    RESET_REPORT_SCHEMA_VERSION, RUN_REPORT_SCHEMA_NAME, RUN_REPORT_SCHEMA_VERSION, ResetReport,
+    RouteFamily, RouteId, RunMode, RunOutcome, RunReport, STATE_SCHEMA_NAME, STATE_SCHEMA_VERSION,
+    STATUS_REPORT_SCHEMA_NAME, STATUS_REPORT_SCHEMA_VERSION, SourceHealthSnapshot,
+    SourceHealthState, SourceSuspectReason, StagedEventEligibility, StagedPolicyRun, StateDocument,
+    StatusKind, StatusReport, StderrCapture, StderrCaptureProblem, StderrEncoding, StderrOutcome,
+    TARGET_SCHEMA_NAME, TARGET_SCHEMA_VERSION, TargetDocument, TargetId, TargetSource,
+    TerminalOutcome, ThresholdDirection, TypeParams, WriterOutcome,
 };
 pub use paths::TargetPaths;
 
@@ -91,7 +99,7 @@ mod tests {
         fs::write(
             paths.target_file(),
             format!(
-                "schema_name = \"ffhn.target\"\nschema_version = 9\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
+                "schema_name = \"ffhn.target\"\nschema_version = 12\ntarget_id = \"demo\"\ndisplay_name = \"Demo\"\nenabled = true\nescalate_after = 3\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
             ),
         )
         .expect("target");

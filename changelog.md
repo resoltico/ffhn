@@ -1,9 +1,42 @@
 # Changelog
 
-Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+
+- Added the `text` declared type for exact Unicode scalar-sequence monitoring. JSON text accepts JSON strings only and compares their decoded values without trimming, case folding, locale rules, or Unicode normalization; HTML text and attributes compare their configured projection. Text supports `changed` with every existing temporal reference and deliberately has no threshold, pattern, or expression predicates.
+- Added the `html_rendered_text` projection for document-structured HTML text, preserving useful heading, list, and link semantics for users who need rendered content rather than plain descendant text.
+- Added route-independent policy evidence to every run report. Valid observations now report each named condition’s outcome, trigger and hysteresis transition, configured reference evidence, and all staged event eligibilities even when delivery is not configured.
+- Added a dedicated lifecycle facet to run and status reports. Run reports distinguish the durable state read before execution from the complete state staged afterward, while status exposes verified source-health, permanent-error, and integration-fault state even when projection validation is invalid. Dry runs and failed commits retain staged lifecycle evidence without claiming it persisted.
+- Added a dedicated integration-fault lifecycle for closed HTMLCut internal errors and FFHN/HTMLCut adapter-invariant violations. Integration faults preserve source health and accepted observations, create one immediate `on_run` event per code-keyed episode, and report their closed `integration_fault_code` explicitly.
+- Added durable event kind and condition metadata to pending outbox records, delivery outcomes, and overflow evidence, so reports expose delivery facts without decoding immutable event payloads.
+- Added complete, typed process-delivery evidence. Delivery failures retain terminal, writer, and bounded stderr facts; completed deliveries separately retain stderr-reader failure, unavailability, or panic evidence without being retried as failed deliveries.
+- Added `cargo xtask structure check` and `cargo xtask structure report`, a fail-closed Rust source-structure contract that owns every maintained production, test, and fuzz source file and rejects stale policy entries, oversized modules, and forbidden direct internal-module dependencies.
+
+### Changed
+
+- Raised the workspace to the unreleased `10.0.0` major line. The final incompatible contracts are `ffhn.target` 12, `ffhn.state` 17, `ffhn.run_report` 17, `ffhn.batch_run_report` 17, `ffhn.status_report` 13, `ffhn.reset_report` 7, and `ffhn.process_stdin` 4; noncurrent durable state is reset-required, and target and report readers accept only these current versions, with no migration, compatibility parser, or legacy interpretation.
+- Changed `html_text` to plain DOM descendant text for direct text monitoring. CSS `html_text` and `html_rendered_text` now require an element selection; document-structured rendering is available only through the explicit `html_rendered_text` projection.
+- Bound persisted state to an explicit policy-evaluation semantics version. If FFHN changes how conditions decide from the same accepted observations, live runs require a reset rather than reusing temporal condition state computed under older semantics; HTMLCut extraction semantics remain HTML-only.
+- Made condition and route declaration order the explicit admission priority for new bounded-outbox candidates. Reordering conditions or routes changes operational delivery priority without changing the measurement digest or resetting accepted observations.
+- Replaced loose diagnostic prose and foreign JSON with a closed diagnostic contract across reports and durable state. Every diagnostic identifies a stable category and operation, and source-health, integration-fault, policy-invariant, delivery-process, outbox, acquisition, and HTMLCut evidence are valid only with their semantic owner.
+- Replaced acquisition metadata embedded in error messages with typed `fetch_failure` evidence for HTTP status, declared and observed byte limits, and invalid UTF-8. Target decode diagnostics now identify the safe closed-vocabulary field and unsupported value instead of reporting only a generic TOML decode failure.
+- Moved HTML extraction to the pinned public `htmlcut-core v12.0.1` release. FFHN now preserves a closed projection of every reachable HTMLCut failure shape, including invalid-selector source location and parser class, and rejects unknown or incoherent detail at the boundary.
+- Changed delivery stderr evidence to preserve exact bounded raw bytes as canonical Base64 with an exact decimal source-byte count. Display text and retained-byte classification are derived only when rendering, and bounded diagnostic messages retain their valid UTF-8 prefix with typed truncation evidence rather than a prose marker.
+- Changed policy-arithmetic proof violations from process-aborting panics to target-scoped `ffhn_policy_invariant_violation` integration faults. FFHN retains the parsed observation for diagnosis, preserves the prior accepted baseline, and continues other targets in a batch.
+- Refactored the core model, runtime, CLI adapters, maintenance tooling, and scenario suites into focused modules with explicit ownership boundaries and matching coverage, quality, and source-structure guardrails.
+- Changed maintainer operations so the standard gate emits stable lifecycle events with step identities and timing, offers concise, verbose, and JSON output, and retains bounded raw failure evidence. Contributor-container builds use the same diagnostic discipline.
+
+### Fixed
+
+- Restored `--format summary` as concise human-readable text for run, batch, status, and reset reports. It again exposes policy decisions, reference evidence, staged events, and delivery facts while `json` and `json-pretty` remain machine interfaces.
+- Made decimal and money `delta_abs` and `delta_pct` conditions exact across the full supported decimal range. FFHN now compares signed coefficient-and-scale operands with fixed-width exact arithmetic and percentage cross-products, so intermediate decimal rounding cannot change a policy decision.
+- Corrected bounded-outbox admission so it no longer depends on hash-derived event identity order. Existing pending records are never evicted, and simultaneous new candidates are admitted or reported as overflow in declared priority order.
+- Corrected `delivered_uncommitted` reporting so it identifies the durable outbox failure without falsely classifying an externally delivered process payload as a failed delivery.
+- Hardened direct report and state deserialization so retired schemas, impossible lifecycle or accepted-observation combinations, incoherent delivery evidence, and evidence-free or crossed diagnostic facts are rejected before callers can use them.
+- Prevented serialized diagnostics from exposing rendered foreign JSON, TOML, URL, time, or operating-system prose. Messages now contain only FFHN-owned explanatory text, with their classification carried separately.
 
 ## [9.0.0] - 2026-07-16
 

@@ -225,6 +225,26 @@ ffhn_docker_build() {
     docker build --progress "${progress}" "$@"
 }
 
+ffhn_docker_build_with_failure_log() {
+    local repo_root="$1"
+    local step_id="$2"
+    shift 2
+    local artifact_parent
+    artifact_parent="$(cd -- "${repo_root}/.." && pwd)"
+    local log_root="${artifact_parent}/.ffhn-artifacts/gate-logs/docker"
+    mkdir -p "${log_root}"
+    local log_path="${log_root}/${step_id}-$$.log"
+
+    if ffhn_docker_build "$@" >"${log_path}" 2>&1; then
+        rm -f "${log_path}"
+        return
+    fi
+
+    printf 'docker build failed; retained evidence: %s\n' "${log_path}" >&2
+    tail -n 200 "${log_path}" >&2 || true
+    return 1
+}
+
 ffhn_scrub_ambient_native_toolchain_env() {
     unset CC CXX CLANG_BIN CPPFLAGS LDFLAGS
 }

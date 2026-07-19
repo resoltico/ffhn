@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: ARCHITECTURE
-updated: "2026-07-15"
+updated: "2026-07-16"
 route:
   keywords: [architecture, ffhn-core, typed observation, JSON Pointer, state, outbox, delivery, reset]
   questions: ["what does FFHN core own?", "where is v2 state stored?", "what is the policy boundary?"]
@@ -13,6 +13,13 @@ route:
 selection, typed parsing, named-condition policy staging, contract identity, target locking,
 isolated state persistence, durable delivery, and blind reset. `ffhn-cli` owns parsing, bounded
 batches, rendering, and exit codes. `xtask` owns maintainer gates.
+
+The maintained Rust implementation has an executable source-structure boundary. Every core, CLI,
+maintenance, integration-test, and fuzz-harness source file has a role with an owner, split
+trigger, bounded shape, and allowed direct crate-module dependencies in
+[`tooling/rust-source-shape-policy.toml`](../tooling/rust-source-shape-policy.toml). The policy is
+enforced by `cargo xtask structure check`; it makes a newly growing multi-concern module or an
+unauthorized dependency edge a gate failure rather than a convention that a reviewer must remember.
 
 Within `ffhn-core`, the model is split by target contract, observation, policy condition/evaluation,
 persisted state, and report; the runtime is split by execution, acquisition, storage, locking, and
@@ -31,11 +38,12 @@ Normal state I/O rejects symlinked or non-regular storage nodes; only reset remo
 `.ffhn` root node without inspecting its contents.
 
 `TargetDocument::stage_policy_run` remains the pure policy boundary: it receives a complete
-pre-run condition context plus the state-owned source/permanent episode transition, then returns an
-all-in-memory branch with deterministic `on_condition` and `on_run` eligibilities. The runtime
+pre-run condition context plus the state-owned source, permanent-error, or integration-fault
+episode transition, then returns an all-in-memory branch with deterministic `on_condition` and
+`on_run` eligibilities. The runtime
 combines that exact policy result with the next accepted-observation sequence, per-condition
-temporal state, source-health, or permanent-error episode in one staged run. It materializes that
-preserved plan into immutable route payloads and commits state plus pending outbox records before
-any process is launched. The storage boundary synchronizes staged and installed state bytes; Unix
-also synchronizes the directory metadata that names the replacement. The drain adapter reads the
-stored bytes only.
+temporal state, source-health, permanent-error episode, or integration-fault episode in one staged
+run. It materializes that preserved plan into immutable route payloads and commits state plus
+pending outbox records before any process is launched. The storage boundary synchronizes staged
+and installed state bytes; Unix also synchronizes the directory metadata that names the
+replacement. The drain adapter reads the stored bytes only.

@@ -34,6 +34,24 @@ fn xtask_binary_help_exposes_the_targeted_semver_lane() {
     assert!(stdout.contains("cargo xtask audit"));
     assert!(stdout.contains("semver-check"));
     assert!(stdout.contains("cargo xtask semver-check"));
+    assert!(stdout.contains("structure"));
+    assert!(stdout.contains("cargo xtask structure check"));
+}
+
+#[test]
+fn xtask_binary_structure_help_explains_the_fail_closed_contract() {
+    let output = Command::cargo_bin("xtask")
+        .expect("xtask binary")
+        .args(["structure", "--help"])
+        .output()
+        .expect("run xtask structure --help");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("check is fail-closed"));
+    assert!(stdout.contains("check"));
+    assert!(stdout.contains("report"));
 }
 
 #[test]
