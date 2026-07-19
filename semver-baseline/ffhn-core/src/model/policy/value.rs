@@ -5,11 +5,16 @@ use rust_decimal::Decimal;
 use semver::Version;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use super::super::observation::parse_canonical_value;
+use super::super::observation::parse::parse_canonical_value;
 use super::super::{DeclaredType, Observation, TypeParams};
+use super::exact_numeric::{
+    DecimalParts, DecimalPercentageResult, ExactNumericInvariantError, Unsigned256,
+    absolute_delta_at_least, multiply_by_power_of_ten, percentage_delta_at_least,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum PolicyValue {
+    Text(String),
     Integer(i128),
     Decimal(Decimal),
     Money { amount: Decimal, currency: String },
@@ -20,6 +25,7 @@ pub(super) enum PolicyValue {
 impl PolicyValue {
     pub(super) fn compare(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
+            (Self::Text(_), Self::Text(_)) => None,
             (Self::Integer(left), Self::Integer(right)) => Some(left.cmp(right)),
             (Self::Decimal(left), Self::Decimal(right)) => Some(left.cmp(right)),
             (
@@ -40,6 +46,7 @@ impl PolicyValue {
 
     pub(super) fn is_negative_numeric(&self) -> bool {
         match self {
+            Self::Text(_) => false,
             Self::Integer(value) => *value < 0,
             Self::Decimal(value) | Self::Money { amount: value, .. } => *value < Decimal::ZERO,
             Self::Semver(_) | Self::Datetime(_) => false,
@@ -48,6 +55,7 @@ impl PolicyValue {
 
     pub(super) fn canonical_identity_eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::Text(left), Self::Text(right)) => left == right,
             (Self::Integer(left), Self::Integer(right)) => left == right,
             (Self::Decimal(left), Self::Decimal(right)) => left == right,
             (
@@ -70,19 +78,16 @@ impl PolicyValue {
         &self,
         reference: &Self,
         threshold: &Self,
-    ) -> ArithmeticResult {
+    ) -> Result<ArithmeticResult, ExactNumericInvariantError> {
         match (self, reference, threshold) {
             (Self::Integer(current), Self::Integer(previous), Self::Integer(threshold)) => {
                 let Some(delta) = current.checked_sub(*previous).and_then(i128::checked_abs) else {
-                    return ArithmeticResult::Overflow;
+                    return Ok(ArithmeticResult::Overflow);
                 };
-                ArithmeticResult::Decision(delta >= *threshold)
+                Ok(ArithmeticResult::Decision(delta >= *threshold))
             }
             (Self::Decimal(current), Self::Decimal(previous), Self::Decimal(threshold)) => {
-                let Some(delta) = Decimal::checked_sub(*current, *previous) else {
-                    return ArithmeticResult::Overflow;
-                };
-                ArithmeticResult::Decision(delta.abs() >= *threshold)
+                decimal_absolute_delta_at_least(*current, *previous, *threshold)
             }
             (
                 Self::Money {
@@ -100,12 +105,9 @@ impl PolicyValue {
             ) if current_currency == previous_currency
                 && current_currency == threshold_currency =>
             {
-                let Some(delta) = Decimal::checked_sub(*current, *previous) else {
-                    return ArithmeticResult::Overflow;
-                };
-                ArithmeticResult::Decision(delta.abs() >= *threshold)
+                decimal_absolute_delta_at_least(*current, *previous, *threshold)
             }
-            _ => ArithmeticResult::Unavailable,
+            _ => Ok(ArithmeticResult::Unavailable),
         }
     }
 
@@ -113,11 +115,11 @@ impl PolicyValue {
         &self,
         reference: &Self,
         percentage: Decimal,
-    ) -> ArithmeticResult {
+    ) -> Result<ArithmeticResult, ExactNumericInvariantError> {
         match (self, reference) {
-            (Self::Integer(current), Self::Integer(previous)) => {
-                integer_percentage_delta_at_least(*current, *previous, percentage)
-            }
+            (Self::Integer(current), Self::Integer(previous)) => Ok(
+                integer_percentage_delta_at_least(*current, *previous, percentage),
+            ),
             (Self::Decimal(current), Self::Decimal(previous)) => {
                 decimal_percentage_delta_at_least(*current, *previous, percentage)
             }
@@ -133,7 +135,7 @@ impl PolicyValue {
             ) if current_currency == reference_currency => {
                 decimal_percentage_delta_at_least(*current, *previous, percentage)
             }
-            _ => ArithmeticResult::Unavailable,
+            _ => Ok(ArithmeticResult::Unavailable),
         }
     }
 }
@@ -142,20 +144,30 @@ fn decimal_percentage_delta_at_least(
     current: Decimal,
     previous: Decimal,
     percentage: Decimal,
-) -> ArithmeticResult {
-    if previous.is_zero() {
-        return ArithmeticResult::ZeroReference;
-    }
-    let Some(delta) = Decimal::checked_sub(current, previous) else {
-        return ArithmeticResult::Overflow;
-    };
-    let Some(left) = Decimal::checked_mul(delta.abs(), Decimal::ONE_HUNDRED) else {
-        return ArithmeticResult::Overflow;
-    };
-    let Some(right) = Decimal::checked_mul(percentage, previous.abs()) else {
-        return ArithmeticResult::Overflow;
-    };
-    ArithmeticResult::Decision(left >= right)
+) -> Result<ArithmeticResult, ExactNumericInvariantError> {
+    Ok(
+        match percentage_delta_at_least(
+            DecimalParts::from_decimal(current),
+            DecimalParts::from_decimal(previous),
+            DecimalParts::from_decimal(percentage),
+        )? {
+            DecimalPercentageResult::Decision(decision) => ArithmeticResult::Decision(decision),
+            DecimalPercentageResult::Unavailable => ArithmeticResult::Unavailable,
+            DecimalPercentageResult::ZeroReference => ArithmeticResult::ZeroReference,
+        },
+    )
+}
+
+fn decimal_absolute_delta_at_least(
+    current: Decimal,
+    previous: Decimal,
+    threshold: Decimal,
+) -> Result<ArithmeticResult, ExactNumericInvariantError> {
+    Ok(ArithmeticResult::Decision(absolute_delta_at_least(
+        DecimalParts::from_decimal(current),
+        DecimalParts::from_decimal(previous),
+        DecimalParts::from_decimal(threshold),
+    )?))
 }
 
 fn integer_percentage_delta_at_least(
@@ -170,12 +182,12 @@ fn integer_percentage_delta_at_least(
         return ArithmeticResult::Unavailable;
     };
     let left = multiply_by_power_of_ten(
-        Unsigned256::from_u128(absolute_difference(current, previous))
-            .checked_mul_u128(u128::from(100_u8)),
+        Unsigned256::try_from_u128(absolute_difference(current, previous))
+            .and_then(|value| value.checked_mul_u128(u128::from(100_u8))),
         percentage.scale(),
     );
-    let right =
-        Unsigned256::from_u128(previous.unsigned_abs()).checked_mul_u128(percentage_mantissa);
+    let right = Unsigned256::try_from_u128(previous.unsigned_abs())
+        .and_then(|value| value.checked_mul_u128(percentage_mantissa));
     compare_percentage_cross_products(left, right)
 }
 
@@ -197,86 +209,6 @@ fn absolute_difference(left: i128, right: i128) -> u128 {
         left.abs_diff(right)
     } else {
         left.unsigned_abs() + right.unsigned_abs()
-    }
-}
-
-fn multiply_by_power_of_ten(mut value: Option<Unsigned256>, scale: u32) -> Option<Unsigned256> {
-    for _ in 0..scale {
-        value = value?.checked_mul_u128(u128::from(10_u8));
-    }
-    value
-}
-
-/// Sufficient exact unsigned width for the largest v2 integer percentage comparison.
-///
-/// `i128` operands can differ by almost 2^128−1; a decimal percentage has a 96-bit mantissa and
-/// scale at most 28. Cross multiplication therefore needs up to 229 bits, so all valid inputs fit
-/// in this fixed 256-bit representation without narrowing the integer domain to `Decimal`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Unsigned256([u64; 4]);
-
-impl Unsigned256 {
-    const ZERO: Self = Self([0; 4]);
-
-    fn from_u128(value: u128) -> Self {
-        let low = u64::try_from(value & u128::from(u64::MAX))
-            .expect("a masked u128 low half always fits in u64");
-        let high = u64::try_from(value >> 64).expect("a shifted u128 high half always fits in u64");
-        Self([low, high, 0, 0])
-    }
-
-    fn checked_mul_u128(mut self, mut multiplier: u128) -> Option<Self> {
-        let mut product = Self::ZERO;
-        while multiplier != 0 {
-            if multiplier & 1 != 0 {
-                product = product.checked_add(self)?;
-            }
-            multiplier >>= 1;
-            if multiplier != 0 {
-                self = self.checked_double()?;
-            }
-        }
-        Some(product)
-    }
-
-    fn checked_add(self, other: Self) -> Option<Self> {
-        let mut values = [0; 4];
-        let mut carry = false;
-        for (index, value) in values.iter_mut().enumerate() {
-            let (sum, left_carry) = self.0[index].overflowing_add(other.0[index]);
-            let (sum, carry_carry) = sum.overflowing_add(u64::from(carry));
-            *value = sum;
-            carry = left_carry || carry_carry;
-        }
-        (!carry).then_some(Self(values))
-    }
-
-    fn checked_double(self) -> Option<Self> {
-        let mut values = [0; 4];
-        let mut carry = 0;
-        for (index, value) in values.iter_mut().enumerate() {
-            *value = (self.0[index] << 1) | carry;
-            carry = self.0[index] >> 63;
-        }
-        (carry == 0).then_some(Self(values))
-    }
-}
-
-impl Ord for Unsigned256 {
-    fn cmp(&self, other: &Self) -> Ordering {
-        for index in (0..self.0.len()).rev() {
-            let ordering = self.0[index].cmp(&other.0[index]);
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-        Ordering::Equal
-    }
-}
-
-impl PartialOrd for Unsigned256 {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -309,8 +241,7 @@ pub(super) fn parse_percentage(raw: &str) -> Result<Decimal, String> {
     if raw.trim() != raw || raw.is_empty() {
         return Err("must be a non-empty invariant decimal string".to_owned());
     }
-    Decimal::from_str(raw)
-        .map_err(|error| format!("must be an invariant decimal percentage: {error}"))
+    Decimal::from_str(raw).map_err(|_| "must be an invariant decimal percentage".to_owned())
 }
 
 fn parse_canonical_value_as_policy_value(
@@ -319,16 +250,17 @@ fn parse_canonical_value_as_policy_value(
     canonical: &str,
 ) -> Result<PolicyValue, String> {
     match declared_type {
+        DeclaredType::Text => Ok(PolicyValue::Text(canonical.to_owned())),
         DeclaredType::Integer => canonical
             .parse()
             .map(PolicyValue::Integer)
-            .map_err(|error| format!("canonical integer is invalid: {error}")),
+            .map_err(|_| "canonical integer is invalid".to_owned()),
         DeclaredType::Decimal => Decimal::from_str(canonical)
             .map(PolicyValue::Decimal)
-            .map_err(|error| format!("canonical decimal is invalid: {error}")),
+            .map_err(|_| "canonical decimal is invalid".to_owned()),
         DeclaredType::Money => {
             let amount = Decimal::from_str(canonical)
-                .map_err(|error| format!("canonical money amount is invalid: {error}"))?;
+                .map_err(|_| "canonical money amount is invalid".to_owned())?;
             let currency = params
                 .currency
                 .clone()
@@ -337,10 +269,10 @@ fn parse_canonical_value_as_policy_value(
         }
         DeclaredType::Semver => Version::parse(canonical)
             .map(PolicyValue::Semver)
-            .map_err(|error| format!("canonical semver is invalid: {error}")),
+            .map_err(|_| "canonical semantic version is invalid".to_owned()),
         DeclaredType::Datetime => OffsetDateTime::parse(canonical, &Rfc3339)
             .map(PolicyValue::Datetime)
-            .map_err(|error| format!("canonical datetime is invalid: {error}")),
+            .map_err(|_| "canonical datetime is invalid".to_owned()),
     }
 }
 
@@ -348,8 +280,19 @@ fn parse_canonical_value_as_policy_value(
 mod coverage_tests {
     use super::*;
 
+    fn decimal(raw: &str) -> Decimal {
+        Decimal::from_str(raw).expect("exact decimal")
+    }
+
+    fn euro(amount: Decimal) -> PolicyValue {
+        PolicyValue::Money {
+            amount,
+            currency: "EUR".to_owned(),
+        }
+    }
+
     #[test]
-    fn comparison_and_integer_percentage_defenses_cover_mismatched_and_overflowing_inputs() {
+    fn comparison_and_integer_percentage_defenses_cover_mismatched_inputs() {
         assert_eq!(
             PolicyValue::Decimal(Decimal::ONE).compare(&PolicyValue::Decimal(Decimal::TWO)),
             Some(Ordering::Less)
@@ -358,12 +301,14 @@ mod coverage_tests {
             integer_percentage_delta_at_least(2, 1, Decimal::NEGATIVE_ONE),
             ArithmeticResult::Unavailable
         );
-        assert_eq!(multiply_by_power_of_ten(None, 1), None);
         assert_eq!(
-            multiply_by_power_of_ten(Some(Unsigned256([u64::MAX; 4])), 1),
-            None
+            decimal_percentage_delta_at_least(Decimal::ONE, Decimal::ONE, Decimal::NEGATIVE_ONE),
+            Ok(ArithmeticResult::Unavailable)
         );
-        assert_eq!(Unsigned256([u64::MAX; 4]).checked_mul_u128(2), None);
+        assert_eq!(
+            decimal_percentage_delta_at_least(Decimal::ONE, Decimal::ZERO, Decimal::ONE),
+            Ok(ArithmeticResult::ZeroReference)
+        );
         assert_eq!(
             compare_percentage_cross_products(None, Some(Unsigned256::ZERO)),
             ArithmeticResult::Overflow
@@ -372,5 +317,129 @@ mod coverage_tests {
             compare_percentage_cross_products(Some(Unsigned256::ZERO), None),
             ArithmeticResult::Overflow
         );
+    }
+
+    #[test]
+    fn decimal_and_money_policy_comparisons_do_not_round_decision_operands() {
+        let tiny = decimal("0.0000000000000000000000000001");
+        let one_tenth_of_a_trillionth = decimal("0.0000000000001");
+        let one_quadrillionth = decimal("0.0000000000000001");
+
+        assert_eq!(
+            PolicyValue::Decimal(Decimal::MAX).exact_abs_delta_at_least(
+                &PolicyValue::Decimal(tiny),
+                &PolicyValue::Decimal(Decimal::MAX),
+            ),
+            Ok(ArithmeticResult::Decision(false))
+        );
+        assert_eq!(
+            PolicyValue::Decimal(one_tenth_of_a_trillionth).exact_percentage_delta_at_least(
+                &PolicyValue::Decimal(one_tenth_of_a_trillionth),
+                one_quadrillionth,
+            ),
+            Ok(ArithmeticResult::Decision(false))
+        );
+        assert_eq!(
+            euro(one_tenth_of_a_trillionth).exact_percentage_delta_at_least(
+                &euro(one_tenth_of_a_trillionth),
+                one_quadrillionth,
+            ),
+            Ok(ArithmeticResult::Decision(false))
+        );
+        assert_eq!(
+            euro(Decimal::MAX).exact_abs_delta_at_least(&euro(tiny), &euro(Decimal::MAX),),
+            Ok(ArithmeticResult::Decision(false))
+        );
+    }
+
+    #[test]
+    fn decimal_scale_products_can_round_in_either_direction_without_entering_policy_decisions() {
+        let smallest = decimal("0.0000000000000000000000000001");
+        assert_eq!(
+            Decimal::checked_mul(smallest, smallest),
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
+            Decimal::checked_mul(decimal("5.5"), smallest),
+            Some(decimal("0.0000000000000000000000000006"))
+        );
+    }
+
+    #[test]
+    fn decimal_and_money_deltas_handle_opposite_signs_and_three_scales_exactly() {
+        let negative_one = decimal("-1.00");
+        let positive_two = decimal("2.0");
+        let three = decimal("3.000");
+        let current = decimal("1.234");
+        let reference = decimal("1.20");
+        let just_above_delta = decimal("0.0341");
+
+        for (current, reference, threshold, expected) in [
+            (negative_one, positive_two, three, true),
+            (current, reference, just_above_delta, false),
+        ] {
+            assert_eq!(
+                PolicyValue::Decimal(current).exact_abs_delta_at_least(
+                    &PolicyValue::Decimal(reference),
+                    &PolicyValue::Decimal(threshold),
+                ),
+                Ok(ArithmeticResult::Decision(expected))
+            );
+            assert_eq!(
+                euro(current).exact_abs_delta_at_least(&euro(reference), &euro(threshold)),
+                Ok(ArithmeticResult::Decision(expected))
+            );
+        }
+
+        assert_eq!(
+            PolicyValue::Decimal(negative_one).exact_percentage_delta_at_least(
+                &PolicyValue::Decimal(positive_two),
+                decimal("150")
+            ),
+            Ok(ArithmeticResult::Decision(true))
+        );
+        assert_eq!(
+            euro(negative_one).exact_percentage_delta_at_least(&euro(positive_two), decimal("150")),
+            Ok(ArithmeticResult::Decision(true))
+        );
+    }
+
+    #[test]
+    fn integer_and_decimal_policy_decisions_are_symmetric_for_safe_whole_numbers() {
+        for current in [-23_i128, -1, 0, 1, 23] {
+            for reference in [-17_i128, -3, 1, 19] {
+                for threshold in [0_i128, 1, 3, 40] {
+                    let integer = PolicyValue::Integer(current).exact_abs_delta_at_least(
+                        &PolicyValue::Integer(reference),
+                        &PolicyValue::Integer(threshold),
+                    );
+                    let decimal = PolicyValue::Decimal(Decimal::from(current))
+                        .exact_abs_delta_at_least(
+                            &PolicyValue::Decimal(Decimal::from(reference)),
+                            &PolicyValue::Decimal(Decimal::from(threshold)),
+                        );
+                    assert_eq!(
+                        integer, decimal,
+                        "delta_abs current={current}, reference={reference}, threshold={threshold}"
+                    );
+                }
+
+                for percentage in [0_i128, 1, 5, 100, 200] {
+                    let integer = PolicyValue::Integer(current).exact_percentage_delta_at_least(
+                        &PolicyValue::Integer(reference),
+                        Decimal::from(percentage),
+                    );
+                    let decimal = PolicyValue::Decimal(Decimal::from(current))
+                        .exact_percentage_delta_at_least(
+                            &PolicyValue::Decimal(Decimal::from(reference)),
+                            Decimal::from(percentage),
+                        );
+                    assert_eq!(
+                        integer, decimal,
+                        "delta_pct current={current}, reference={reference}, percentage={percentage}"
+                    );
+                }
+            }
+        }
     }
 }

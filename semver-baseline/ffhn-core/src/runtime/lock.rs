@@ -16,7 +16,8 @@ impl Drop for TargetLock {
 
 #[derive(Debug)]
 pub(super) enum LockError {
-    Unavailable,
+    /// Contention preserves the native error until the caller chooses its public carrier.
+    Unavailable(std::io::Error),
     Io(CoreError),
 }
 
@@ -30,14 +31,60 @@ pub(super) fn lock_exclusive(paths: &TargetPaths) -> Result<TargetLock, LockErro
 }
 
 pub(super) fn lock_shared(paths: &TargetPaths) -> Result<TargetLock, CoreError> {
+    lock_shared_with_attempt(
+        paths,
+        FileExt::try_lock_shared,
+        pause_after_shared_lock_retry,
+    )
+}
+
+/// Acquires the shared lock while observing each actual transient acquisition failure.
+///
+/// This is test-only because production does not expose synchronization progress. The observer
+/// runs only after the operating-system lock operation returned a classified retryable failure,
+/// which lets the status concurrency scenario coordinate on a real blocked acquisition rather
+/// than on scheduler timing before the attempt.
+#[cfg(test)]
+pub(in crate::runtime) fn lock_shared_with_retry_observer_for_test<Observe>(
+    paths: &TargetPaths,
+    mut observe_retry: Observe,
+) -> Result<TargetLock, CoreError>
+where
+    Observe: FnMut(),
+{
+    lock_shared_with_attempt(paths, FileExt::try_lock_shared, || {
+        observe_retry();
+        pause_after_shared_lock_retry();
+    })
+}
+
+/// Acquires a shared lock, retrying only a classified transient acquisition failure.
+///
+/// The production caller supplies the platform lock operation and the bounded retry pause. Keeping
+/// those two effects at this private boundary lets the lock contract prove that a retry occurs
+/// before another acquisition attempt, without relying on scheduler timing or a platform's
+/// process-local advisory-lock semantics.
+fn lock_shared_with_attempt<Acquire, Pause>(
+    paths: &TargetPaths,
+    mut acquire: Acquire,
+    mut pause: Pause,
+) -> Result<TargetLock, CoreError>
+where
+    Acquire: FnMut(&File) -> std::io::Result<()>,
+    Pause: FnMut(),
+{
     let path = paths.run_lock_file();
     let file = open_lock_file(&path)?;
     loop {
-        match classify_shared_lock_attempt(FileExt::try_lock_shared(&file), &path)? {
+        match classify_shared_lock_attempt(acquire(&file), &path)? {
             SharedLockAttempt::Acquired => return Ok(TargetLock(file)),
-            SharedLockAttempt::Retry => thread::sleep(Duration::from_millis(5)),
+            SharedLockAttempt::Retry => pause(),
         }
     }
+}
+
+fn pause_after_shared_lock_retry() {
+    thread::sleep(Duration::from_millis(5));
 }
 
 /// Opens a normal FFHN-owned lock file, rejecting pre-existing device, directory, and link nodes.
@@ -84,7 +131,7 @@ fn lock_is_unavailable(error: &std::io::Error) -> bool {
 
 fn exclusive_lock_error(path: &std::path::Path, error: std::io::Error) -> LockError {
     if lock_is_unavailable(&error) {
-        LockError::Unavailable
+        LockError::Unavailable(error)
     } else {
         LockError::Io(CoreError::io(path, error))
     }
@@ -114,20 +161,26 @@ fn classify_shared_lock_attempt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn lock_error_classification_preserves_contention_and_io_failures() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let path = temporary.path().join("demo.lock");
 
-        assert!(matches!(
+        for outcome in [
             exclusive_lock_error(&path, std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-            LockError::Unavailable
-        ));
-        assert!(matches!(
             exclusive_lock_error(&path, std::io::Error::other("lock backend refused")),
-            LockError::Io(_)
-        ));
+        ] {
+            match outcome {
+                LockError::Unavailable(error) => {
+                    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+                }
+                LockError::Io(error) => {
+                    assert!(error.to_string().contains("lock backend refused"));
+                }
+            }
+        }
         assert!(matches!(
             classify_shared_lock_attempt(Ok(()), &path),
             Ok(SharedLockAttempt::Acquired)
@@ -155,6 +208,38 @@ mod tests {
             .to_string()
             .contains("shared lock backend refused")
         );
+    }
+
+    #[test]
+    fn shared_lock_retries_once_before_acquiring_the_same_regular_file() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let paths = TargetPaths::try_new(temporary.path(), "demo").expect("paths");
+        let attempts = Cell::new(0_u8);
+        let pauses = Cell::new(0_u8);
+
+        let lock = lock_shared_with_attempt(
+            &paths,
+            |file| {
+                let attempt = attempts.get();
+                attempts.set(attempt + 1);
+                if attempt == 0 {
+                    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+                } else {
+                    FileExt::try_lock_shared(file)
+                }
+            },
+            || pauses.set(pauses.get() + 1),
+        )
+        .expect("shared lock after retry");
+
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(pauses.get(), 1);
+        drop(lock);
+    }
+
+    #[test]
+    fn shared_lock_retry_pause_is_the_production_bounded_wait() {
+        pause_after_shared_lock_retry();
     }
 
     #[cfg(not(windows))]

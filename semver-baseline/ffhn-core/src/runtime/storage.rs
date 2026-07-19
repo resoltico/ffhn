@@ -2,9 +2,26 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
 use tempfile::NamedTempFile;
 
+mod target_decode;
+
+use target_decode::decode_target;
+
 use crate::{CoreError, StateDocument, TargetDocument, TargetPaths};
+
+const RESET_REQUIRED_STATE_SCHEMA_ERROR: &str = "stored state schema is incompatible; run `ffhn reset --target <ID>` before running this target";
+
+/// The deliberately minimal compatibility boundary for persisted state.
+///
+/// It must remain independent of [`StateDocument`]: a retired schema is rejected before current
+/// domain decoding encounters fields or enum variants that are no longer part of FFHN's model.
+#[derive(Deserialize)]
+struct StateSchemaEnvelope {
+    schema_name: String,
+    schema_version: u32,
+}
 
 /// Reset is intentionally the only path that accepts an arbitrary root node.
 pub(super) fn blind_remove_storage_root(path: &std::path::Path) -> Result<bool, CoreError> {
@@ -26,7 +43,7 @@ pub(super) fn blind_remove_storage_root(path: &std::path::Path) -> Result<bool, 
 pub(super) fn load_target(paths: &TargetPaths) -> Result<TargetDocument, CoreError> {
     let text = fs::read_to_string(paths.target_file())
         .map_err(|error| CoreError::io(paths.target_file(), error))?;
-    let target: TargetDocument = toml::from_str(&text)?;
+    let target = decode_target(&text)?;
     if target.target_id() != paths.target_id() {
         return Err(CoreError::contract(
             "target_id does not match target directory",
@@ -45,6 +62,12 @@ pub(super) fn load_state(paths: &TargetPaths) -> Result<Option<StateDocument>, C
         return Ok(None);
     }
     let text = fs::read_to_string(&path).map_err(|error| CoreError::io(&path, error))?;
+    let envelope: StateSchemaEnvelope = serde_json::from_str(&text)?;
+    if envelope.schema_name != crate::STATE_SCHEMA_NAME
+        || envelope.schema_version != crate::STATE_SCHEMA_VERSION
+    {
+        return Err(CoreError::contract(RESET_REQUIRED_STATE_SCHEMA_ERROR));
+    }
     let state: StateDocument = serde_json::from_str(&text)?;
     state.validate()?;
     if state.target_id() != paths.target_id() {
@@ -278,6 +301,48 @@ mod tests {
                 DurabilityStage::StorageRootDirectory,
             ]
         );
+    }
+
+    #[test]
+    fn legacy_state_schemas_are_rejected_before_current_domain_decoding() {
+        let (_temporary, paths, state) = fixture();
+        fs::create_dir(paths.storage_root()).expect("storage root");
+
+        let mut ordinary_legacy = serde_json::to_value(&state).expect("state JSON");
+        ordinary_legacy["schema_version"] = serde_json::json!(13);
+
+        let mut retired_variant_legacy = ordinary_legacy.clone();
+        retired_variant_legacy["source_health"] = serde_json::json!({
+            "state": "suspect",
+            "reason_class": "htmlcut_internal_failure",
+            "consecutive_unresolved": 1,
+            "first_unresolved_at": "2026-01-01T00:00:00Z",
+            "last_details": null
+        });
+
+        let mut wrong_schema_name = serde_json::to_value(&state).expect("state JSON");
+        wrong_schema_name["schema_name"] = serde_json::json!("ffhn.retired_state");
+
+        let expected = format!("contract error: {RESET_REQUIRED_STATE_SCHEMA_ERROR}");
+        for legacy in [ordinary_legacy, retired_variant_legacy, wrong_schema_name] {
+            fs::write(
+                paths.state_file(),
+                serde_json::to_vec(&legacy).expect("legacy state bytes"),
+            )
+            .expect("write legacy state");
+
+            let error = load_state(&paths).expect_err("legacy state must require reset");
+            assert_eq!(error.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn malformed_state_json_remains_an_unreadable_state_error() {
+        let (_temporary, paths, _state) = fixture();
+        fs::create_dir(paths.storage_root()).expect("storage root");
+        fs::write(paths.state_file(), "{").expect("write malformed state");
+
+        assert!(matches!(load_state(&paths), Err(CoreError::Json(_))));
     }
 
     #[test]
