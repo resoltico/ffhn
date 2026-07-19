@@ -9,7 +9,7 @@ pub(super) use super::super::execution::{run_batch as run_batch_internal, run_on
 pub(super) use super::super::lock::LockError;
 #[cfg(test)]
 pub(super) use super::super::lock::lock_exclusive;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) use super::super::lock::lock_shared;
 #[cfg(test)]
 pub(super) use super::super::report::detail_from_error_for_operation;

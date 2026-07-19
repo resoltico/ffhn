@@ -38,6 +38,7 @@ Notable changes to this project are documented in this file. The format is based
 - Hardened direct report and state deserialization so retired schemas, impossible lifecycle or accepted-observation combinations, incoherent delivery evidence, and evidence-free or crossed diagnostic facts are rejected before callers can use them.
 - Prevented serialized diagnostics from exposing rendered foreign JSON, TOML, URL, time, or operating-system prose. Messages now contain only FFHN-owned explanatory text, with their classification carried separately.
 - Made the Rust source-structure gate platform-neutral, so Windows source paths are matched against the same canonical policy paths as macOS and Linux.
+- Stopped POSIX-only permission, FIFO, symbolic-link, and shell-delivery scenarios from being compiled on Windows; the cross-platform gate now verifies platform-appropriate tests without weakening the Unix proofs.
 
 ## [9.0.0] - 2026-07-16
 

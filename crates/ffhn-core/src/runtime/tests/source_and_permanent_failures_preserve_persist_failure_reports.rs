@@ -1,6 +1,5 @@
 use super::support::*;
 
-#[cfg(unix)]
 #[test]
 fn source_and_permanent_failures_preserve_persist_failure_reports() {
     fn refuse_state_writes(paths: &TargetPaths) {

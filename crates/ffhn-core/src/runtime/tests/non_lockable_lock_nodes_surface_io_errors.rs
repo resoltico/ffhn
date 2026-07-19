@@ -1,6 +1,5 @@
 use super::support::*;
 
-#[cfg(unix)]
 #[test]
 fn non_lockable_lock_nodes_surface_io_errors() {
     let (_temporary, paths) = fixture_paths();

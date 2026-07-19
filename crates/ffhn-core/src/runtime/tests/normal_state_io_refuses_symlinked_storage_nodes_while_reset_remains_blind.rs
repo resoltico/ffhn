@@ -1,6 +1,5 @@
 use super::support::*;
 
-#[cfg(unix)]
 #[test]
 fn normal_state_io_refuses_symlinked_storage_nodes_while_reset_remains_blind() {
     let (temporary, paths) = fixture_paths();

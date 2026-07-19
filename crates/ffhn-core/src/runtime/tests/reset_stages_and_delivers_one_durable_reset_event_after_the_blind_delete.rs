@@ -1,6 +1,5 @@
 use super::support::*;
 
-#[cfg(unix)]
 #[test]
 fn reset_stages_and_delivers_one_durable_reset_event_after_the_blind_delete() {
     let (_temporary, paths) = fixture_paths();
