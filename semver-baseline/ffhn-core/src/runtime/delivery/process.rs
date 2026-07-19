@@ -1,137 +1,148 @@
 use std::io::{Read, Write};
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::DeliveryRoute;
+use crate::{
+    DeliveryProcessAttempt, DeliveryRoute, IoErrorClass, StderrCapture, StderrOutcome,
+    TerminalOutcome, WriterOutcome,
+};
 
-const STDERR_LIMIT: usize = 4_096;
-
-pub(super) fn deliver(route: &DeliveryRoute, payload: &[u8]) -> Result<(), String> {
+/// Executes one process-stdin route and preserves every independently observed outcome.
+pub(super) fn deliver(route: &DeliveryRoute, payload: &[u8]) -> DeliveryProcessAttempt {
     deliver_with_wait(route, payload, &mut Child::try_wait)
 }
 
-fn deliver_with_wait<F>(route: &DeliveryRoute, payload: &[u8], wait: &mut F) -> Result<(), String>
+fn deliver_with_wait<F>(
+    route: &DeliveryRoute,
+    payload: &[u8],
+    wait: &mut F,
+) -> DeliveryProcessAttempt
 where
     F: FnMut(&mut Child) -> std::io::Result<Option<ExitStatus>>,
 {
     let (program, args, timeout_ms) = route.adapter().process_stdin();
     let started = Instant::now();
-    let mut child = Command::new(program)
+    let mut child = match Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("could not start delivery process: {error}"))?;
-    let stdin = take_stdin(&mut child)?;
-    let stderr = child.stderr.take();
+    {
+        Ok(child) => child,
+        Err(error) => {
+            return DeliveryProcessAttempt::new(
+                TerminalOutcome::NotStarted {
+                    io: IoErrorClass::from_error(&error),
+                },
+                WriterOutcome::NotAttempted,
+                StderrOutcome::Absent,
+            );
+        }
+    };
+    deliver_started_with_wait(&mut child, payload, started, timeout_ms, wait)
+}
+
+/// Completes an already-spawned process delivery. Keeping this separate from spawning makes the
+/// two standard-library pipe-availability facts independently executable and preserves them as
+/// distinct durable evidence rather than treating either as an impossible panic.
+fn deliver_started_with_wait<F>(
+    child: &mut Child,
+    payload: &[u8],
+    started: Instant,
+    timeout_ms: u64,
+    wait: &mut F,
+) -> DeliveryProcessAttempt
+where
+    F: FnMut(&mut Child) -> std::io::Result<Option<ExitStatus>>,
+{
+    let Some(stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return DeliveryProcessAttempt::new(
+            TerminalOutcome::StdinUnavailable,
+            WriterOutcome::NotAttempted,
+            StderrOutcome::Absent,
+        );
+    };
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|stderr| thread::spawn(move || capture_stderr(stderr)));
     let payload = payload.to_vec();
     let writer = thread::spawn(move || -> std::io::Result<()> {
         let mut stdin = stdin;
         stdin.write_all(&payload)?;
         stdin.write_all(b"\n")
     });
-    let stderr_reader = stderr.map(|stderr| thread::spawn(move || capture_stderr(stderr)));
     let deadline = started + Duration::from_millis(timeout_ms);
-
-    loop {
-        match wait(&mut child) {
+    let terminal = loop {
+        match wait(child) {
             Ok(Some(status)) => {
-                let writer_result = writer
-                    .join()
-                    .map_err(|_| "delivery payload writer panicked".to_owned())?;
-                let stderr = join_stderr(stderr_reader);
-                writer_result.map_err(|error| {
-                    delivery_error("could not write payload", error, stderr.clone())
-                })?;
-                if status.success() {
-                    return Ok(());
-                }
-                return Err(delivery_error(
-                    &format!("delivery process exited with status {status}"),
-                    "",
-                    stderr,
-                ));
+                break TerminalOutcome::Exited {
+                    exit_code: status.code(),
+                };
             }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = writer.join();
-                return Err(delivery_error(
-                    "delivery process timed out",
-                    "",
-                    join_stderr(stderr_reader),
-                ));
+                break TerminalOutcome::TimedOut { timeout_ms };
             }
             Ok(None) => thread::sleep(Duration::from_millis(5)),
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = writer.join();
-                return Err(delivery_error(
-                    "could not wait for delivery process",
-                    error,
-                    join_stderr(stderr_reader),
-                ));
+                break TerminalOutcome::WaitFailed {
+                    io: IoErrorClass::from_error(&error),
+                };
             }
         }
-    }
-}
-
-fn take_stdin(child: &mut Child) -> Result<ChildStdin, String> {
-    let Some(stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("delivery process stdin was unavailable".to_owned());
     };
-    Ok(stdin)
+    let stderr = match stderr_reader {
+        Some(reader) => join_stderr(reader),
+        // `stderr` is configured as piped above. Keep an impossible standard-library state typed
+        // and visible without falsely claiming that a reader thread panicked.
+        None => StderrOutcome::ReaderUnavailable,
+    };
+    DeliveryProcessAttempt::new(terminal, join_writer(writer), stderr)
 }
 
-fn capture_stderr(mut stderr: impl Read) -> String {
-    let mut captured = Vec::new();
+fn capture_stderr(mut stderr: impl Read) -> StderrOutcome {
     let mut buffer = [0_u8; 1024];
-    let mut truncated = false;
+    let mut capture = StderrCapture::accumulator();
     loop {
         match stderr.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => {
-                let remaining = STDERR_LIMIT.saturating_sub(captured.len());
-                let copied = remaining.min(read);
-                captured.extend_from_slice(&buffer[..copied]);
-                truncated |= copied < read;
+                capture.record(&buffer[..read]);
             }
-            Err(error) => return format!("stderr read failed: {error}"),
+            Err(error) => {
+                return StderrOutcome::read_failed(
+                    IoErrorClass::from_error(&error),
+                    capture.finish(),
+                );
+            }
         }
     }
-    let mut text = String::from_utf8_lossy(&captured).trim().to_owned();
-    if truncated {
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str("[truncated]");
-    }
-    text
+    StderrOutcome::captured(capture.finish())
 }
 
-fn join_stderr(reader: Option<thread::JoinHandle<String>>) -> Option<String> {
-    reader
-        .and_then(|reader| reader.join().ok())
-        .filter(|text| !text.is_empty())
+fn join_writer(writer: thread::JoinHandle<std::io::Result<()>>) -> WriterOutcome {
+    match writer.join() {
+        Ok(Ok(())) => WriterOutcome::Completed,
+        Ok(Err(error)) => WriterOutcome::IoFailed {
+            io: IoErrorClass::from_error(&error),
+        },
+        Err(_) => WriterOutcome::Panicked,
+    }
 }
 
-fn delivery_error(context: &str, error: impl std::fmt::Display, stderr: Option<String>) -> String {
-    let mut message = context.to_owned();
-    let error = error.to_string();
-    if !error.is_empty() {
-        message.push_str(": ");
-        message.push_str(&error);
+fn join_stderr(reader: thread::JoinHandle<StderrOutcome>) -> StderrOutcome {
+    match reader.join() {
+        Ok(outcome) => outcome,
+        Err(_) => StderrOutcome::ReaderPanicked,
     }
-    if let Some(stderr) = stderr {
-        message.push_str("; stderr: ");
-        message.push_str(&stderr);
-    }
-    message
 }
 
 #[cfg(test)]
@@ -159,11 +170,7 @@ pub(crate) fn test_process_command(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env, fs, io,
-        path::Path,
-        process::{Child, ExitStatus},
-    };
+    use std::{env, fs, io, path::Path, process::Child};
 
     use super::*;
 
@@ -172,6 +179,17 @@ mod tests {
         Write(String),
         Fail,
         ExitEarly,
+    }
+
+    fn parse_helper_action(arguments: &[String]) -> Result<HelperAction, String> {
+        match arguments {
+            [mode, output] if mode == "write" => Ok(HelperAction::Write(output.clone())),
+            [mode] if mode == "fail" => Ok(HelperAction::Fail),
+            [mode] if mode == "exit_early" => Ok(HelperAction::ExitEarly),
+            _ => Err(format!(
+                "invalid delivery-process helper invocation: {arguments:?}"
+            )),
+        }
     }
 
     fn helper_arguments(mode: &str, output: Option<&Path>) -> Vec<String> {
@@ -193,11 +211,16 @@ mod tests {
         .expect("delivery route")
     }
 
-    fn helper_command(mode: &str, output: Option<&Path>) -> Command {
-        let program = env::current_exe().expect("test executable");
-        let mut command = Command::new(program);
-        command.args(helper_arguments(mode, output));
-        command
+    fn spawn_piped_helper(mode: &str) -> Child {
+        let route = route(mode, None, 1_000);
+        let (program, arguments, _) = route.adapter().process_stdin();
+        Command::new(program)
+            .args(arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn helper")
     }
 
     fn helper_invocation() -> Option<Vec<String>> {
@@ -211,165 +234,227 @@ mod tests {
         None
     }
 
-    fn helper_action(arguments: &[String]) -> Result<HelperAction, ()> {
-        match arguments {
-            [mode, output] if mode == "write" => Ok(HelperAction::Write(output.clone())),
-            [mode] if mode == "fail" => Ok(HelperAction::Fail),
-            [mode] if mode == "exit_early" => Ok(HelperAction::ExitEarly),
-            _ => Err(()),
-        }
-    }
-
     #[test]
     fn delivery_process_helper() {
         let Some(arguments) = helper_invocation() else {
             return;
         };
-        match helper_action(&arguments).unwrap_or_else(|()| {
-            panic!("invalid delivery-process helper invocation: {arguments:?}")
-        }) {
+        let action = parse_helper_action(&arguments).unwrap_or_else(|message| panic!("{message}"));
+        match action {
             HelperAction::Write(output) => {
                 let mut payload = Vec::new();
-                io::stdin()
-                    .read_to_end(&mut payload)
-                    .expect("read delivery payload");
+                io::stdin().read_to_end(&mut payload).expect("read payload");
+                use std::io::Write as _;
+
                 fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(output)
-                    .expect("open delivery payload")
+                    .expect("open payload log")
                     .write_all(&payload)
-                    .expect("write delivery payload");
+                    .expect("append payload");
             }
             HelperAction::Fail => {
                 io::stderr().write_all(b"bad").expect("write stderr");
-                panic!("delivery-process helper failure");
+                std::process::exit(7);
             }
             HelperAction::ExitEarly => {}
         }
     }
 
-    #[test]
-    fn helper_action_recognizes_each_cross_platform_process_mode() {
-        assert_eq!(
-            helper_action(&["write".to_owned(), "output".to_owned()]),
-            Ok(HelperAction::Write("output".to_owned()))
-        );
-        assert_eq!(helper_action(&["fail".to_owned()]), Ok(HelperAction::Fail));
-        assert_eq!(
-            helper_action(&["exit_early".to_owned()]),
-            Ok(HelperAction::ExitEarly)
-        );
-        assert!(helper_action(&["write".to_owned()]).is_err());
-        assert!(helper_action(&["invalid".to_owned(), "output".to_owned()]).is_err());
+    struct PartialThenBrokenReader {
+        reads: u8,
     }
 
-    struct BrokenReader;
-
-    impl Read for BrokenReader {
-        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("read broke"))
+    impl Read for PartialThenBrokenReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            if self.reads == 1 {
+                buffer[..3].copy_from_slice(b"bad");
+                Ok(3)
+            } else {
+                Err(io::Error::other("read broke"))
+            }
         }
     }
 
     #[test]
-    fn stderr_capture_and_error_assembly_are_bounded_and_diagnostic() {
-        assert_eq!(capture_stderr(&b"  useful stderr\n"[..]), "useful stderr");
+    fn stderr_capture_preserves_empty_and_partial_failure_facts_without_prose_markers() {
+        let empty = serde_json::to_value(capture_stderr(&b""[..])).expect("stderr JSON");
+        assert_eq!(empty["kind"], "captured");
+        assert_eq!(empty["retained_bytes_base64"], "");
+        assert_eq!(empty["original_len_bytes"], "0");
+        assert_eq!(empty["truncated"], false);
+
+        let partial = serde_json::to_value(capture_stderr(PartialThenBrokenReader { reads: 0 }))
+            .expect("stderr JSON");
+        assert_eq!(partial["kind"], "read_failed");
+        assert_eq!(partial["partial"]["retained_bytes_base64"], "YmFk");
+        assert_eq!(partial["partial"]["original_len_bytes"], "3");
+
+        let bounded = serde_json::to_value(capture_stderr(std::io::Cursor::new(vec![b'x'; 2_049])))
+            .expect("stderr JSON");
+        assert_eq!(bounded["kind"], "captured");
         assert_eq!(
-            capture_stderr(BrokenReader),
-            "stderr read failed: read broke"
+            bounded["retained_bytes_base64"].as_str().map(str::len),
+            Some(2_732)
         );
-        let bounded = capture_stderr(std::io::Cursor::new(vec![b'x'; STDERR_LIMIT + 1]));
-        assert!(bounded.starts_with(&"x".repeat(STDERR_LIMIT)));
-        assert!(bounded.ends_with(" [truncated]"));
-        assert_eq!(
-            capture_stderr(std::io::Cursor::new(vec![b' '; STDERR_LIMIT + 1])),
-            "[truncated]"
-        );
-        assert_eq!(join_stderr(None), None);
-        assert_eq!(
-            join_stderr(Some(thread::spawn(|| " worker stderr ".to_owned()))),
-            Some(" worker stderr ".to_owned())
-        );
-        assert_eq!(
-            delivery_error("failed", "io error", Some("stderr".to_owned())),
-            "failed: io error; stderr: stderr"
-        );
-        assert_eq!(delivery_error("failed", "", None), "failed");
+        assert_eq!(bounded["truncated"], true);
+
+        let utf8_source = [vec![b'x'; 2_047], "é".repeat(50).into_bytes()].concat();
+        let boundary = serde_json::to_value(capture_stderr(std::io::Cursor::new(utf8_source)))
+            .expect("stderr JSON");
+        assert_eq!(boundary["kind"], "captured");
+        assert_eq!(boundary["original_len_bytes"], "2147");
+        assert_eq!(boundary["truncated"], true);
     }
 
     #[test]
-    fn process_stdin_delivery_writes_exact_payload_and_reports_exit_and_timeout() {
+    fn helper_action_parser_is_closed_and_rejects_non_protocol_arguments() {
+        assert_eq!(
+            parse_helper_action(&["write".to_owned(), "output".to_owned()]),
+            Ok(HelperAction::Write("output".to_owned()))
+        );
+        assert!(parse_helper_action(&["read".to_owned(), "output".to_owned()]).is_err());
+        assert_eq!(
+            parse_helper_action(&["fail".to_owned()]),
+            Ok(HelperAction::Fail)
+        );
+        assert_eq!(
+            parse_helper_action(&["exit_early".to_owned()]),
+            Ok(HelperAction::ExitEarly)
+        );
+        assert!(parse_helper_action(&["write".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn process_attempt_is_total_and_retains_terminal_writer_and_stderr_facts() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let output = directory.path().join("payload.json");
-        deliver(&route("write", Some(&output), 1_000), br#"{"payload":1}"#)
-            .expect("delivery succeeds");
+        let succeeded = deliver(&route("write", Some(&output), 1_000), br#"{"payload":1}"#);
+        assert!(succeeded.is_success());
+        assert!(matches!(
+            succeeded.terminal(),
+            TerminalOutcome::Exited { exit_code: Some(0) }
+        ));
+        assert!(matches!(succeeded.writer(), WriterOutcome::Completed));
+        assert!(matches!(succeeded.stderr(), StderrOutcome::Captured { .. }));
         assert_eq!(
             fs::read(&output).expect("written payload"),
             b"{\"payload\":1}\n"
         );
 
-        let failed =
-            deliver(&route("fail", None, 1_000), b"payload").expect_err("nonzero status fails");
-        assert!(failed.contains("exited with status"));
-        assert!(failed.contains("stderr: bad"));
+        let failed = deliver(&route("fail", None, 1_000), b"payload");
+        assert_eq!(
+            failed.primary(),
+            Some(crate::DeliveryFailurePrimary::UnsuccessfulExit)
+        );
+        assert!(matches!(
+            failed.terminal(),
+            TerminalOutcome::Exited { exit_code: Some(7) }
+        ));
+        assert!(matches!(failed.writer(), WriterOutcome::Completed));
+        let stderr = serde_json::to_value(failed.stderr()).expect("stderr JSON");
+        assert_eq!(stderr["kind"], "captured");
+        assert_eq!(stderr["retained_bytes_base64"], "YmFk");
 
         fn pending_wait(_: &mut Child) -> io::Result<Option<ExitStatus>> {
             Ok(None)
         }
-
         let mut pending_wait = pending_wait;
         let timed_out = deliver_with_wait(
-            &route("write", Some(&output), 100),
+            &route("write", Some(&output), 1),
             b"payload",
             &mut pending_wait,
-        )
-        .expect_err("timeout");
-        assert!(timed_out.contains("timed out"));
-
-        let write_failed = deliver(&route("exit_early", None, 5_000), &vec![b'x'; 1_000_000])
-            .expect_err("closed stdin rejects the payload");
-        assert!(
-            write_failed.contains("could not write payload"),
-            "{write_failed}"
         );
-
-        let program = env::current_exe().expect("test executable");
-        let invalid = Command::new(program)
-            .args(helper_arguments("invalid", Some(Path::new("unused"))))
-            .status()
-            .expect("invalid helper process");
-        assert!(!invalid.success());
+        assert_eq!(
+            timed_out.primary(),
+            Some(crate::DeliveryFailurePrimary::TimedOut)
+        );
+        assert!(matches!(timed_out.stderr(), StderrOutcome::Captured { .. }));
     }
 
     #[test]
-    fn wait_errors_kill_and_reap_the_child_with_a_delivery_error() {
+    fn wait_failure_remains_typed_after_workers_are_joined() {
         fn wait(_: &mut Child) -> io::Result<Option<ExitStatus>> {
             Err(io::Error::other("wait broke"))
         }
-
         let directory = tempfile::tempdir().expect("temporary directory");
         let output = directory.path().join("payload.json");
         let mut wait = wait;
-        let error = deliver_with_wait(&route("write", Some(&output), 1_000), b"payload", &mut wait)
-            .expect_err("wait errors must fail delivery");
-        assert!(error.contains("could not wait for delivery process"));
-        assert!(error.contains("wait broke"));
+        let attempt =
+            deliver_with_wait(&route("write", Some(&output), 1_000), b"payload", &mut wait);
+        assert_eq!(
+            attempt.primary(),
+            Some(crate::DeliveryFailurePrimary::WaitFailed)
+        );
+        assert!(matches!(
+            attempt.writer(),
+            WriterOutcome::Completed | WriterOutcome::IoFailed { .. }
+        ));
+        assert!(matches!(attempt.stderr(), StderrOutcome::Captured { .. }));
     }
 
     #[test]
-    fn missing_piped_stdin_kills_and_reaps_the_child() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let output = directory.path().join("payload.json");
-        let mut child = helper_command("write", Some(&output))
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("child");
-        let _stdin = child.stdin.take().expect("piped stdin");
-        assert_eq!(
-            take_stdin(&mut child).expect_err("stdin was already taken"),
-            "delivery process stdin was unavailable"
+    fn delivery_preserves_every_process_boundary_failure_without_panicking() {
+        let unavailable_program: DeliveryRoute = serde_json::from_value(serde_json::json!({
+            "route_id": "delivery",
+            "route_family": "on_run",
+            "adapter": {
+                "kind": "process_stdin",
+                "program": "/definitely/not/an/ffhn-delivery-program",
+                "args": [],
+                "timeout_ms": 1_000,
+            }
+        }))
+        .expect("route shape");
+        assert!(matches!(
+            deliver(&unavailable_program, b"payload").terminal(),
+            TerminalOutcome::NotStarted { .. }
+        ));
+
+        let mut missing_stdin = spawn_piped_helper("exit_early");
+        let _ = missing_stdin.stdin.take();
+        let mut wait = Child::try_wait;
+        let attempt = deliver_started_with_wait(
+            &mut missing_stdin,
+            b"payload",
+            Instant::now(),
+            1_000,
+            &mut wait,
         );
-        assert!(child.try_wait().expect("reaped child").is_some());
+        assert!(matches!(
+            attempt.terminal(),
+            TerminalOutcome::StdinUnavailable
+        ));
+
+        let mut missing_stderr = spawn_piped_helper("exit_early");
+        let _ = missing_stderr.stderr.take();
+        let mut wait = Child::try_wait;
+        let attempt = deliver_started_with_wait(
+            &mut missing_stderr,
+            b"payload",
+            Instant::now(),
+            1_000,
+            &mut wait,
+        );
+        assert!(matches!(attempt.stderr(), StderrOutcome::ReaderUnavailable));
+
+        assert!(matches!(
+            join_writer(thread::spawn(|| Err(io::Error::other("writer stopped")))),
+            WriterOutcome::IoFailed { .. }
+        ));
+        assert!(matches!(
+            join_writer(thread::spawn(|| -> io::Result<()> {
+                panic!("writer panic")
+            })),
+            WriterOutcome::Panicked
+        ));
+        assert!(matches!(
+            join_stderr(thread::spawn(|| -> StderrOutcome {
+                panic!("reader panic")
+            })),
+            StderrOutcome::ReaderPanicked
+        ));
     }
 }

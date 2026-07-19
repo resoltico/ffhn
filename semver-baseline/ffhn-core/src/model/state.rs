@@ -1,25 +1,29 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
-
 use crate::CoreError;
+use serde::{Deserialize, Deserializer, Serialize};
 
-use super::failure::{PermanentErrorCode, SourceSuspectReason};
+use super::failure::{IntegrationFaultCode, PermanentErrorCode, SourceSuspectReason};
 use super::observation::{PARSER_GRAMMAR_VERSION, PARSER_ID};
 use super::outbox::{Outbox, OutboxOverflow, PendingOutboxRecord, StagedOutboxRecord};
 use super::{
-    ConditionContext, ConditionEvaluation, ConditionId, ConditionOutcome, Observation,
-    OutboxPolicy, ProcessErrorDetail, RouteId, TargetDocument, TargetId,
+    ConditionContext, ConditionEvaluation, ConditionId, ConditionOutcome, DiagnosticDetail,
+    IntegrationFaultEpisodeSnapshot, LifecycleSnapshot, Observation, OutboxPolicy,
+    PermanentErrorEpisodeSnapshot, RouteId, TargetDocument, TargetId,
 };
+
+#[path = "state/source_health.rs"]
+mod source_health;
+
+use source_health::SourceHealth;
 
 /// Canonical schema name for persisted state.
 pub const STATE_SCHEMA_NAME: &str = "ffhn.state";
 /// Canonical state-schema version.
-pub const STATE_SCHEMA_VERSION: u32 = 9;
+pub const STATE_SCHEMA_VERSION: u32 = 17;
 
 /// Persisted target state, including temporal policy and health facts.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StateDocument {
     schema_name: String,
@@ -37,7 +41,73 @@ pub struct StateDocument {
     source_health: SourceHealth,
     #[serde(skip_serializing_if = "Option::is_none")]
     permanent_error_episode: Option<PermanentErrorEpisode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    integration_fault_episode: Option<IntegrationFaultEpisode>,
     outbox: Outbox,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StateDocumentWire {
+    schema_name: String,
+    schema_version: u32,
+    target_id: TargetId,
+    contract_digest_sha256: String,
+    parser_id: String,
+    parser_grammar_version: u32,
+    observation_seq: u64,
+    #[serde(default)]
+    accepted_observation: Option<Observation>,
+    #[serde(default)]
+    fixed_initial_baseline: Option<Observation>,
+    condition_state: BTreeMap<ConditionId, ConditionState>,
+    source_health: SourceHealth,
+    #[serde(default)]
+    permanent_error_episode: Option<PermanentErrorEpisode>,
+    #[serde(default)]
+    integration_fault_episode: Option<IntegrationFaultEpisode>,
+    outbox: Outbox,
+}
+
+impl<'de> Deserialize<'de> for StateDocument {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = StateDocumentWire::deserialize(deserializer)?;
+        let state = Self::from_wire(wire);
+        state.validate().map_err(serde::de::Error::custom)?;
+        Ok(state)
+    }
+}
+
+impl StateDocument {
+    fn from_wire(wire: StateDocumentWire) -> Self {
+        Self {
+            schema_name: wire.schema_name,
+            schema_version: wire.schema_version,
+            target_id: wire.target_id,
+            contract_digest_sha256: wire.contract_digest_sha256,
+            parser_id: wire.parser_id,
+            parser_grammar_version: wire.parser_grammar_version,
+            observation_seq: wire.observation_seq,
+            accepted_observation: wire.accepted_observation,
+            fixed_initial_baseline: wire.fixed_initial_baseline,
+            condition_state: wire.condition_state,
+            source_health: wire.source_health,
+            permanent_error_episode: wire.permanent_error_episode,
+            integration_fault_episode: wire.integration_fault_episode,
+            outbox: wire.outbox,
+        }
+    }
+
+    /// Builds deliberately invalid state only for tests of state self-validation.
+    #[cfg(test)]
+    pub(crate) fn from_unvalidated_wire_for_test(wire: serde_json::Value) -> Self {
+        let wire = serde_json::from_value(wire)
+            .expect("test state wire must remain structurally decodable");
+        Self::from_wire(wire)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,30 +121,17 @@ pub(crate) struct ConditionState {
     last_transition_value: Option<Observation>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum SourceHealthState {
-    Healthy,
-    Suspect,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SourceHealth {
-    state: SourceHealthState,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason_class: Option<SourceSuspectReason>,
-    consecutive_unresolved: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    first_unresolved_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    last_details: Option<ProcessErrorDetail>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PermanentErrorEpisode {
     error_code: PermanentErrorCode,
+    first_seen_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IntegrationFaultEpisode {
+    integration_fault_code: IntegrationFaultCode,
     first_seen_at: String,
 }
 
@@ -94,6 +151,7 @@ impl StateDocument {
             condition_state: BTreeMap::new(),
             source_health: SourceHealth::healthy(),
             permanent_error_episode: None,
+            integration_fault_episode: None,
             outbox: Outbox::default(),
         }
     }
@@ -130,6 +188,9 @@ impl StateDocument {
         }
         self.source_health.validate()?;
         if let Some(episode) = &self.permanent_error_episode {
+            episode.validate()?;
+        }
+        if let Some(episode) = &self.integration_fault_episode {
             episode.validate()?;
         }
         self.outbox
@@ -208,36 +269,31 @@ impl StateDocument {
             .collect()
     }
 
+    /// Returns the complete durable lifecycle state for public run and status reports.
+    pub(crate) fn lifecycle_snapshot(&self) -> Result<LifecycleSnapshot, CoreError> {
+        LifecycleSnapshot::new(
+            self.source_health.snapshot()?,
+            self.permanent_error_episode
+                .as_ref()
+                .map(PermanentErrorEpisode::snapshot)
+                .transpose()?,
+            self.integration_fault_episode
+                .as_ref()
+                .map(IntegrationFaultEpisode::snapshot)
+                .transpose()?,
+        )
+    }
+
     /// Stages one source-suspect episode update and returns whether it just reached escalation.
     pub(crate) fn apply_source_suspect(
         &mut self,
         reason_class: SourceSuspectReason,
-        details: ProcessErrorDetail,
+        details: DiagnosticDetail,
         now: &str,
         escalate_after: u32,
     ) -> Result<bool, CoreError> {
-        require_timestamp("source-health timestamp", now)?;
-        if escalate_after == 0 {
-            return Err(CoreError::contract("escalate_after must be positive"));
-        }
-        if self.source_health.reason_class == Some(reason_class) {
-            self.source_health.consecutive_unresolved = self
-                .source_health
-                .consecutive_unresolved
-                .checked_add(1)
-                .ok_or_else(|| CoreError::contract("source-health unresolved count overflow"))?;
-        } else {
-            self.source_health = SourceHealth {
-                state: SourceHealthState::Suspect,
-                reason_class: Some(reason_class),
-                consecutive_unresolved: 1,
-                first_unresolved_at: Some(now.to_owned()),
-                last_details: None,
-            };
-        }
-        self.source_health.state = SourceHealthState::Suspect;
-        self.source_health.last_details = Some(details);
-        Ok(self.source_health.consecutive_unresolved == escalate_after)
+        self.source_health
+            .apply_suspect(reason_class, details, now, escalate_after)
     }
 
     /// Stages one permanent contract-error episode and returns whether it just began.
@@ -256,6 +312,27 @@ impl StateDocument {
         }
         self.permanent_error_episode = Some(PermanentErrorEpisode {
             error_code,
+            first_seen_at: now.to_owned(),
+        });
+        Ok(true)
+    }
+
+    /// Stages one integration-fault episode and returns whether it just began or changed code.
+    pub(crate) fn apply_integration_fault(
+        &mut self,
+        integration_fault_code: IntegrationFaultCode,
+        now: &str,
+    ) -> Result<bool, CoreError> {
+        require_timestamp("integration-fault timestamp", now)?;
+        if self
+            .integration_fault_episode
+            .as_ref()
+            .is_some_and(|episode| episode.integration_fault_code == integration_fault_code)
+        {
+            return Ok(false);
+        }
+        self.integration_fault_episode = Some(IntegrationFaultEpisode {
+            integration_fault_code,
             first_seen_at: now.to_owned(),
         });
         Ok(true)
@@ -319,6 +396,7 @@ impl StateDocument {
         self.condition_state = staged;
         self.source_health = SourceHealth::healthy();
         self.permanent_error_episode = None;
+        self.integration_fault_episode = None;
         self.validate_for_target(target)
     }
 
@@ -346,15 +424,23 @@ impl StateDocument {
     }
 
     pub(crate) fn source_episode_started_at(&self, reason: SourceSuspectReason) -> Option<&str> {
-        (self.source_health.reason_class == Some(reason))
-            .then_some(self.source_health.first_unresolved_at.as_deref())
-            .flatten()
+        self.source_health.episode_started_at(reason)
     }
 
     pub(crate) fn permanent_episode_started_at(&self, code: PermanentErrorCode) -> Option<&str> {
         self.permanent_error_episode
             .as_ref()
             .filter(|episode| episode.error_code == code)
+            .map(|episode| episode.first_seen_at.as_str())
+    }
+
+    pub(crate) fn integration_fault_episode_started_at(
+        &self,
+        code: IntegrationFaultCode,
+    ) -> Option<&str> {
+        self.integration_fault_episode
+            .as_ref()
+            .filter(|episode| episode.integration_fault_code == code)
             .map(|episode| episode.first_seen_at.as_str())
     }
 
@@ -392,11 +478,11 @@ impl StateDocument {
         &mut self,
         event_id: &str,
         route_id: &RouteId,
-        error: String,
+        error_detail: DiagnosticDetail,
         next_retry_at: String,
     ) -> Result<u32, CoreError> {
         self.outbox
-            .record_failure(event_id, route_id, error, next_retry_at)
+            .record_failure(event_id, route_id, error_detail, next_retry_at)
     }
 }
 
@@ -415,72 +501,34 @@ impl ConditionState {
     }
 }
 
-impl SourceHealth {
-    const fn healthy() -> Self {
-        Self {
-            state: SourceHealthState::Healthy,
-            reason_class: None,
-            consecutive_unresolved: 0,
-            first_unresolved_at: None,
-            last_details: None,
-        }
-    }
-
-    fn validate(&self) -> Result<(), CoreError> {
-        match self.state {
-            SourceHealthState::Healthy
-                if self.reason_class.is_none()
-                    && self.consecutive_unresolved == 0
-                    && self.first_unresolved_at.is_none()
-                    && self.last_details.is_none() =>
-            {
-                Ok(())
-            }
-            SourceHealthState::Suspect => {
-                let (Some(_reason_class), Some(first_unresolved_at), Some(_)) = (
-                    self.reason_class,
-                    self.first_unresolved_at.as_deref(),
-                    self.last_details.as_ref(),
-                ) else {
-                    return Err(CoreError::contract(
-                        "source-health facts do not match the declared health state",
-                    ));
-                };
-                if self.consecutive_unresolved == 0 {
-                    return Err(CoreError::contract(
-                        "source-health facts do not match the declared health state",
-                    ));
-                }
-                require_timestamp(
-                    "source-health first-unresolved timestamp",
-                    first_unresolved_at,
-                )
-            }
-            _ => Err(CoreError::contract(
-                "source-health facts do not match the declared health state",
-            )),
-        }
-    }
-}
-
 impl PermanentErrorEpisode {
     fn validate(&self) -> Result<(), CoreError> {
         require_timestamp("permanent-error first-seen timestamp", &self.first_seen_at)
     }
+
+    fn snapshot(&self) -> Result<PermanentErrorEpisodeSnapshot, CoreError> {
+        PermanentErrorEpisodeSnapshot::new(self.error_code, self.first_seen_at.clone())
+    }
+}
+
+impl IntegrationFaultEpisode {
+    fn validate(&self) -> Result<(), CoreError> {
+        require_timestamp(
+            "integration-fault first-seen timestamp",
+            &self.first_seen_at,
+        )
+    }
+
+    fn snapshot(&self) -> Result<IntegrationFaultEpisodeSnapshot, CoreError> {
+        IntegrationFaultEpisodeSnapshot::new(
+            self.integration_fault_code,
+            self.first_seen_at.clone(),
+        )
+    }
 }
 
 fn require_timestamp(field: &str, value: &str) -> Result<(), CoreError> {
-    let timestamp = OffsetDateTime::parse(value, &Rfc3339)
-        .map_err(|error| CoreError::contract(format!("{field} must be RFC 3339: {error}")))?;
-    let canonical = timestamp
-        .format(&Rfc3339)
-        .map_err(|error| CoreError::internal(format!("could not format timestamp: {error}")))?;
-    if timestamp.offset() != UtcOffset::UTC || value != canonical {
-        return Err(CoreError::contract(format!(
-            "{field} must be canonical UTC RFC 3339"
-        )));
-    }
-    Ok(())
+    super::require_canonical_utc_rfc3339(field, value)
 }
 
 pub(super) fn is_sha256(value: &str) -> bool {
