@@ -24,11 +24,42 @@ fn public_docs_describe_current_v2_json_and_html_measurement_contracts() {
 
     let contracts =
         fs::read_to_string(root.join("docs/contracts.md")).expect("contracts documentation");
+    let contracts = normalize_whitespace(&contracts);
     assert!(contracts.contains("html_plain_text"));
     assert!(contracts.contains("html_rendered_text"));
-    assert!(contracts.contains("detached canonical"));
+    assert!(contracts.contains("detached canonical clone supplies comparison"));
+
     let reports = fs::read_to_string(root.join("docs/reports.md")).expect("reports documentation");
+    let reports = normalize_whitespace(&reports);
     assert!(reports.contains("detached selected-subtree clone"));
+    let htmlcut_major = pinned_htmlcut_major_version(root);
+    assert!(reports.contains(&format!("HTMLCut {htmlcut_major} diagnostic-detail shapes")));
+}
+
+fn normalize_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn pinned_htmlcut_major_version(repo_root: &Path) -> String {
+    let manifest = fs::read_to_string(repo_root.join("Cargo.toml")).expect("workspace manifest");
+    let manifest = toml::from_str::<toml::Value>(&manifest).expect("valid workspace manifest");
+    let version = manifest
+        .get("workspace")
+        .and_then(toml::Value::as_table)
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(toml::Value::as_table)
+        .and_then(|dependencies| dependencies.get("htmlcut-core"))
+        .and_then(toml::Value::as_table)
+        .and_then(|dependency| dependency.get("version"))
+        .and_then(toml::Value::as_str)
+        .expect("pinned htmlcut-core version");
+    let exact_version = version
+        .strip_prefix('=')
+        .expect("exact pinned htmlcut-core version");
+    let major = exact_version
+        .split_once('.')
+        .map_or(exact_version, |(major, _)| major);
+    format!("v{major}")
 }
 
 #[test]

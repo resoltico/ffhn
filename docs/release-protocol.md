@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-05-19"
+updated: "2026-07-19"
 route:
-  keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification]
-  questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?"]
+  keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification, local branch cleanup]
+  questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?", "how do I safely delete a local release branch after GitHub deletes its remote branch?"]
 ---
 
 # Release Protocol
@@ -291,6 +291,15 @@ If the local release branch still exists:
 git branch -d "$RELEASE_BRANCH"
 ```
 
+GitHub's `--delete-branch` merge option removes the remote branch that a local release branch may still track. In that state, `git branch -d` can refuse a branch that is already fully merged because its upstream no longer resolves. Do not treat that refusal as proof of unmerged work, and never force-delete blind. If the normal deletion fails, prove that the branch tip is already reachable from the authoritative remote `main`, then delete it:
+
+```bash
+git merge-base --is-ancestor "$RELEASE_BRANCH" origin/main
+git branch -D "$RELEASE_BRANCH"
+```
+
+The ancestry command must succeed before `git branch -D` is allowed. If it fails, stop: the branch contains work that `origin/main` has not absorbed.
+
 ## 5. Tag and push
 
 ```bash
@@ -330,7 +339,7 @@ Requirements:
 - no historical `release/` branches may remain on GitHub
 - no fully merged local `release/` branches may remain
 
-If you find stale release branches, remove them explicitly with `git push origin --delete release/...` and `git branch -d release/...`.
+If you find stale release branches, remove them explicitly with `git push origin --delete release/...` and `git branch -d release/...`. If the normal local deletion fails because GitHub has already deleted the configured upstream, use the ancestry-proof fallback from Step 4; never use `git branch -D` without that proof.
 
 Open maintenance branches such as Dependabot are handled separately in Step 10. Do not treat a non-`release/` branch as automatically acceptable just because Step 6 only hard-fails `release/*` leftovers.
 
@@ -546,6 +555,15 @@ If a temporary `release-prep/${RELEASE_VERSION}` branch was created only to capt
 ```bash
 git -C "$PRIMARY_CHECKOUT" branch -d "release-prep/${RELEASE_VERSION}"
 ```
+
+If that normal deletion fails because the merged PR already removed the branch's configured upstream, prove the prep branch is in `origin/main` before deleting it:
+
+```bash
+git -C "$PRIMARY_CHECKOUT" merge-base --is-ancestor "release-prep/${RELEASE_VERSION}" origin/main
+git -C "$PRIMARY_CHECKOUT" branch -D "release-prep/${RELEASE_VERSION}"
+```
+
+The ancestry command must succeed. Otherwise leave the branch intact and investigate the work that has not reached `main`.
 
 Requirements before declaring the release session complete:
 

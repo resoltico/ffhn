@@ -38,7 +38,7 @@ original selected CSS attribute value. An HTML observation also persists
 `htmlcut_semantics_version`, `plan_digest_sha256`, a positive `htmlcut_candidate_count`, and the
 public `htmlcut_diagnostics`; absence, a stale semantics version, an invented diagnostic shape, or
 a nonpositive count is invalid state. FFHN accepts only its closed projection of the exact HTMLCut
-v11 diagnostic-detail shapes reachable through its pinned interop profile. In particular,
+v12 diagnostic-detail shapes reachable through its pinned interop profile. In particular,
 invalid-selector evidence retains the one-based source line, one-based UTF-16 column, and closed
 parser class. A failed HTML acquisition or rejected HTMLCut preflight plan carries a closed
 `error_class`, an optional closed primary diagnostic code, candidate count when known, plan digest,
