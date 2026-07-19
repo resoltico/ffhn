@@ -37,6 +37,7 @@ Notable changes to this project are documented in this file. The format is based
 - Corrected `delivered_uncommitted` reporting so it identifies the durable outbox failure without falsely classifying an externally delivered process payload as a failed delivery.
 - Hardened direct report and state deserialization so retired schemas, impossible lifecycle or accepted-observation combinations, incoherent delivery evidence, and evidence-free or crossed diagnostic facts are rejected before callers can use them.
 - Prevented serialized diagnostics from exposing rendered foreign JSON, TOML, URL, time, or operating-system prose. Messages now contain only FFHN-owned explanatory text, with their classification carried separately.
+- Made the Rust source-structure gate platform-neutral, so Windows source paths are matched against the same canonical policy paths as macOS and Linux.
 
 ## [9.0.0] - 2026-07-16
 

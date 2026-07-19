@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg(unix)]
 #[test]
 fn maintained_rust_source_entries_recurse_and_skip_tests_and_non_rust_files() {
     let repo = tempfile::tempdir().expect("tempdir");
@@ -43,6 +42,31 @@ fn maintained_rust_source_entries_recurse_and_skip_tests_and_non_rust_files() {
             "crates/ffhn-core/src/lib.rs".to_owned(),
             "crates/ffhn-core/src/nested/keep.rs".to_owned(),
         ]
+    );
+}
+
+#[test]
+fn canonical_workspace_relative_paths_are_slash_delimited_and_fail_closed() {
+    assert_eq!(
+        canonical_workspace_relative_path(Path::new("./crates/ffhn-core/src/lib.rs"))
+            .expect("canonical relative path"),
+        "crates/ffhn-core/src/lib.rs"
+    );
+
+    let parent_error = canonical_workspace_relative_path(Path::new("../outside.rs"))
+        .expect_err("parent traversal must be rejected");
+    assert!(
+        parent_error
+            .to_string()
+            .contains("non-normal workspace-relative path")
+    );
+
+    let empty_error =
+        canonical_workspace_relative_path(Path::new("")).expect_err("empty path must be rejected");
+    assert!(
+        empty_error
+            .to_string()
+            .contains("empty workspace-relative path")
     );
 }
 

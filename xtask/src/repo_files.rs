@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::model::DynResult;
 
@@ -184,11 +184,7 @@ fn collect_rust_source_entries(
                 .any(|component| component.as_os_str() == OsStr::new("tests"))
             && path.file_name() != Some(OsStr::new("tests.rs"))
         {
-            let relative_path = path
-                .strip_prefix(repo_root)
-                .expect("repo file discovery only walks inside the workspace root")
-                .to_string_lossy()
-                .into_owned();
+            let relative_path = workspace_relative_path(repo_root, &path)?;
             entries.push((path, relative_path));
         }
     }
@@ -207,16 +203,50 @@ fn collect_all_rust_source_entries(
         if path.is_dir() {
             collect_all_rust_source_entries(repo_root, &path, entries)?;
         } else if path.extension() == Some(OsStr::new("rs")) {
-            let relative_path = path
-                .strip_prefix(repo_root)
-                .expect("repo file discovery only walks inside the workspace root")
-                .to_string_lossy()
-                .into_owned();
+            let relative_path = workspace_relative_path(repo_root, &path)?;
             entries.push((path, relative_path));
         }
     }
 
     Ok(())
+}
+
+/// Produces the canonical, platform-neutral path spelling used by repository policy.
+///
+/// The filesystem uses `\\` as a separator on Windows, while the source-shape policy is a
+/// repository contract and therefore always uses `/`. Building the representation from path
+/// components instead of replacing characters preserves a literal backslash if one appears in a
+/// Unix filename, so the fail-closed policy check reports that anomalous name rather than
+/// silently reinterpreting it as a separator.
+fn workspace_relative_path(repo_root: &Path, path: &Path) -> DynResult<String> {
+    let relative_path = path
+        .strip_prefix(repo_root)
+        .expect("repo file discovery only walks inside the workspace root");
+
+    canonical_workspace_relative_path(relative_path)
+}
+
+fn canonical_workspace_relative_path(relative_path: &Path) -> DynResult<String> {
+    let mut components = Vec::new();
+    for component in relative_path.components() {
+        match component {
+            Component::Normal(component) => components.push(component.to_string_lossy()),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "repository file discovery produced a non-normal workspace-relative path: {}",
+                    relative_path.display()
+                )
+                .into());
+            }
+        }
+    }
+
+    if components.is_empty() {
+        return Err("repository file discovery produced an empty workspace-relative path".into());
+    }
+
+    Ok(components.join("/"))
 }
 
 #[cfg(test)]
