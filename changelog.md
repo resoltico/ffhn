@@ -4,6 +4,14 @@ Notable changes to this project are documented in this file. The format is based
 
 ## [Unreleased]
 
+### Changed
+
+- Hardened the maintainer release protocol's local-branch cleanup. When GitHub deletes a merged PR's remote branch, the protocol now requires proof that the local branch is already contained in `origin/main` before using the safe fallback deletion, preventing both stale release debris and blind force-deletes.
+
+### Fixed
+
+- Corrected the reports reference so its HTMLCut diagnostic contract identifies the currently pinned v12 interop surface.
+
 ## [10.0.0] - 2026-07-19
 
 ### Added
