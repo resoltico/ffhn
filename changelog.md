@@ -4,6 +4,8 @@ Notable changes to this project are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-07-19
+
 ### Added
 
 - Added the `text` declared type for exact Unicode scalar-sequence monitoring. JSON text accepts JSON strings only and compares their decoded values without trimming, case folding, locale rules, or Unicode normalization; HTML text and attributes compare their configured projection. Text supports `changed` with every existing temporal reference and deliberately has no threshold, pattern, or expression predicates.
