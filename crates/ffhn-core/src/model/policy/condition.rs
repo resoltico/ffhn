@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -100,6 +101,17 @@ pub enum ConditionReference {
     LastConditionTransition,
 }
 
+impl ConditionReference {
+    /// Returns the stable report-contract spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LastAcceptedObservation => "last_accepted_observation",
+            Self::FixedInitialBaseline => "fixed_initial_baseline",
+            Self::LastConditionTransition => "last_condition_transition",
+        }
+    }
+}
+
 /// Direction for threshold crossings and hysteresis bands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -178,17 +190,12 @@ pub(in crate::model) fn validate_conditions(
     params: &TypeParams,
     conditions: &[Condition],
 ) -> Result<(), CoreError> {
-    let mut previous_id: Option<&ConditionId> = None;
+    let mut condition_ids = BTreeSet::new();
     for condition in conditions {
-        if let Some(previous) = previous_id
-            && previous >= &condition.condition_id
-        {
-            return Err(CoreError::contract(
-                "conditions must be strictly ordered by condition_id without duplicates",
-            ));
+        if !condition_ids.insert(&condition.condition_id) {
+            return Err(CoreError::contract("condition_id values must be unique"));
         }
         validate_predicate(declared_type, params, condition)?;
-        previous_id = Some(&condition.condition_id);
     }
     Ok(())
 }
@@ -231,6 +238,7 @@ fn validate_predicate(
         ConditionPredicate::Crosses { threshold, .. }
         | ConditionPredicate::Lt { threshold }
         | ConditionPredicate::Gt { threshold } => {
+            require_ordered(declared_type, condition)?;
             parse_threshold(declared_type, params, threshold, condition, "threshold")?;
             Ok(())
         }
@@ -239,6 +247,7 @@ fn validate_predicate(
             exit_threshold,
             direction,
         } => {
+            require_ordered(declared_type, condition)?;
             let enter = parse_threshold(
                 declared_type,
                 params,
@@ -269,6 +278,16 @@ fn validate_predicate(
             Ok(())
         }
     }
+}
+
+fn require_ordered(declared_type: DeclaredType, condition: &Condition) -> Result<(), CoreError> {
+    if declared_type == DeclaredType::Text {
+        return Err(CoreError::contract(format!(
+            "condition {} uses an ordered predicate with text declared_type",
+            condition.condition_id
+        )));
+    }
+    Ok(())
 }
 
 fn require_numeric(declared_type: DeclaredType, condition: &Condition) -> Result<(), CoreError> {

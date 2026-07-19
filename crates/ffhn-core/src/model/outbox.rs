@@ -1,11 +1,17 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::CoreError;
+use crate::{CoreError, DiagnosticDetail};
 
-use super::{RouteFamily, RouteId, TargetId, validate_process_stdin_payload_bytes};
+use super::{
+    ConditionId, DeliveryEventKind, RouteFamily, RouteId, TargetId,
+    read_validated_process_stdin_payload_bytes,
+};
+
+mod validation;
+
+use validation::{parse_timestamp, require_timestamp};
 
 /// One immutable delivery record staged before the state/outbox commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,6 +19,8 @@ pub(crate) struct StagedOutboxRecord {
     pub(crate) event_id: String,
     pub(crate) route_id: RouteId,
     pub(crate) route_family: RouteFamily,
+    pub(crate) event_kind: DeliveryEventKind,
+    pub(crate) condition_id: Option<ConditionId>,
     pub(crate) immutable_payload: Vec<u8>,
 }
 
@@ -23,10 +31,13 @@ pub(crate) struct PendingOutboxRecord {
     event_id: String,
     route_id: RouteId,
     route_family: RouteFamily,
+    event_kind: DeliveryEventKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    condition_id: Option<ConditionId>,
     immutable_payload: Vec<u8>,
     attempt_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    last_error: Option<String>,
+    last_error_detail: Option<DiagnosticDetail>,
     next_retry_at: String,
 }
 
@@ -36,13 +47,23 @@ pub(crate) struct PendingOutboxRecord {
 pub struct OutboxOverflow {
     event_id: String,
     route_id: String,
+    event_kind: DeliveryEventKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    condition_id: Option<String>,
 }
 
 impl OutboxOverflow {
-    pub(crate) fn new(event_id: String, route_id: RouteId) -> Self {
+    pub(crate) fn new(
+        event_id: String,
+        route_id: RouteId,
+        event_kind: DeliveryEventKind,
+        condition_id: Option<ConditionId>,
+    ) -> Self {
         Self {
             event_id,
             route_id: route_id.into(),
+            event_kind,
+            condition_id: condition_id.map(Into::into),
         }
     }
 
@@ -54,6 +75,16 @@ impl OutboxOverflow {
     /// Returns the target-local route identity that could not enter the full queue.
     pub fn route_id(&self) -> &str {
         &self.route_id
+    }
+
+    /// Returns the event kind that could not enter the full queue.
+    pub const fn event_kind(&self) -> DeliveryEventKind {
+        self.event_kind
+    }
+
+    /// Returns the condition identity for a condition-scoped overflow, when any.
+    pub fn condition_id(&self) -> Option<&str> {
+        self.condition_id.as_deref()
     }
 }
 
@@ -102,11 +133,6 @@ impl Outbox {
             .map(|record| (record.event_id.clone(), record.route_id.clone()))
             .collect::<BTreeSet<_>>();
         let mut seen = existing;
-        let mut staged = staged;
-        staged.sort_unstable_by(|left, right| {
-            (&left.event_id, &left.route_id).cmp(&(&right.event_id, &right.route_id))
-        });
-
         let mut overflow = Vec::new();
         for record in staged {
             let key = (record.event_id.clone(), record.route_id.clone());
@@ -114,19 +140,29 @@ impl Outbox {
                 continue;
             }
             if self.0.len() >= max_pending {
-                overflow.push(OutboxOverflow::new(record.event_id, record.route_id));
+                overflow.push(OutboxOverflow::new(
+                    record.event_id,
+                    record.route_id,
+                    record.event_kind,
+                    record.condition_id,
+                ));
                 continue;
             }
             self.0.push(PendingOutboxRecord {
                 event_id: record.event_id,
                 route_id: record.route_id,
                 route_family: record.route_family,
+                event_kind: record.event_kind,
+                condition_id: record.condition_id,
                 immutable_payload: record.immutable_payload,
                 attempt_count: 0,
-                last_error: None,
+                last_error_detail: None,
                 next_retry_at: commit_time.to_owned(),
             });
         }
+        // Admission priority is the caller's declaration order.  Only the durable representation
+        // is canonicalized below; sorting candidates before this loop would make a hash-derived
+        // event id silently decide which new event survives a bounded queue.
         self.0.sort_unstable_by(|left, right| {
             (left.event_id(), left.route_id()).cmp(&(right.event_id(), right.route_id()))
         });
@@ -161,7 +197,7 @@ impl Outbox {
         &mut self,
         event_id: &str,
         route_id: &RouteId,
-        error: String,
+        error_detail: DiagnosticDetail,
         next_retry_at: String,
     ) -> Result<u32, CoreError> {
         require_timestamp("outbox next-retry timestamp", &next_retry_at)?;
@@ -176,53 +212,13 @@ impl Outbox {
             .attempt_count
             .checked_add(1)
             .ok_or_else(|| CoreError::contract("outbox attempt count overflow"))?;
-        record.last_error = Some(bound_error(error));
+        record.last_error_detail = Some(error_detail.fit_durable_delivery_failure()?);
         record.next_retry_at = next_retry_at;
         Ok(record.attempt_count)
     }
 }
 
 impl PendingOutboxRecord {
-    fn validate(
-        &self,
-        target_id: &TargetId,
-        contract_digest_sha256: &str,
-    ) -> Result<(), CoreError> {
-        if !is_sha256(&self.event_id) {
-            return Err(CoreError::contract(
-                "outbox event_id must be lowercase SHA-256",
-            ));
-        }
-        if self.immutable_payload.is_empty() {
-            return Err(CoreError::contract(
-                "outbox immutable_payload must not be empty",
-            ));
-        }
-        validate_process_stdin_payload_bytes(
-            &self.immutable_payload,
-            target_id,
-            contract_digest_sha256,
-            &self.event_id,
-            &self.route_id,
-            self.route_family,
-        )?;
-        if self
-            .last_error
-            .as_deref()
-            .is_some_and(|error| error.is_empty() || error.len() > 4_096)
-        {
-            return Err(CoreError::contract(
-                "outbox last_error must be non-empty and at most 4096 bytes",
-            ));
-        }
-        if (self.attempt_count == 0) != self.last_error.is_none() {
-            return Err(CoreError::contract(
-                "outbox last_error must exist exactly when a delivery attempt has failed",
-            ));
-        }
-        require_timestamp("outbox next_retry_at", &self.next_retry_at)
-    }
-
     pub(crate) fn event_id(&self) -> &str {
         &self.event_id
     }
@@ -235,6 +231,14 @@ impl PendingOutboxRecord {
         self.route_family
     }
 
+    pub(crate) const fn event_kind(&self) -> DeliveryEventKind {
+        self.event_kind
+    }
+
+    pub(crate) fn condition_id(&self) -> Option<&ConditionId> {
+        self.condition_id.as_ref()
+    }
+
     pub(crate) fn immutable_payload(&self) -> &[u8] {
         &self.immutable_payload
     }
@@ -243,59 +247,19 @@ impl PendingOutboxRecord {
         self.attempt_count
     }
 
-    pub(crate) fn last_error(&self) -> Option<&str> {
-        self.last_error.as_deref()
+    pub(crate) fn last_error_detail(&self) -> Option<&DiagnosticDetail> {
+        self.last_error_detail.as_ref()
     }
-}
-
-fn bound_error(mut error: String) -> String {
-    const LIMIT: usize = 4_096;
-    if error.len() <= LIMIT {
-        return error;
-    }
-    let mut cutoff = LIMIT - " [truncated]".len();
-    while !error.is_char_boundary(cutoff) {
-        cutoff -= 1;
-    }
-    error.truncate(cutoff);
-    error.push_str(" [truncated]");
-    error
-}
-
-fn is_sha256(value: &str) -> bool {
-    if value.len() != 64 {
-        return false;
-    }
-    for byte in value.bytes() {
-        if !(byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
-            return false;
-        }
-    }
-    true
-}
-
-fn parse_timestamp(value: &str) -> Result<OffsetDateTime, CoreError> {
-    OffsetDateTime::parse(value, &Rfc3339)
-        .map_err(|error| CoreError::contract(format!("outbox timestamp must be RFC 3339: {error}")))
-}
-
-fn require_timestamp(field: &str, value: &str) -> Result<(), CoreError> {
-    let timestamp = parse_timestamp(value)?;
-    let canonical = timestamp
-        .format(&Rfc3339)
-        .map_err(|error| CoreError::internal(format!("could not format timestamp: {error}")))?;
-    if timestamp.offset() != time::UtcOffset::UTC || value != canonical {
-        return Err(CoreError::contract(format!(
-            "{field} must be canonical UTC RFC 3339"
-        )));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{ProcessStdinEventKey, ProcessStdinPayload};
+    use crate::{
+        DeliveryFailurePrimary, DeliveryProcessAttempt, ExactByteCount, StderrCapture,
+        StderrOutcome, TerminalOutcome, WriterOutcome,
+    };
 
     const TIME: &str = "2026-07-15T12:00:00Z";
 
@@ -326,6 +290,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("payload")
     }
@@ -343,6 +308,8 @@ mod tests {
             immutable_payload: payload.immutable_bytes().expect("payload bytes"),
             route_id,
             route_family: RouteFamily::OnCondition,
+            event_kind: DeliveryEventKind::ConditionSatisfied,
+            condition_id: Some("changed".parse().expect("condition id")),
         }
     }
 
@@ -350,7 +317,7 @@ mod tests {
         observation_seq: u64,
         route_id: &str,
         attempt_count: u32,
-        last_error: Option<&str>,
+        last_error_detail: Option<DiagnosticDetail>,
         next_retry_at: &str,
     ) -> PendingOutboxRecord {
         let route_id = route(route_id);
@@ -360,18 +327,32 @@ mod tests {
             event_id: payload.event_id().to_owned(),
             route_id,
             route_family: RouteFamily::OnCondition,
+            event_kind: DeliveryEventKind::ConditionSatisfied,
+            condition_id: Some("changed".parse().expect("condition id")),
             attempt_count,
-            last_error: last_error.map(str::to_owned),
+            last_error_detail,
             next_retry_at: next_retry_at.to_owned(),
         }
     }
 
+    fn failed_detail() -> DiagnosticDetail {
+        crate::model::delivery_failure_detail(DeliveryProcessAttempt::new(
+            TerminalOutcome::Exited { exit_code: Some(1) },
+            WriterOutcome::Completed,
+            StderrOutcome::captured(
+                StderrCapture::from_bytes(Vec::new(), ExactByteCount::zero())
+                    .expect("empty capture"),
+            ),
+        ))
+        .expect("valid delivery failure")
+    }
+
     #[test]
     fn sha256_identity_requires_lowercase_hex() {
-        assert!(is_sha256(&"a".repeat(64)));
-        assert!(is_sha256(&"1".repeat(64)));
-        assert!(!is_sha256(&"A".repeat(64)));
-        assert!(!is_sha256("short"));
+        assert!(validation::is_sha256(&"a".repeat(64)));
+        assert!(validation::is_sha256(&"1".repeat(64)));
+        assert!(!validation::is_sha256(&"A".repeat(64)));
+        assert!(!validation::is_sha256("short"));
     }
 
     #[test]
@@ -403,7 +384,7 @@ mod tests {
                 .contains("\"event_kind\":\"condition_satisfied\"")
         );
         assert_eq!(outbox.records()[0].attempt_count(), 0);
-        assert_eq!(outbox.records()[0].last_error(), None);
+        assert_eq!(outbox.records()[0].last_error_detail(), None);
 
         let duplicate_and_overflow = outbox
             .enqueue(
@@ -418,6 +399,34 @@ mod tests {
         assert_eq!(duplicate_and_overflow[0].event_id(), event_id(3));
         assert_eq!(duplicate_and_overflow[0].route_id(), "gamma");
         assert_eq!(outbox.records().len(), 2);
+    }
+
+    #[test]
+    fn queue_admits_new_records_in_staging_order_not_hash_order() {
+        let mut outbox = Outbox::default();
+        let first = staged(2, "alpha");
+        let second = staged(1, "zeta");
+        assert!(
+            first.event_id > second.event_id,
+            "the fixture must stage the higher hash first to prove admission is not hash-sorted"
+        );
+
+        let overflow = outbox
+            .enqueue(
+                vec![first.clone(), second.clone()],
+                1,
+                TIME,
+                &target_id(),
+                &"a".repeat(64),
+            )
+            .expect("bounded admission");
+
+        assert_eq!(outbox.records().len(), 1);
+        assert_eq!(outbox.records()[0].event_id(), first.event_id);
+        assert_eq!(outbox.records()[0].route_id(), &first.route_id);
+        assert_eq!(overflow.len(), 1);
+        assert_eq!(overflow[0].event_id(), second.event_id);
+        assert_eq!(overflow[0].route_id(), second.route_id.as_str());
     }
 
     #[test]
@@ -446,14 +455,16 @@ mod tests {
             .record_failure(
                 &event_id(1),
                 &route("alpha"),
-                "temporary delivery failure".to_owned(),
+                failed_detail(),
                 "2026-07-15T12:00:01Z".to_owned(),
             )
             .expect("record failure");
         assert_eq!(attempt, 1);
         assert_eq!(
-            outbox.records()[0].last_error(),
-            Some("temporary delivery failure")
+            outbox.records()[0]
+                .last_error_detail()
+                .and_then(DiagnosticDetail::delivery_failure_primary),
+            Some(DeliveryFailurePrimary::UnsuccessfulExit)
         );
         assert!(
             outbox
@@ -471,7 +482,7 @@ mod tests {
                 .record_failure(
                     &event_id(1),
                     &route("alpha"),
-                    "missing".to_owned(),
+                    failed_detail(),
                     TIME.to_owned(),
                 )
                 .is_err()
@@ -492,7 +503,7 @@ mod tests {
                 .record_failure(
                     &event_id(3),
                     &route("beta"),
-                    "missing event".to_owned(),
+                    failed_detail(),
                     TIME.to_owned(),
                 )
                 .is_err()
@@ -502,7 +513,7 @@ mod tests {
                 .record_failure(
                     &event_id(2),
                     &route("alpha"),
-                    "missing route".to_owned(),
+                    failed_detail(),
                     TIME.to_owned(),
                 )
                 .is_err()
@@ -537,10 +548,16 @@ mod tests {
                 immutable_payload: Vec::new(),
                 ..pending(1, "alpha", 0, None, TIME)
             },
-            pending(1, "alpha", 0, Some("unexpected"), TIME),
+            PendingOutboxRecord {
+                event_kind: DeliveryEventKind::Reset,
+                ..pending(1, "alpha", 0, None, TIME)
+            },
+            PendingOutboxRecord {
+                condition_id: None,
+                ..pending(1, "alpha", 0, None, TIME)
+            },
+            pending(1, "alpha", 0, Some(failed_detail()), TIME),
             pending(1, "alpha", 1, None, TIME),
-            pending(1, "alpha", 1, Some(""), TIME),
-            pending(1, "alpha", 1, Some(&"x".repeat(4_097)), TIME),
             pending(1, "alpha", 0, None, "2026-07-15T12:00:00+01:00"),
             pending(1, "alpha", 0, None, "2026-07-15T12:00:00.000Z"),
         ] {
@@ -561,20 +578,20 @@ mod tests {
     }
 
     #[test]
-    fn bounded_errors_preserve_utf8_and_record_failure_detects_overflow() {
-        let error = bound_error("€".repeat(2_000));
-        assert!(error.len() <= 4_096);
-        assert!(error.ends_with(" [truncated]"));
-        assert!(std::str::from_utf8(error.as_bytes()).is_ok());
-        assert_eq!(bound_error("small".to_owned()), "small");
-
-        let mut outbox = Outbox(vec![pending(1, "alpha", u32::MAX, Some("old"), TIME)]);
+    fn durable_failure_detail_survives_recording_and_attempt_overflow_is_rejected() {
+        let mut outbox = Outbox(vec![pending(
+            1,
+            "alpha",
+            u32::MAX,
+            Some(failed_detail()),
+            TIME,
+        )]);
         assert!(
             outbox
                 .record_failure(
                     &event_id(1),
                     &route("alpha"),
-                    "again".to_owned(),
+                    failed_detail(),
                     "2026-07-15T12:00:01Z".to_owned(),
                 )
                 .is_err()

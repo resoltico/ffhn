@@ -6,7 +6,9 @@ use std::fs;
 use std::path::Path;
 
 #[cfg(unix)]
-use crate::app::{run_audit, run_check, run_coverage, run_miri, run_semver_check, run_spec};
+use crate::app::{
+    GateOutputOptions, run_audit, run_check, run_coverage, run_miri, run_semver_check, run_spec,
+};
 #[cfg(unix)]
 use crate::plan::{release_binary_path, semver_baseline_target_dir, semver_scratch_dir};
 
@@ -193,7 +195,7 @@ fn run_check_executes_the_plan_and_cleans_semver_artifacts() {
     write_coverage_cargo_stub(&bin_dir, "{\"data\":[]}");
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
-        run_check(repo_root.path()).expect("run check");
+        run_check(repo_root.path(), GateOutputOptions::default()).expect("run check");
     });
 
     assert!(!semver_scratch_dir(repo_root.path()).exists());
@@ -288,8 +290,8 @@ fn command_entrypoints_reject_unavailable_pinned_dependencies_before_mutating_ar
         assert!(audit_error.to_string().contains("cargo-audit"));
 
         write_executable(&bin_dir.join("shellcheck"), "#!/bin/sh\nexit 1\n");
-        let check_error =
-            run_check(repo_root.path()).expect_err("unavailable shellcheck must fail");
+        let check_error = run_check(repo_root.path(), GateOutputOptions::default())
+            .expect_err("unavailable shellcheck must fail");
         assert!(
             check_error
                 .to_string()
@@ -315,6 +317,10 @@ fn run_from_routes_check_semver_coverage_and_miri_subcommands_through_the_repo_r
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
         crate::run_from(["xtask", "check"]).expect("run check through cli");
+        crate::run_from(["xtask", "structure", "check"])
+            .expect("run source-structure check through cli");
+        crate::run_from(["xtask", "structure", "report"])
+            .expect("run source-structure report through cli");
         crate::run_from(["xtask", "audit"]).expect("run audit through cli");
         crate::run_from(["xtask", "audit", "--file", "fuzz/Cargo.lock"])
             .expect("run audit --file through cli");

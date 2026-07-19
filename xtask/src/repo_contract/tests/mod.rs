@@ -12,16 +12,21 @@ fn public_docs_describe_current_v2_json_and_html_measurement_contracts() {
     assert!(targets.contains("JSON Pointer"));
     assert!(targets.contains("HTMLCut"));
     assert!(targets.contains("html_text"));
+    assert!(targets.contains("html_rendered_text"));
     assert!(targets.contains("html_attribute"));
+    assert!(targets.contains("plain DOM descendant text"));
     assert!(targets.contains("dom_canonicalization"));
     assert!(targets.contains("htmlcut_plan_invalid"));
+    assert!(targets.contains("html_text_requires_css_selector"));
     assert!(targets.contains("rust_decimal"));
     assert!(targets.contains("ffhn reset"));
     assert!(!targets.contains("notification_endpoints"));
 
     let contracts =
         fs::read_to_string(root.join("docs/contracts.md")).expect("contracts documentation");
-    assert!(contracts.contains("detached canonical clone"));
+    assert!(contracts.contains("html_plain_text"));
+    assert!(contracts.contains("html_rendered_text"));
+    assert!(contracts.contains("detached canonical"));
     let reports = fs::read_to_string(root.join("docs/reports.md")).expect("reports documentation");
     assert!(reports.contains("detached selected-subtree clone"));
 }

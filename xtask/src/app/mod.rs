@@ -6,8 +6,10 @@ use crate::model::DynResult;
 
 mod check;
 mod command;
+mod gate;
 mod hygiene;
 mod semver;
+mod structure;
 
 #[cfg(all(test, unix))]
 pub(crate) use check::{run_audit, run_check, run_coverage, run_miri, run_semver_check};
@@ -18,6 +20,7 @@ pub(crate) use command::remove_dir_if_exists;
 pub(crate) use command::run_spec;
 #[cfg(test)]
 pub(crate) use command::{remove_file_if_exists, repo_root};
+pub(crate) use gate::{GateOutputFormat, GateOutputOptions, GateVerbosity};
 pub(crate) use hygiene::HygieneTask;
 #[cfg(test)]
 pub(crate) use semver::refresh_semver_baseline;
@@ -32,6 +35,8 @@ Examples:
   cargo xtask semver-check
   cargo xtask coverage
   cargo xtask miri
+  cargo xtask structure check
+  cargo xtask structure report
   cargo xtask hygiene report
   cargo xtask hygiene clean --mode rebuildable
   cargo xtask refresh-semver-baseline --git-ref vX.Y.Z";
@@ -54,7 +59,7 @@ enum Task {
         about = "Run the full maintainer quality gate.",
         long_about = "Run the full maintainer quality gate, including shell checks, formatting, dependency policy, tests, dist smoke, and the final curated 100% coverage pass."
     )]
-    Check,
+    Check(GateOutputArgs),
     #[command(
         about = "Run the maintained RustSec audit lane with transient advisory-fetch retries.",
         long_about = "Run the maintained RustSec audit lane with FFHN's bounded transient advisory-database fetch retry policy. By default this audits the workspace Cargo.lock; use --file to audit another maintained lockfile such as fuzz/Cargo.lock."
@@ -76,6 +81,14 @@ enum Task {
     )]
     Miri,
     #[command(
+        about = "Verify or report FFHN's fail-closed Rust source-structure contract.",
+        long_about = "Verify or report the repository-owned Rust source-structure contract. The check is fail-closed: every maintained Rust source file must have an ownership rule, stay within its declared budgets, and obey its internal dependency boundary."
+    )]
+    Structure {
+        #[command(subcommand)]
+        command: structure::StructureTask,
+    },
+    #[command(
         about = "Inspect or repair the repository artifact hygiene policy.",
         long_about = "Inspect or repair the maintained repository artifact hygiene policy, including managed Cargo artifact roots, repo-local scratch, and accidental legacy target trees."
     )]
@@ -88,6 +101,33 @@ enum Task {
         long_about = "Refresh the checked-in ffhn-core semver baseline from one published Git tag, branch, or commit."
     )]
     RefreshSemverBaseline(RefreshSemverBaselineArgs),
+}
+
+#[derive(Args)]
+struct GateOutputArgs {
+    /// Render lifecycle events for people or newline-delimited JSON for automation.
+    #[arg(long, value_enum, default_value_t = GateOutputFormat::Human)]
+    format: GateOutputFormat,
+    /// Show only actionable signal or stream every child-process byte.
+    #[arg(long, value_enum, default_value_t = GateVerbosity::Concise)]
+    verbosity: GateVerbosity,
+    /// Retain raw successful-run logs under this caller-owned directory.
+    #[arg(long, value_name = "DIRECTORY")]
+    log_dir: Option<std::path::PathBuf>,
+    /// Keep raw evidence after a successful run; failed-run evidence is always retained.
+    #[arg(long)]
+    retain_passing_logs: bool,
+}
+
+impl From<GateOutputArgs> for GateOutputOptions {
+    fn from(args: GateOutputArgs) -> Self {
+        Self {
+            format: args.format,
+            verbosity: args.verbosity,
+            log_dir: args.log_dir,
+            retain_passing_logs: args.retain_passing_logs,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -130,11 +170,12 @@ where
     let repo_root = command::repo_root()?;
 
     match cli.command {
-        Task::Check => check::run_check(&repo_root),
+        Task::Check(args) => check::run_check(&repo_root, args.into()),
         Task::Audit(args) => check::run_audit(&repo_root, args.file.as_deref()),
         Task::SemverCheck => check::run_semver_check(&repo_root),
         Task::Coverage => check::run_coverage(&repo_root),
         Task::Miri => check::run_miri(&repo_root),
+        Task::Structure { command } => structure::run_structure(&repo_root, command),
         Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),
         Task::RefreshSemverBaseline(args) => {
             semver::refresh_semver_baseline(&repo_root, &args.git_ref)

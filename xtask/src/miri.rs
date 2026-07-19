@@ -1,8 +1,7 @@
 use crate::model::{CommandArtifactLayout, CommandSpec};
 use crate::tooling::RustTooling;
 
-pub(crate) const MIRI_V2_FOUNDATION_TEST_NAME: &str =
-    "model::v2::tests::typed_parser_covers_exact_integer_decimal_money_and_semver";
+pub(crate) const MIRI_TYPED_VALUE_FOUNDATION_TEST_NAME: &str = "model::tests::typed_parser_covers_all_declared_value_families::typed_parser_covers_all_declared_value_families";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MiriPreflightFailure {
@@ -35,7 +34,7 @@ pub(crate) fn miri_command(tooling: &RustTooling) -> CommandSpec {
             "ffhn-core".to_owned(),
             "--lib".to_owned(),
             "--locked".to_owned(),
-            MIRI_V2_FOUNDATION_TEST_NAME.to_owned(),
+            MIRI_TYPED_VALUE_FOUNDATION_TEST_NAME.to_owned(),
             "--".to_owned(),
             "--exact".to_owned(),
         ],
@@ -140,7 +139,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
     }
 
     #[test]
-    fn miri_commands_target_the_v2_foundation_probe() {
+    fn miri_commands_target_the_declared_value_foundation_probe() {
         let tooling = sample_tooling();
         let probe = miri_probe_command(&tooling);
         let command = miri_command(&tooling);
@@ -163,7 +162,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
                 "ffhn-core".to_owned(),
                 "--lib".to_owned(),
                 "--locked".to_owned(),
-                MIRI_V2_FOUNDATION_TEST_NAME.to_owned(),
+                MIRI_TYPED_VALUE_FOUNDATION_TEST_NAME.to_owned(),
                 "--".to_owned(),
                 "--exact".to_owned(),
             ]

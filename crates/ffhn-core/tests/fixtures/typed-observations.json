@@ -1,5 +1,22 @@
 [
   {
+    "name": "text decodes JSON escapes while retaining exact selected evidence",
+    "declared_type": "text",
+    "type_params_toml": "",
+    "raw_token": "\"  In StOcK \\u00e9  \"",
+    "expected": {
+      "raw_selected": "\"  In StOcK \\u00e9  \"",
+      "comparison_projection": "\"  In StOcK \\u00e9  \"",
+      "acquisition_kind": "json_pointer",
+      "parser_id": "ffhn.typed-value",
+      "parser_grammar_version": 1,
+      "declared_type": "text",
+      "type_params": {},
+      "canonical_value": "  In StOcK é  ",
+      "parse_diagnostics": []
+    }
+  },
+  {
     "name": "exact decimal preserves numeric presentation",
     "declared_type": "decimal",
     "type_params_toml": "",

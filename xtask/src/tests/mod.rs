@@ -71,6 +71,56 @@ CARGO_OUTDATED_VERSION=0.19.0\n\
 CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
     )
     .expect("write rust tooling env");
+    fs::write(
+        repo_root.join("tooling/rust-source-shape-policy.toml"),
+        "version = 1\n\
+\n\
+[[rules]]\n\
+path = \"crates/ffhn-core/src/\"\n\
+match = \"prefix\"\n\
+role = \"fixture\"\n\
+owner = \"fixture\"\n\
+rationale = \"fixture\"\n\
+split_trigger = \"fixture\"\n\
+max_physical_lines = 10\n\
+max_items = 10\n\
+max_public_items = 10\n\
+max_imports = 10\n\
+max_functions = 10\n\
+max_decision_points = 10\n\
+max_match_arms = 10\n\
+\n\
+[[rules]]\n\
+path = \"crates/ffhn-cli/src/\"\n\
+match = \"prefix\"\n\
+role = \"fixture\"\n\
+owner = \"fixture\"\n\
+rationale = \"fixture\"\n\
+split_trigger = \"fixture\"\n\
+max_physical_lines = 10\n\
+max_items = 10\n\
+max_public_items = 10\n\
+max_imports = 10\n\
+max_functions = 10\n\
+max_decision_points = 10\n\
+max_match_arms = 10\n\
+\n\
+[[rules]]\n\
+path = \"xtask/src/\"\n\
+match = \"prefix\"\n\
+role = \"fixture\"\n\
+owner = \"fixture\"\n\
+rationale = \"fixture\"\n\
+split_trigger = \"fixture\"\n\
+max_physical_lines = 10\n\
+max_items = 10\n\
+max_public_items = 10\n\
+max_imports = 10\n\
+max_functions = 10\n\
+max_decision_points = 10\n\
+max_match_arms = 10\n",
+    )
+    .expect("write Rust source-shape policy");
 }
 
 fn write_semver_fixture(repo_root: &Path, workspace_version: &str, lib_body: &str) {

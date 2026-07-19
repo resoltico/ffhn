@@ -71,6 +71,7 @@ fn check_plan_includes_all_strict_gates() {
             ],
             false,
         )
+        .with_step_id("shell-syntax")
     );
     assert_eq!(
         plan[1],
@@ -83,8 +84,10 @@ fn check_plan_includes_all_strict_gates() {
             ],
             false,
         )
+        .with_step_id("shellcheck")
     );
     assert!(plan.iter().any(|spec| spec.args == ["xtask", "audit"]));
+    assert!(plan.iter().all(|spec| spec.step_id != "unnamed-command"));
     assert!(plan.iter().any(|spec| {
         spec.args == ["xtask", "miri"]
             && spec.artifact_layout == CommandArtifactLayout::ManagedWorkspace
@@ -204,6 +207,7 @@ fn check_plan_includes_all_strict_gates() {
             ["--version"],
             true,
         )
+        .with_step_id("dist-smoke")
     );
 }
 
@@ -220,6 +224,7 @@ fn check_plan_skips_shell_gates_when_no_scripts_exist() {
     assert_eq!(
         plan[0],
         CommandSpec::new("cargo", ["fmt", "--check"], false)
+            .with_step_id("format")
             .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace)
     );
 }

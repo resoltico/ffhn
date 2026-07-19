@@ -172,13 +172,25 @@ jobs:
         shell: bash
         run: cargo fmt --check
 
+      - name: Enforce Rust source structure
+        shell: bash
+        run: cargo xtask structure check
+
       - name: Run Clippy
         shell: bash
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+      - name: Check fuzz harness compilation
+        shell: bash
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins --locked
+
+      - name: Lint fuzz harnesses
+        shell: bash
+        run: cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings
+
       - name: Run workspace tests
         shell: bash
-        run: cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked
+        run: cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked --status-level fail --final-status-level fail --success-output never
 
       - name: Audit dependencies
         shell: bash

@@ -15,7 +15,7 @@ escaped_source_path=$(printf '%s' "$source_path" | sed 's/\\/\\\\/g; s/"/\\"/g')
 mkdir -p "$destination_dir"
 cat >"$destination" <<EOF
 schema_name = "ffhn.target"
-schema_version = 9
+schema_version = 12
 target_id = "price"
 display_name = "Local Decimal Price"
 enabled = true

@@ -1,0 +1,357 @@
+version = 1
+
+# This is an executable ownership contract, not a formatting preference. Every maintained Rust
+# source file must resolve to one rule. Prefix rules describe stable module families; a new file
+# outside those families is rejected until its ownership and dependency boundary are explicit.
+
+[[rules]]
+path = "crates/ffhn-core/src/model/tests/"
+match = "prefix"
+role = "core-model-test-scenario"
+owner = "FFHN core model"
+rationale = "Each scenario file proves one model contract without becoming an alternate model implementation."
+split_trigger = "a scenario needs unrelated aggregate setup or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 20
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/model/delivery/tests/"
+match = "prefix"
+role = "core-model-test-scenario"
+owner = "FFHN core model"
+rationale = "Each delivery scenario proves one durable event or payload contract without becoming an alternate implementation."
+split_trigger = "a scenario needs unrelated aggregate setup or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 20
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/model/policy/tests/"
+match = "prefix"
+role = "core-model-test-scenario"
+owner = "FFHN core model"
+rationale = "Each policy scenario states one decision-semantic contract while shared fixtures remain separately owned."
+split_trigger = "a scenario needs unrelated aggregate setup or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 20
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/model/"
+match = "prefix"
+role = "core-model"
+owner = "FFHN core model"
+rationale = "Model code owns typed target, state, policy, reporting, and durable delivery contracts; it must never depend on runtime orchestration."
+split_trigger = "a file takes a second aggregate responsibility, crosses a boundary, or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 70
+max_public_items = 30
+max_imports = 24
+max_functions = 55
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/runtime/tests/"
+match = "prefix"
+role = "core-runtime-test-scenario"
+owner = "FFHN core runtime"
+rationale = "Each runtime scenario file proves one execution or integration lifecycle."
+split_trigger = "a scenario spans unrelated runtime lifecycles or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 24
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/runtime/acquire/tests.rs"
+match = "exact"
+role = "core-runtime-test-scenario"
+owner = "FFHN core runtime"
+rationale = "Acquisition tests prove one transport and HTML integration boundary without becoming runtime orchestration."
+split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 24
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/runtime/delivery/tests.rs"
+match = "exact"
+role = "core-runtime-test-scenario"
+owner = "FFHN core runtime"
+rationale = "Delivery tests prove one durable outbox and process boundary without becoming runtime orchestration."
+split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 24
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/runtime/execution/tests.rs"
+match = "exact"
+role = "core-runtime-test-scenario"
+owner = "FFHN core runtime"
+rationale = "Execution coverage tests prove non-public lifecycle guards without widening the runtime API."
+split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 80
+max_public_items = 0
+max_imports = 24
+max_functions = 60
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/runtime/"
+match = "prefix"
+role = "core-runtime"
+owner = "FFHN core runtime"
+rationale = "Runtime code orchestrates acquisition, state persistence, execution, and delivery over model contracts; model code must not point back here."
+split_trigger = "a file owns more than one lifecycle or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 70
+max_public_items = 12
+max_imports = 28
+max_functions = 55
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
+
+[[rules]]
+path = "crates/ffhn-core/src/contract/"
+match = "prefix"
+role = "core-contract"
+owner = "FFHN core contract"
+rationale = "Contract parsing and canonical typed boundaries may depend on model vocabulary but not execution machinery."
+split_trigger = "a file combines schema vocabulary with unrelated parsing or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 60
+max_public_items = 30
+max_imports = 20
+max_functions = 45
+max_decision_points = 140
+max_match_arms = 70
+allowed_internal_dependencies = ["crate", "contract", "model", "stable_json"]
+
+[[rules]]
+path = "crates/ffhn-core/src/"
+match = "prefix"
+role = "core-foundation"
+owner = "FFHN core foundation"
+rationale = "Foundation modules provide only crate-wide error, path, serialization, and public-boundary primitives."
+split_trigger = "a file gains feature-specific policy or runtime orchestration, or exceeds any declared budget"
+max_physical_lines = 300
+max_items = 45
+max_public_items = 35
+max_imports = 16
+max_functions = 35
+max_decision_points = 90
+max_match_arms = 40
+allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json"]
+
+[[rules]]
+path = "crates/ffhn-cli/tests/"
+match = "prefix"
+role = "cli-integration-test"
+owner = "FFHN CLI"
+rationale = "CLI integration tests exercise public behavior and may not become a second command implementation."
+split_trigger = "the test requires unrelated command setup or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 60
+max_public_items = 0
+max_imports = 20
+max_functions = 50
+max_decision_points = 120
+max_match_arms = 60
+allowed_internal_dependencies = ["crate"]
+
+[[rules]]
+path = "fuzz/fuzz_targets/"
+match = "prefix"
+role = "fuzz-harness"
+owner = "FFHN core verification"
+rationale = "Each libFuzzer harness exercises one public contract boundary and must not become an alternate runtime or parser implementation."
+split_trigger = "a harness covers unrelated public contracts or exceeds any declared budget"
+max_physical_lines = 250
+max_items = 35
+max_public_items = 0
+max_imports = 16
+max_functions = 24
+max_decision_points = 70
+max_match_arms = 35
+allowed_internal_dependencies = []
+
+[[rules]]
+path = "crates/ffhn-cli/src/"
+match = "prefix"
+role = "cli-adapter"
+owner = "FFHN CLI"
+rationale = "CLI code translates process arguments and core reports; it does not own policy, state, or transport semantics."
+split_trigger = "a file owns both command parsing and report rendering, or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 60
+max_public_items = 20
+max_imports = 20
+max_functions = 50
+max_decision_points = 140
+max_match_arms = 70
+allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
+
+[[rules]]
+path = "crates/ffhn-cli/src/args/tests.rs"
+match = "exact"
+role = "cli-adapter-test-scenario"
+owner = "FFHN CLI"
+rationale = "Parser and help scenarios prove the public command contract without becoming an alternate command adapter."
+split_trigger = "the scenario spans unrelated command contracts or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 60
+max_public_items = 0
+max_imports = 20
+max_functions = 50
+max_decision_points = 120
+max_match_arms = 60
+allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
+
+[[rules]]
+path = "crates/ffhn-cli/src/execute/tests.rs"
+match = "exact"
+role = "cli-adapter-test-scenario"
+owner = "FFHN CLI"
+rationale = "Command-adapter scenarios prove observable execution behavior without becoming a second CLI implementation."
+split_trigger = "the scenario spans unrelated command contracts or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 60
+max_public_items = 0
+max_imports = 20
+max_functions = 50
+max_decision_points = 120
+max_match_arms = 60
+allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
+
+[[rules]]
+path = "xtask/tests/"
+match = "prefix"
+role = "maintenance-test-scenario"
+owner = "FFHN maintainership"
+rationale = "Maintenance tests prove one repository contract at a time and may inspect all maintenance domains."
+split_trigger = "the scenario spans unrelated maintenance contracts or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 85
+max_public_items = 0
+max_imports = 24
+max_functions = 65
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]
+
+[[rules]]
+path = "xtask/src/tests/"
+match = "prefix"
+role = "maintenance-test-scenario"
+owner = "FFHN maintainership"
+rationale = "Maintenance tests prove one repository contract at a time and may inspect all maintenance domains."
+split_trigger = "the scenario spans unrelated maintenance contracts or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 85
+max_public_items = 0
+max_imports = 24
+max_functions = 65
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]
+
+[[rules]]
+path = "xtask/src/"
+match = "prefix"
+role = "maintenance-automation"
+owner = "FFHN maintainership"
+rationale = "xtask owns executable repository policy and orchestration, with separable domain modules rather than one maintenance god file."
+split_trigger = "a file owns more than one independent maintenance domain or exceeds any declared budget"
+max_physical_lines = 500
+max_items = 65
+max_public_items = 12
+max_imports = 24
+max_functions = 55
+max_decision_points = 160
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]
+
+[[rules]]
+path = "xtask/src/app/gate.rs"
+match = "exact"
+role = "maintenance-gate-output"
+owner = "FFHN maintainership"
+rationale = "One module owns the gate-event schema, raw child-output capture, concise/verbose rendering, and the directly adjacent scenarios that prove those operational guarantees."
+split_trigger = "production event rendering/capture and its directly adjacent scenarios no longer fit within 600 lines, or a second independent maintenance policy enters this module"
+max_physical_lines = 600
+max_items = 65
+max_public_items = 12
+max_imports = 24
+max_functions = 55
+max_decision_points = 160
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]
+
+[[rules]]
+path = "xtask/src/app/check/tests.rs"
+match = "exact"
+role = "maintenance-test-scenario"
+owner = "FFHN maintainership"
+rationale = "Maintenance scenarios prove one gate prerequisite or failure path without becoming a second maintenance orchestrator."
+split_trigger = "the scenario spans unrelated maintenance contracts or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 85
+max_public_items = 0
+max_imports = 24
+max_functions = 65
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]
+
+[[rules]]
+path = "xtask/src/structure/tests.rs"
+match = "exact"
+role = "maintenance-test-scenario"
+owner = "FFHN maintainership"
+rationale = "Structural-gate scenarios prove fail-closed ownership, measurement, and dependency behavior."
+split_trigger = "the scenario spans unrelated maintenance contracts or exceeds any declared budget"
+max_physical_lines = 600
+max_items = 85
+max_public_items = 0
+max_imports = 24
+max_functions = 65
+max_decision_points = 180
+max_match_arms = 80
+allowed_internal_dependencies = ["crate", "app", "coverage", "hygiene", "miri", "model", "plan", "release", "repo_contract", "repo_files", "structure", "tests", "tooling"]

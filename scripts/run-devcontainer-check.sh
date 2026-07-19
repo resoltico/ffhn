@@ -55,10 +55,10 @@ main() {
         printf 'devcontainer gate: reusing contributor image %s\n' "${image_tag}"
     else
         printf 'devcontainer gate: building contributor image\n'
-        ffhn_docker_build \
+        ffhn_docker_build_with_failure_log "${repo_root}" "contributor-image" \
             --tag "${image_tag}" \
             --file "${repo_root}/.devcontainer/Dockerfile" \
-            "${repo_root}" >/dev/null
+            "${repo_root}"
     fi
 
     printf 'devcontainer gate: preparing canonical contributor volumes\n'

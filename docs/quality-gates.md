@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-05-19"
+updated: "2026-07-19"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
-  questions: ["what does ffhn check.sh run?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
+  keywords: [quality gates, check.sh, cargo xtask, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
+  questions: ["what does ffhn check.sh run?", "how does FFHN prevent god files and forbidden Rust module dependencies?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
 # Quality Gates
@@ -40,6 +40,31 @@ Equivalent direct form:
 cargo xtask check
 ```
 
+### Gate output and evidence
+
+`cargo xtask check` owns the output contract for the full maintainer gate. Its default human mode
+prints stable lifecycle events for every policy and child-command step, elapsed time, actionable
+warning diagnostics, and a final pass or failure result. It intentionally does not stream normal
+compiler progress or successful-test chatter.
+
+```bash
+./check.sh --verbosity verbose
+./check.sh --format json
+./check.sh --retain-passing-logs
+```
+
+`--verbosity verbose` streams raw child output. `--format json` emits one
+`ffhn.gate-event@1` JSON event per line and never mixes raw child output into that stream.
+Every raw stdout/stderr byte is captured while a step runs. FFHN retains raw evidence under the
+managed sibling `.ffhn-artifacts/gate-logs/` directory when a gate fails; successful evidence is
+discarded unless `--retain-passing-logs` is explicit. This keeps the normal path concise without
+destroying failure evidence. The optional `--log-dir <DIRECTORY>` directs retained successful-run
+evidence to a caller-owned directory.
+
+Do not filter gate output with `grep` for words such as `warning` or `error`. Tool streams are not
+a shared severity protocol, and negative tests may intentionally print error-shaped text. The
+gate's structured lifecycle state and process exit status are authoritative.
+
 Compatibility wrapper:
 
 ```bash
@@ -58,8 +83,32 @@ Miri-only:
 cargo xtask miri
 ```
 
-That proof executes exact integer, decimal, money, and semantic-version normalization under strict
-provenance. It protects the typed-value boundary and the public HTMLCut interop boundary.
+That proof executes text, integer, decimal, money, semantic-version, and explicit-offset
+date-time normalization under strict provenance. It protects the typed-value boundary; the normal
+test suite separately covers public HTMLCut interop.
+
+Rust source-structure enforcement:
+
+```bash
+cargo xtask structure check
+```
+
+Rust source-structure report:
+
+```bash
+cargo xtask structure report
+```
+
+`structure check` is fail-closed. It measures every maintained Rust source and test module in
+`crates/ffhn-core`, `crates/ffhn-cli`, and `xtask`, plus every standalone fuzz target. Its
+canonical policy is [../tooling/rust-source-shape-policy.toml](../tooling/rust-source-shape-policy.toml).
+Each rule declares a role, accountable owner, rationale, split trigger, bounded source-shape
+metrics, and the internal crate modules that role may name directly. The gate rejects an unowned
+file, an unused or duplicate rule, malformed policy metadata, an expired rule review, a breached
+budget, or a direct `crate::module` dependency outside the role's declared boundary. A root-level
+`crate` import is treated as use of the crate's public facade; an explicit named module is the
+architectural dependency being governed. `structure report` intentionally remains diagnostic: it
+prints measurements and `UNOWNED` roles so a new policy rule can be designed before `check` is run.
 
 Artifact inventory:
 
@@ -103,26 +152,27 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 
 1. `cargo xtask hygiene clean --mode safe`
 2. prepare and verify the managed artifact roots
-3. `bash -n` over `check.sh` and every `scripts/*.sh` file
-4. `shellcheck` over the same shell scripts
-5. `cargo fmt --check`
-6. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
-7. `cargo xtask miri`
-8. `cargo xtask audit`
-9. `cargo xtask audit --file fuzz/Cargo.lock`
-10. `cargo deny check advisories bans licenses sources`
-11. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with isolated managed `target` and `build` scratch roots
-12. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
-13. `cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings`
-14. `cargo +<qa-nightly-toolchain> fuzz check --fuzz-dir fuzz`
-15. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
-16. `cargo test --workspace --doc --all-features --locked`
-17. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked`
-18. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
-19. the dist-profile `ffhn` binary at the active Cargo target root (FFHN configures `../.ffhn-artifacts/target/dist/ffhn` by default, or `${CARGO_TARGET_DIR}/dist/ffhn` when overridden) with `--version`
-20. `cargo xtask coverage`
-21. `cargo xtask hygiene clean --mode safe`
-22. a final hygiene verification pass
+3. `cargo xtask structure check`
+4. `bash -n` over `check.sh` and every `scripts/*.sh` file
+5. `shellcheck` over the same shell scripts
+6. `cargo fmt --check`
+7. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+8. `cargo xtask miri`
+9. `cargo xtask audit`
+10. `cargo xtask audit --file fuzz/Cargo.lock`
+11. `cargo deny check advisories bans licenses sources`
+12. `cargo semver-checks` for `ffhn-core` against `semver-baseline/ffhn-core` with isolated managed `target` and `build` scratch roots
+13. `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`
+14. `cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings`
+15. `cargo +<qa-nightly-toolchain> fuzz check --fuzz-dir fuzz`
+16. `cargo nextest run --no-fail-fast --workspace --all-targets --all-features --locked`
+17. `cargo test --workspace --doc --all-features --locked`
+18. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked`
+19. `cargo build --profile dist -p ffhn-cli --bin ffhn --locked`
+20. the dist-profile `ffhn` binary at the active Cargo target root (FFHN configures `../.ffhn-artifacts/target/dist/ffhn` by default, or `${CARGO_TARGET_DIR}/dist/ffhn` when overridden) with `--version`
+21. `cargo xtask coverage`
+22. `cargo xtask hygiene clean --mode safe`
+23. a final hygiene verification pass
 
 Dependency freshness is intentionally separate from the required correctness gate. FFHN keeps the
 freshness signal in [../.github/workflows/dependency-freshness.yml](../.github/workflows/dependency-freshness.yml),
@@ -151,7 +201,7 @@ mount, which is especially important on macOS Docker Desktop setups where the ch
 under `/Volumes/...`.
 
 GitHub CI complements that local host-native dist smoke with a release-target smoke matrix. That matrix builds each packaged release artifact, extracts it on the target's native runner, and executes the packaged binary before the aggregate required `Check` job can report success.
-GitHub CI also runs a separate cross-platform Rust gate on macOS arm64 and Windows x64 for formatting, Clippy, tests, advisory/license policy, fuzz compile smoke, and the maintained semver lane.
+GitHub CI also runs a separate cross-platform Rust gate on macOS arm64 and Windows x64 for formatting, Rust source-structure enforcement, Clippy, tests, advisory/license policy, fuzz compile smoke, and the maintained semver lane.
 The cross-platform job carries a `150`-minute budget for Windows and a `30`-minute budget for macOS.
 The Windows runner excludes FFHN's managed Cargo artifact roots from Windows Defender before any Cargo operations begin, removing the antivirus overhead that would otherwise scan every file write during compilation.
 Both runners use `Swatinem/rust-cache` to persist the Cargo registry and managed build artifacts across runs; without that cache, a cold Windows Rust build takes 15-20 minutes. FFHN keeps `~/.cargo/bin` out of that cache on purpose so restored runner state cannot take ownership of the `cargo`, `rustc`, or Cargo-QA-tool entrypoints. CI, the contributor devcontainer, and local bootstrap all converge toolchains and Cargo QA tools through the same [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) entrypoint, and that bootstrap now proves the stable Cargo surface by executing a real `cargo build --help` subcommand rather than trusting a version banner alone.
@@ -217,6 +267,9 @@ cargo check --manifest-path fuzz/Cargo.toml --bins --locked
 cargo clippy --manifest-path fuzz/Cargo.toml --bins --locked -- -D warnings
 cargo +<coverage-toolchain> fuzz check --fuzz-dir fuzz
 ```
+
+The cross-platform CI test lane uses nextest's failure-focused status mode: passing tests are
+summarized rather than printed one-by-one, while failure output remains visible.
 
 Manual sanitizer-backed seed smokes live in [../fuzz/README.md](../fuzz/README.md). They require `cargo-fuzz` and nightly, but they are not part of `./check.sh`.
 

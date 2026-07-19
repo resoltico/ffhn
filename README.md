@@ -1,6 +1,6 @@
 # FFHN — deterministic typed measurements
 
-FFHN acquires one JSON or HTML scalar from an HTTP endpoint or local UTF-8 file, validates it against a declared semantic type, and persists accepted evidence as an auditable v2 state document. It supports exact integers, decimals, money, Semantic Versions, explicit-offset date-times, and named typed policy conditions. It deliberately does not infer values or use machine-local time zones. Condition and source-health state are persisted, and optional delivery routes use a durable per-target outbox with immutable process-stdin payloads.
+FFHN monitors one selected JSON or HTML value from an HTTP endpoint or local UTF-8 file, validates it against an explicit semantic type, and preserves accepted evidence in auditable per-target state. It supports exact Unicode text, integers, decimals, money, Semantic Versions, explicit-offset date-times, and named typed policy conditions. HTML monitoring distinguishes plain DOM descendant text, document-structured rendered text, and attributes. FFHN never infers values or uses a machine-local time zone. It persists accepted observations, per-condition temporal state, source health, permanent configuration errors, and integration faults; optional process-stdin delivery routes use a durable per-target outbox with immutable payloads.
 
 ## Install
 
@@ -15,54 +15,26 @@ Download `ffhn-<version>-checksums.txt` with the matching archive, validate its 
 
 ## Quick start
 
-Create `checks/price/target.toml`:
-
-```toml
-schema_name = "ffhn.target"
-schema_version = 9
-target_id = "price"
-display_name = "Current Price"
-enabled = true
-escalate_after = 3
-declared_type = "money"
-conditions = []
-
-[target]
-kind = "http"
-source_url = "https://example.test/price.json"
-
-[fetch]
-engine = "http"
-user_agent = "ffhn/example"
-accept = "application/json"
-
-[projection]
-kind = "json_pointer"
-pointer = "/price"
-
-[type_params]
-currency = "USD"
-```
-
-Run and inspect it:
+From a source checkout or extracted source archive, materialize the checked-in local JSON example and run it with the installed binary:
 
 ```bash
-ffhn run --watch-root ./checks --target price --format summary
-ffhn status --watch-root ./checks --target price --format json-pretty
+WATCH_ROOT="$(mktemp -d)"
+sh ./examples/file-target-json/materialize-target.sh "$WATCH_ROOT/price/target.toml"
+ffhn run --watch-root "$WATCH_ROOT" --target price --format summary
+ffhn status --watch-root "$WATCH_ROOT" --target price --format json-pretty
 ```
 
-A target-definition change is intentionally refused once state exists. Reset it explicitly:
+A target-definition change is intentionally refused once state exists. Reset it explicitly before accepting observations under the new contract:
 
 ```bash
-ffhn reset --watch-root ./checks --target price
+ffhn reset --watch-root "$WATCH_ROOT" --target price
 ```
 
-The reset keeps `target.toml`, acquires the same target lock as runs, and blindly clears FFHN-owned storage. It never translates old artifacts.
+The reset keeps `target.toml`, acquires the same target lock as runs, and blindly clears only FFHN-owned storage. It never translates old artifacts.
 
 See [docs/targets.md](docs/targets.md) for the target contract,
 [docs/cli.md](docs/cli.md) for commands, and
-[examples/file-target-json/README.md](examples/file-target-json/README.md) for a local runnable
-JSON example.
+[docs/getting-started.md](docs/getting-started.md) for a from-scratch local target.
 
 ## Legal
 

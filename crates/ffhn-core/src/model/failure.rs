@@ -22,8 +22,6 @@ pub enum SourceSuspectReason {
     HtmlcutMissingAttribute,
     /// HTMLCut could not select the configured candidate index.
     HtmlcutMatchIndexOutOfRange,
-    /// HTMLCut failed without a classifiable target-contract diagnostic.
-    HtmlcutInternalFailure,
 }
 
 impl SourceSuspectReason {
@@ -39,7 +37,33 @@ impl SourceSuspectReason {
             Self::HtmlcutAmbiguousMatch => "htmlcut_ambiguous_match",
             Self::HtmlcutMissingAttribute => "htmlcut_missing_attribute",
             Self::HtmlcutMatchIndexOutOfRange => "htmlcut_match_index_out_of_range",
-            Self::HtmlcutInternalFailure => "htmlcut_internal_failure",
+        }
+    }
+}
+
+/// The closed B4 vocabulary for FFHN integration-boundary and invariant faults.
+///
+/// These failures are neither source-health evidence nor target-contract errors. They represent a
+/// violated guarantee at an FFHN integration or policy boundary and therefore own a separate
+/// temporal episode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrationFaultCode {
+    /// HTMLCut reported its closed `InternalError` category.
+    HtmlcutInternalError,
+    /// FFHN observed a result that violates the adapter contract it has just established.
+    FfhnBoundaryInvariantViolation,
+    /// FFHN could not uphold the fixed-width proof that makes a decimal policy decision exact.
+    FfhnPolicyInvariantViolation,
+}
+
+impl IntegrationFaultCode {
+    /// Returns the stable persisted and event-contract spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::HtmlcutInternalError => "htmlcut_internal_error",
+            Self::FfhnBoundaryInvariantViolation => "ffhn_boundary_invariant_violation",
+            Self::FfhnPolicyInvariantViolation => "ffhn_policy_invariant_violation",
         }
     }
 }
@@ -58,10 +82,10 @@ pub enum PermanentErrorCode {
     HtmlcutInvalidSelector,
     /// The configured HTMLCut delimiter pattern is invalid.
     HtmlcutInvalidSlicePattern,
-    /// The configured HTMLCut output type is unsupported by its strategy.
-    HtmlcutUnsupportedValueType,
     /// An HTML attribute projection requires CSS selector match metadata.
     HtmlAttributeRequiresCssSelector,
+    /// Plain DOM text requires a CSS-selected element rather than a delimiter fragment.
+    HtmlTextRequiresCssSelector,
     /// One FFHN target cannot acquire every HTMLCut candidate.
     HtmlSelectionMustSelectOne,
 }
@@ -75,8 +99,8 @@ impl PermanentErrorCode {
             Self::HtmlcutInputInvalid => "htmlcut_input_invalid",
             Self::HtmlcutInvalidSelector => "htmlcut_invalid_selector",
             Self::HtmlcutInvalidSlicePattern => "htmlcut_invalid_slice_pattern",
-            Self::HtmlcutUnsupportedValueType => "htmlcut_unsupported_value_type",
             Self::HtmlAttributeRequiresCssSelector => "html_attribute_requires_css_selector",
+            Self::HtmlTextRequiresCssSelector => "html_text_requires_css_selector",
             Self::HtmlSelectionMustSelectOne => "html_selection_must_select_one",
         }
     }
@@ -122,8 +146,16 @@ mod tests {
             "htmlcut_match_index_out_of_range"
         );
         assert_eq!(
-            SourceSuspectReason::HtmlcutInternalFailure.as_str(),
-            "htmlcut_internal_failure"
+            IntegrationFaultCode::HtmlcutInternalError.as_str(),
+            "htmlcut_internal_error"
+        );
+        assert_eq!(
+            IntegrationFaultCode::FfhnBoundaryInvariantViolation.as_str(),
+            "ffhn_boundary_invariant_violation"
+        );
+        assert_eq!(
+            IntegrationFaultCode::FfhnPolicyInvariantViolation.as_str(),
+            "ffhn_policy_invariant_violation"
         );
         assert_eq!(
             PermanentErrorCode::InvalidJsonPointer.as_str(),
@@ -146,12 +178,12 @@ mod tests {
             "htmlcut_invalid_slice_pattern"
         );
         assert_eq!(
-            PermanentErrorCode::HtmlcutUnsupportedValueType.as_str(),
-            "htmlcut_unsupported_value_type"
-        );
-        assert_eq!(
             PermanentErrorCode::HtmlAttributeRequiresCssSelector.as_str(),
             "html_attribute_requires_css_selector"
+        );
+        assert_eq!(
+            PermanentErrorCode::HtmlTextRequiresCssSelector.as_str(),
+            "html_text_requires_css_selector"
         );
         assert_eq!(
             PermanentErrorCode::HtmlSelectionMustSelectOne.as_str(),
