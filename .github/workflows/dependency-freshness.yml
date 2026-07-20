@@ -25,9 +25,9 @@ jobs:
         shell: bash
         run: bash ./scripts/bootstrap-rust-tools.sh install-stable-toolchain
 
-      - name: Install pinned Rust QA tools
+      - name: Install pinned dependency-freshness tool
         shell: bash
-        run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
+        run: bash ./scripts/bootstrap-rust-tools.sh install-dependency-freshness-tool
 
       - name: Check root dependency freshness
         shell: bash

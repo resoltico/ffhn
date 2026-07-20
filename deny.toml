@@ -40,6 +40,7 @@ allow-workspace = false
 deny = []
 skip = [
     { crate = "getrandom@0.2.17", reason = "ring currently requires the 0.2 line while tempfile and dev tooling use 0.4" },
+    { crate = "syn@2.0.119", reason = "HTMLCut, Clap, and Serde derive dependencies require the 2.x API while FFHN's direct source-analysis tooling uses syn 3." },
 ]
 skip-tree = []
 

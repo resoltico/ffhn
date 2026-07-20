@@ -1,9 +1,9 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-07-19"
+updated: "2026-07-20"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke]
+  keywords: [quality gates, check.sh, cargo xtask, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke, dependency freshness, cargo outdated]
   questions: ["what does ffhn check.sh run?", "how does FFHN prevent god files and forbidden Rust module dependencies?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
@@ -176,7 +176,9 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 
 Dependency freshness is intentionally separate from the required correctness gate. FFHN keeps the
 freshness signal in [../.github/workflows/dependency-freshness.yml](../.github/workflows/dependency-freshness.yml),
-which runs the pinned `cargo-outdated` tool without blocking unrelated correctness work.
+which runs the pinned `cargo-outdated` tool without blocking unrelated correctness work. That
+workflow installs only `cargo-outdated`, rather than the full QA-tool suite, because it executes no
+other QA lane; a reported update remains a failing, review-required maintenance signal.
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
 

@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: SETUP
-updated: "2026-05-16"
+updated: "2026-07-20"
 route:
   keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, nightly, miri, cargo-fuzz, shellcheck, gh cli, compiler override]
   questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn's maintained miri proof?", "what is required for ffhn release work?"]
@@ -78,7 +78,9 @@ Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`
 
 The bootstrap script also installs the pinned `cargo-fuzz` and `cargo-outdated` tools. They are
 not part of the required correctness gate, but FFHN uses them for manual fuzzing and the separate
-dependency-freshness workflow.
+dependency-freshness workflow. The scheduled workflow invokes the dedicated
+`install-dependency-freshness-tool` command, so it does not install unrelated QA tools before
+checking for updates.
 
 ## Install Host-Native ShellCheck
 
