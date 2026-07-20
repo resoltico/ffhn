@@ -7,6 +7,9 @@ Notable changes to this project are documented in this file. The format is based
 ### Changed
 
 - Hardened the maintainer release protocol's local-branch cleanup. When GitHub deletes a merged PR's remote branch, the protocol now requires proof that the local branch is already contained in `origin/main` before using the safe fallback deletion, preventing both stale release debris and blind force-deletes.
+- Updated the internal `xtask` Rust parser dependency to `syn` 3, preserving the maintained source-structure and coverage-analysis capabilities on the current parser API.
+- Updated the shared JSON dependency used by FFHN and its fuzz targets to `serde_json` 1.0.151.
+- Streamlined the scheduled dependency-freshness check so it installs only the pinned `cargo-outdated` tool while retaining its failing, review-required signal whenever a direct dependency is behind.
 
 ### Fixed
 

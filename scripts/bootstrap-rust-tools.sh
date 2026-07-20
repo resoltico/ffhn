@@ -24,6 +24,7 @@ Usage:
   ./scripts/bootstrap-rust-tools.sh install-qa-nightly-toolchain
   ./scripts/bootstrap-rust-tools.sh install-toolchains
   ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
+  ./scripts/bootstrap-rust-tools.sh install-dependency-freshness-tool
   ./scripts/bootstrap-rust-tools.sh install-qa-tools
   ./scripts/bootstrap-rust-tools.sh install-all
 
@@ -73,12 +74,16 @@ install_cross_platform_qa_tools() {
     cargo install cargo-semver-checks --version "${CARGO_SEMVER_CHECKS_VERSION}" --locked
 }
 
+install_dependency_freshness_tool() {
+    cargo install cargo-outdated --version "${CARGO_OUTDATED_VERSION}" --locked
+    retry 3 rustup default "${RUST_STABLE_TOOLCHAIN}"
+}
+
 install_qa_tools() {
     install_cross_platform_qa_tools
     cargo install cargo-fuzz --version "${CARGO_FUZZ_VERSION}" --locked
     cargo install cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked
-    cargo install cargo-outdated --version "${CARGO_OUTDATED_VERSION}" --locked
-    retry 3 rustup default "${RUST_STABLE_TOOLCHAIN}"
+    install_dependency_freshness_tool
 }
 
 main() {
@@ -101,6 +106,9 @@ main() {
             ;;
         install-cross-platform-qa-tools)
             install_cross_platform_qa_tools
+            ;;
+        install-dependency-freshness-tool)
+            install_dependency_freshness_tool
             ;;
         install-qa-tools)
             install_qa_tools
