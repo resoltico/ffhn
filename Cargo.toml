@@ -19,7 +19,7 @@ homepage = "https://github.com/resoltico/ffhn"
 
 [workspace.dependencies]
 assert_cmd = "2.2.2"
-base64 = "0.22.1"
+base64 = "0.23.0"
 clap = { version = "4.6.1", features = ["derive"] }
 ffhn-core = { path = "crates/ffhn-core", version = "=10.0.0" }
 fs2 = "0.4.3"
