@@ -68,6 +68,76 @@ fn direct_conditional_304_commits_not_modified_source_and_measurement_evidence()
 }
 
 #[test]
+fn disabled_conditional_requests_never_send_persisted_validators() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let address = listener.local_addr().expect("address");
+    let worker = thread::spawn(move || {
+        let mut requests = Vec::new();
+        for response in [
+            b"HTTP/1.1 200 OK\r\nETag: \"v1\"\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"price\":7}".as_slice(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"price\":7}".as_slice(),
+        ] {
+            let (mut stream, _) = listener.accept().expect("request");
+            let mut bytes = [0_u8; 2048];
+            let count = stream.read(&mut bytes).expect("read request");
+            requests.push(String::from_utf8_lossy(&bytes[..count]).into_owned());
+            stream.write_all(response).expect("response");
+        }
+        requests
+    });
+    let temporary = tempdir().expect("temporary graph");
+    let graph = TrustedGraphRoot::initialize(
+        GraphPaths::new(temporary.path().join("graph")),
+        "2026-08-25T00:00:00Z".to_owned(),
+    )
+    .expect("graph");
+    let source: SourceDocument = toml::from_str(&format!(
+        "schema_name = \"ffhn.source\"\nschema_version = 1\nsource_id = \"shop\"\ndisplay_name = \"Shop\"\nenabled = true\nescalate_after = 2\n[fetch]\nengine = \"http\"\nsource_url = \"http://{address}/value\"\nuser_agent = \"ffhn-test\"\naccept = \"application/json\"\nmax_bytes = 1024\nfollow_redirects = true\nmax_redirects = 2\n[fetch.timeouts]\nconnect_ms = 1000\nread_idle_ms = 1000\ntotal_ms = 1000\n[conditional]\nenabled = true\n[schedule]\ninterval_ms = 1000\nmin_interval_ms = 1000\n"
+    ))
+    .expect("source");
+    let source_dir = graph.create_source_document(&source).expect("source");
+    let measurement: MeasurementDocument = toml::from_str(
+        "schema_name = \"ffhn.measurement\"\nschema_version = 1\nmeasurement_id = \"price\"\ndisplay_name = \"Price\"\nenabled = true\nescalate_after = 2\ndeclared_type = \"integer\"\nconditions = []\n[projection]\nkind = \"json_pointer\"\npointer = \"/price\"\n",
+    )
+    .expect("measurement");
+    source_dir
+        .create_measurement_document(&measurement)
+        .expect("measurement");
+    let source_id = SourceId::new("shop").expect("source id");
+    assert_eq!(
+        measure_source_once(&graph, source_id.clone())
+            .expect("first")
+            .status(),
+        GraphSourceStatus::Document
+    );
+    let source_config =
+        std::fs::read_to_string(source_dir.paths().source_file()).expect("source configuration");
+    assert!(source_config.contains("[conditional]\nenabled = true"));
+    std::fs::write(
+        source_dir.paths().source_file(),
+        source_config.replace(
+            "[conditional]\nenabled = true",
+            "[conditional]\nenabled = false",
+        ),
+    )
+    .expect("disable conditional requests");
+    assert_eq!(
+        measure_source_once(&graph, source_id)
+            .expect("unconditional second fetch")
+            .status(),
+        GraphSourceStatus::Document
+    );
+    let requests = worker.join().expect("worker");
+    assert_eq!(requests.len(), 2);
+    assert!(!requests[0].to_ascii_lowercase().contains("if-none-match:"));
+    assert!(!requests[1].to_ascii_lowercase().contains("if-none-match:"));
+}
+
+#[test]
 fn repeated_extraction_failure_escalates_and_dry_lock_contention_is_structured() {
     let temporary = tempdir().expect("temporary graph");
     let root = temporary.path().join("graph");
