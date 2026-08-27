@@ -294,20 +294,6 @@ fn mutation_runner_executes_both_safe_scopes_and_preserves_scope_evidence() {
 #[test]
 fn mutation_runner_rejects_ambiguous_shards_and_classifies_survivors() {
     let root = tempfile::tempdir().expect("runner fixture");
-    let routed_error = crate::run_from(["xtask", "mutants", "--scope", "all", "--shard", "0/12"])
-        .expect_err("routed all-scope shard");
-    assert!(
-        routed_error
-            .to_string()
-            .contains("requires an explicit --scope")
-    );
-    assert!(
-        run_mutants(root.path(), MutantsScope::All, Some("0/12"), None,)
-            .expect_err("ambiguous all-scope shard")
-            .to_string()
-            .contains("requires an explicit --scope")
-    );
-
     let bin = root.path().join("bin");
     fs::create_dir_all(&bin).expect("bin");
     write_repo_scaffold(root.path());
@@ -317,6 +303,20 @@ fn mutation_runner_rejects_ambiguous_shards_and_classifies_survivors() {
     );
     let error = with_test_artifact_roots(root.path(), || {
         with_test_environment(&bin, Some(root.path()), || {
+            let routed_error =
+                crate::run_from(["xtask", "mutants", "--scope", "all", "--shard", "0/12"])
+                    .expect_err("routed all-scope shard");
+            assert!(
+                routed_error
+                    .to_string()
+                    .contains("requires an explicit --scope")
+            );
+            assert!(
+                run_mutants(root.path(), MutantsScope::All, Some("0/12"), None,)
+                    .expect_err("ambiguous all-scope shard")
+                    .to_string()
+                    .contains("requires an explicit --scope")
+            );
             run_mutants(root.path(), MutantsScope::Runtime, None, None)
         })
     })
