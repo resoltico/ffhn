@@ -167,7 +167,7 @@ fn deliver_spawned_process_with_poll(
         await_writer_result(writer_results, deadline)?;
         Ok(())
     } else {
-        let suffix = completed_stderr(stderr)
+        let suffix = await_completed_stderr(stderr, deadline)
             .filter(|value| !value.is_empty())
             .map(|value| format!(": {value}"))
             .unwrap_or_default();
@@ -300,12 +300,17 @@ fn read_stderr(mut stderr: std::process::ChildStderr) -> mpsc::Receiver<String> 
     receiver
 }
 
-/// Returns stderr only when its bounded reader has finished; diagnostics never extend delivery.
-fn completed_stderr(receiver: Option<mpsc::Receiver<String>>) -> Option<String> {
-    receiver.and_then(|receiver| match receiver.try_recv() {
-        Ok(stderr) => Some(stderr),
-        Err(mpsc::TryRecvError::Empty) => None,
-        Err(mpsc::TryRecvError::Disconnected) => Some("stderr reader failed".to_owned()),
+/// Returns bounded stderr before the existing attempt deadline; diagnostics never extend delivery.
+fn await_completed_stderr(
+    receiver: Option<mpsc::Receiver<String>>,
+    deadline: Instant,
+) -> Option<String> {
+    receiver.and_then(|receiver| {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(stderr) => Some(stderr),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => Some("stderr reader failed".to_owned()),
+        }
     })
 }
 

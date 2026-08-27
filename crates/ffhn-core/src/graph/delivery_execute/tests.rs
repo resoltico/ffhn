@@ -321,16 +321,19 @@ fn diagnostic_messages_are_single_line_utf8_prefixes_bounded_by_bytes() {
     ));
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     sender.send("stderr".to_owned()).expect("send stderr");
-    assert_eq!(completed_stderr(Some(receiver)), Some("stderr".to_owned()));
+    assert_eq!(
+        await_completed_stderr(Some(receiver), Instant::now() + Duration::from_millis(1)),
+        Some("stderr".to_owned())
+    );
     let (sender, receiver) = std::sync::mpsc::sync_channel::<String>(1);
     drop(sender);
     assert_eq!(
-        completed_stderr(Some(receiver)),
+        await_completed_stderr(Some(receiver), Instant::now() + Duration::from_millis(1)),
         Some("stderr reader failed".to_owned())
     );
     let (_sender, receiver) = std::sync::mpsc::sync_channel::<String>(1);
-    assert_eq!(completed_stderr(Some(receiver)), None);
-    assert_eq!(completed_stderr(None), None);
+    assert_eq!(await_completed_stderr(Some(receiver), Instant::now()), None);
+    assert_eq!(await_completed_stderr(None, Instant::now()), None);
 }
 
 #[test]
