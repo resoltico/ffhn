@@ -51,6 +51,8 @@ jobs:
     name: cargo-mutants (${{ matrix.shard.scope }} ${{ matrix.shard.selector }})
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT: "120"
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +145,8 @@ jobs:
     name: cargo-mutants (${{ matrix.scope }} pull-request diff)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT: "120"
     strategy:
       fail-fast: false
       matrix:

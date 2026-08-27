@@ -61,6 +61,12 @@ fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     assert!(workflow.contains("name: ${{ matrix.shard.artifact_name }}"));
     assert!(!workflow.contains("cargo-mutants-${{ matrix.shard }}"));
     assert!(workflow.contains("CARGO_MUTANTS_VERSION"));
+    assert_eq!(
+        workflow
+            .matches("CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT: \"120\"")
+            .count(),
+        2
+    );
     assert!(workflow.contains("--in-diff"));
     assert!(workflow.contains("Inspect mutations in changed production code"));
     assert!(workflow.contains("has_mutants=false"));
