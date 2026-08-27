@@ -128,7 +128,12 @@ fn process_delivery_uses_the_snapshot_and_turns_a_nonzero_exit_into_a_retry_reco
 #[test]
 fn process_and_webhook_attempts_preserve_spawn_stderr_secret_transport_and_clock_failures() {
     let execution = execute_delivery_attempt_with_clock(
-        record_with("/path/that/does/not/exist/ffhn", &[], "1", 1_000),
+        record_with(
+            &crate::graph::test_support::missing_process_path(),
+            &[],
+            "1",
+            1_000,
+        ),
         "2026-08-25T00:00:00Z".to_owned(),
         || Ok("2026-08-25T00:01:00Z".to_owned()),
     )
@@ -203,7 +208,12 @@ fn process_and_webhook_attempts_preserve_spawn_stderr_secret_transport_and_clock
     ));
     assert!(
         execute_delivery_attempt_with_clock(
-            record_with("/path/that/does/not/exist/ffhn", &[], "1", 1_000),
+            record_with(
+                &crate::graph::test_support::missing_process_path(),
+                &[],
+                "1",
+                1_000,
+            ),
             "2026-08-25T00:00:00Z".to_owned(),
             || Err(CoreError::internal("clock failed")),
         )

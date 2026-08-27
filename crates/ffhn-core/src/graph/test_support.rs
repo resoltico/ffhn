@@ -14,6 +14,11 @@ pub(super) fn absolute_file_path(name: &str) -> String {
         .into_owned()
 }
 
+/// Returns an absolute path deliberately reserved for a process-spawn failure fixture.
+pub(super) fn missing_process_path() -> String {
+    absolute_file_path("missing-process-that-does-not-exist")
+}
+
 pub(super) fn successful_process() -> ProcessFixture {
     process_fixture(true)
 }

@@ -35,6 +35,7 @@ Notable changes to this project are documented in this file. The format is based
 - Advanced immutable GitHub Actions pins, the dated QA-nightly toolchain, the Dev Containers CLI, the contributor helper's Node LTS and Buildx images, and the `ffhn-core` semver baseline authority for the v11 API break; cargo-semver-checks is pinned directly to the exact upstream revision that natively supports Rustdoc v60 because the newest published 0.50.0 predates Rust 1.98 support.
 - Isolated pinned Cargo QA-tool installations from the workspace Cargo build configuration, so cross-platform runners compile maintainer tools in a host-native temporary directory rather than inheriting FFHN's managed artifact layout.
 - Made durable graph writes portable to Windows by preserving synchronized file replacement while avoiding the unsupported capability-directory flush that previously turned successful writes into access-denied errors.
+- Defined Windows `ERROR_LOCK_VIOLATION` advisory-lock results as normal graph contention, so concurrent source operations and agent ticks retain the documented `skipped_locked` and exit-4 behavior rather than becoming filesystem errors.
 - Streamlined scheduled dependency freshness so it installs only the pinned `cargo-outdated` tool while retaining a failing, review-required result for stale direct dependencies, and documented the exact temporary `io-lifetimes` and `syn` duplicate lines that the capability-storage and derive dependency graphs still require so cargo-deny preserves their removal signals.
 
 ### Fixed

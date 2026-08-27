@@ -109,8 +109,27 @@ fn open_and_try_lock(
 fn classify_lock_result(result: std::io::Result<()>) -> std::io::Result<bool> {
     match result {
         Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+        Err(error) if is_lock_contention(&error) => Ok(false),
         Err(error) => Err(error),
+    }
+}
+
+/// Normalizes the OS-specific result of a nonblocking advisory-lock attempt.
+///
+/// `fs2` reports a held lock as `WouldBlock` on Unix. Windows surfaces the same
+/// condition as `ERROR_LOCK_VIOLATION` (33), whose Rust error kind is
+/// `Uncategorized`; both outcomes mean another FFHN actor owns the lease.
+fn is_lock_contention(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        error.raw_os_error() == Some(33)
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 

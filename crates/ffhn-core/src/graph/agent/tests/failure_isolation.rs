@@ -47,7 +47,7 @@ fn isolated_source_workers_defer_missing_source_and_unavailable_graph_reopen() {
     graph
         .write_graph_identity(&graph_identity)
         .expect("restore identity");
-    let mut worker = AgentWorker::try_start(&graph)
+    let worker = AgentWorker::try_start(&graph)
         .expect("agent")
         .expect("lease");
     assert_eq!(
@@ -70,17 +70,26 @@ fn isolated_source_workers_defer_missing_source_and_unavailable_graph_reopen() {
         ),
         [now + Duration::seconds(1)]
     );
-    let moved = temporary.path().join("moved-graph");
-    fs::rename(&root, &moved).expect("move graph path");
-    let result = worker
-        .tick_with_jobs(&graph, "2026-08-25T00:00:00Z".to_owned(), 1)
-        .expect("isolated tick");
-    assert_eq!(
-        result.sources()[0].acquisition_deferred_reason(),
-        Some("unreadable")
-    );
-    assert!(result.sources()[0].acquisition_error().is_some());
-    assert!(result.sources()[0].drain_error().is_some());
+    #[cfg(unix)]
+    {
+        drop(worker);
+        let mut worker = AgentWorker::try_start(&graph)
+            .expect("agent")
+            .expect("lease");
+        // Unix permits moving a tree while its advisory-lock inode remains open. Windows
+        // correctly prevents that move, so its contention semantics are covered separately.
+        let moved = temporary.path().join("moved-graph");
+        fs::rename(&root, &moved).expect("move graph path");
+        let result = worker
+            .tick_with_jobs(&graph, "2026-08-25T00:00:00Z".to_owned(), 1)
+            .expect("isolated tick");
+        assert_eq!(
+            result.sources()[0].acquisition_deferred_reason(),
+            Some("unreadable")
+        );
+        assert!(result.sources()[0].acquisition_error().is_some());
+        assert!(result.sources()[0].drain_error().is_some());
+    }
 }
 
 #[test]
