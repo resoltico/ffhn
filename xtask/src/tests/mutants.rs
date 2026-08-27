@@ -70,6 +70,9 @@ fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     );
     assert!(workflow.contains("--in-diff"));
     assert!(workflow.contains("Inspect mutations in changed production code"));
+    assert!(workflow.contains("matrix.shard.scope }} pull-request diff"));
+    assert!(workflow.contains("--shard \"${{ matrix.shard.selector }}\" --in-diff"));
+    assert!(!workflow.contains("scope: [runtime, tooling]"));
     assert!(workflow.contains("has_mutants=false"));
     assert!(workflow.contains("steps.diff_mutants.outputs.has_mutants == 'true'"));
     assert!(workflow.contains("path: ${{ runner.temp }}/ffhn-mutation-results\n"));

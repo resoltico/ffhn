@@ -28,7 +28,6 @@ concurrency:
 
 jobs:
   mutation-plan:
-    if: github.event_name != 'pull_request'
     name: Plan cargo-mutants shards
     runs-on: ubuntu-24.04
     outputs:
@@ -142,7 +141,8 @@ jobs:
 
   mutants-diff:
     if: github.event_name == 'pull_request'
-    name: cargo-mutants (${{ matrix.scope }} pull-request diff)
+    needs: mutation-plan
+    name: cargo-mutants (${{ matrix.shard.scope }} pull-request diff ${{ matrix.shard.selector }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -150,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scope: [runtime, tooling]
+        shard: ${{ fromJSON(needs.mutation-plan.outputs.shards) }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,13 +180,13 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: mutants-pr-diff-${{ matrix.scope }}
+          key: mutants-pr-diff-${{ matrix.shard.scope }}-${{ matrix.shard.selector }}
           workspaces: ". -> ../.ffhn-artifacts/target"
 
       - name: Verify mutation scope
         shell: bash
         env:
-          MUTATION_SCOPE: ${{ matrix.scope }}
+          MUTATION_SCOPE: ${{ matrix.shard.scope }}
         run: |
           set -euo pipefail
           config=".cargo/mutants-$MUTATION_SCOPE.toml"
@@ -215,12 +215,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          config=".cargo/mutants-${{ matrix.scope }}.toml"
+          config=".cargo/mutants-${{ matrix.shard.scope }}.toml"
           cargo mutants \
             --config "$config" \
             --list \
             --json \
             --in-diff "${{ steps.mutation_diff.outputs.path }}" \
+            --shard "${{ matrix.shard.selector }}" \
             > "$RUNNER_TEMP/diff-mutants.json"
           count="$(jq 'length' "$RUNNER_TEMP/diff-mutants.json")"
           if (( count > 0 )); then
@@ -228,19 +229,19 @@ jobs:
           else
             echo "has_mutants=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "${{ matrix.scope }} diff mutants: $count" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ matrix.shard.scope }} diff mutants (${{ matrix.shard.selector }}): $count" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run mutations in changed production code
         if: steps.diff_mutants.outputs.has_mutants == 'true'
         shell: bash
-        run: cargo xtask mutants --scope "${{ matrix.scope }}" --in-diff "${{ steps.mutation_diff.outputs.path }}"
+        run: cargo xtask mutants --scope "${{ matrix.shard.scope }}" --shard "${{ matrix.shard.selector }}" --in-diff "${{ steps.mutation_diff.outputs.path }}"
 
       - name: Stage mutation results
         if: always() && steps.diff_mutants.outputs.has_mutants == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          source_dir="$GITHUB_WORKSPACE/../.ffhn-artifacts/mutation-runs/${{ matrix.scope }}/mutants.out"
+          source_dir="$GITHUB_WORKSPACE/../.ffhn-artifacts/mutation-runs/${{ matrix.shard.scope }}/mutants.out"
           stage_dir="$RUNNER_TEMP/ffhn-mutation-results"
           test -d "$source_dir"
           mkdir -p "$stage_dir"
@@ -250,7 +251,7 @@ jobs:
         if: always() && steps.diff_mutants.outputs.has_mutants == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cargo-mutants-pr-diff-${{ matrix.scope }}
+          name: pr-diff-${{ matrix.shard.artifact_name }}
           path: ${{ runner.temp }}/ffhn-mutation-results
           if-no-files-found: error
 
