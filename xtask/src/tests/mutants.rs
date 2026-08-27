@@ -39,7 +39,7 @@ fn mutation_configurations_partition_all_first_party_production_rust() {
         assert!(config.contains("**/src/**/tests.rs"));
     }
     assert!(runtime.contains("test_package = [\"ffhn-core\", \"ffhn-cli\"]"));
-    assert!(runtime.contains("additional_cargo_test_args = [\"--test-threads=1\"]"));
+    assert!(runtime.contains("additional_cargo_test_args = [\"--\", \"--test-threads=1\"]"));
     assert!(runtime.contains("crates/ffhn-core/src/**/*.rs"));
     assert!(runtime.contains("crates/ffhn-cli/src/**/*.rs"));
     assert!(!runtime.contains("xtask/src"));
