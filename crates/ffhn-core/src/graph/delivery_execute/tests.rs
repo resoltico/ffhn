@@ -8,6 +8,32 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
+struct KillRecordingChild {
+    child: std::process::Child,
+    start_kill_called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ChildWrapper for KillRecordingChild {
+    fn inner(&self) -> &dyn ChildWrapper {
+        &self.child
+    }
+
+    fn inner_mut(&mut self) -> &mut dyn ChildWrapper {
+        &mut self.child
+    }
+
+    fn into_inner(self: Box<Self>) -> Box<dyn ChildWrapper> {
+        Box::new(self.child)
+    }
+
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.start_kill_called
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.child.kill()
+    }
+}
+
 fn record_with(
     program: &str,
     args: &[String],
@@ -123,6 +149,29 @@ fn process_delivery_uses_the_snapshot_and_turns_a_nonzero_exit_into_a_retry_reco
         panic!("second failure must dead-letter");
     };
     assert_eq!(letter.record().attempts().len(), 2);
+}
+
+#[test]
+fn completed_processes_still_receive_bounded_process_tree_cleanup() {
+    let fixture = crate::graph::test_support::successful_process();
+    let mut command = std::process::Command::new(&fixture.program);
+    command
+        .args(&fixture.args)
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null());
+    let start_kill_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let child = KillRecordingChild {
+        child: command.spawn().expect("child"),
+        start_kill_called: std::sync::Arc::clone(&start_kill_called),
+    };
+    assert!(
+        deliver_spawned_process_with_poll(Box::new(child), "payload".to_owned(), 1_000, |child| {
+            child.try_wait()
+        })
+        .is_ok()
+    );
+    assert!(start_kill_called.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[test]
@@ -252,14 +301,38 @@ fn diagnostic_messages_are_single_line_utf8_prefixes_bounded_by_bytes() {
     let writer_failure = DeliveryAttemptFailure::Process {
         message: "write failed".to_owned(),
     };
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    sender
+        .send(Err(writer_failure.clone()))
+        .expect("send failure");
     assert_eq!(
-        classify_writer_result(Ok(Err(writer_failure.clone()))),
+        await_writer_result(receiver, Instant::now() + Duration::from_millis(1)),
         Err(writer_failure)
     );
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<Result<(), DeliveryAttemptFailure>>(1);
+    drop(sender);
     assert!(matches!(
-        classify_writer_result(Err(Box::new("writer panic"))),
+        await_writer_result(receiver, Instant::now() + Duration::from_millis(1)),
         Err(DeliveryAttemptFailure::Process { message }) if message == "process stdin writer failed"
     ));
+    let (_sender, receiver) =
+        std::sync::mpsc::sync_channel::<Result<(), DeliveryAttemptFailure>>(1);
+    assert!(matches!(
+        await_writer_result(receiver, Instant::now()),
+        Err(DeliveryAttemptFailure::Process { message }) if message == "process stdin writer did not finish before delivery deadline"
+    ));
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    sender.send("stderr".to_owned()).expect("send stderr");
+    assert_eq!(completed_stderr(Some(receiver)), Some("stderr".to_owned()));
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<String>(1);
+    drop(sender);
+    assert_eq!(
+        completed_stderr(Some(receiver)),
+        Some("stderr reader failed".to_owned())
+    );
+    let (_sender, receiver) = std::sync::mpsc::sync_channel::<String>(1);
+    assert_eq!(completed_stderr(Some(receiver)), None);
+    assert_eq!(completed_stderr(None), None);
 }
 
 #[test]

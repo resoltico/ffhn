@@ -6,6 +6,7 @@ compile_error!("FFHN process delivery requires Unix process groups or Windows Jo
 use std::{
     io::{Read, Write},
     process::{Command, Stdio},
+    sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
@@ -123,58 +124,50 @@ fn deliver_spawned_process_with_poll(
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let stderr = child.stderr().take().map(read_stderr);
     let Some(mut stdin) = child.stdin().take() else {
-        terminate_process_group(child.as_mut());
-        let _ = stderr.map(thread::JoinHandle::join);
+        terminate_process_group(child.as_mut(), deadline);
         return Err(DeliveryAttemptFailure::Process {
             message: "process delivery did not provide stdin".to_owned(),
         });
     };
+    let (writer_sender, writer_results) = mpsc::sync_channel(1);
     let writer = thread::spawn(move || {
-        stdin
+        let result = stdin
             .write_all(payload.as_bytes())
             .and_then(|_| stdin.write_all(b"\n"))
             .map_err(|error| DeliveryAttemptFailure::Process {
                 message: message(error),
-            })
+            });
+        let _ = writer_sender.send(result);
     });
+    drop(writer);
     let status = loop {
         match poll(child.as_mut()) {
             Ok(Some(status)) => {
-                terminate_process_group(child.as_mut());
+                terminate_process_group(child.as_mut(), deadline);
                 break status;
             }
             Ok(None) if before_deadline(Instant::now(), deadline) => {
                 thread::sleep(Duration::from_millis(5));
             }
             Ok(None) => {
-                terminate_process_group(child.as_mut());
-                let _ = writer.join();
-                let _ = stderr.map(thread::JoinHandle::join);
+                terminate_process_group(child.as_mut(), deadline);
                 return Err(DeliveryAttemptFailure::Process {
                     message: "process delivery timed out".to_owned(),
                 });
             }
             Err(error) => {
-                terminate_process_group(child.as_mut());
-                let _ = writer.join();
-                let _ = stderr.map(thread::JoinHandle::join);
+                terminate_process_group(child.as_mut(), deadline);
                 return Err(DeliveryAttemptFailure::Process {
                     message: message(error),
                 });
             }
         }
     };
-    let writer = classify_writer_result(writer.join());
-    let stderr = stderr.map(|reader| {
-        reader
-            .join()
-            .unwrap_or_else(|_| "stderr reader failed".to_owned())
-    });
     if status.success() {
-        writer?;
+        await_writer_result(writer_results, deadline)?;
         Ok(())
     } else {
-        let suffix = stderr
+        let suffix = completed_stderr(stderr)
             .filter(|value| !value.is_empty())
             .map(|value| format!(": {value}"))
             .unwrap_or_default();
@@ -188,9 +181,18 @@ fn before_deadline(now: Instant, deadline: Instant) -> bool {
     now < deadline
 }
 
-fn terminate_process_group(child: &mut dyn ChildWrapper) {
+/// Starts complete process-tree termination and waits only within the delivery deadline.
+///
+/// A closed adapter parent can leave a child or inherited pipe open. Cleanup is best effort, but
+/// it must never make a configured attempt deadline unenforceable.
+fn terminate_process_group(child: &mut dyn ChildWrapper, deadline: Instant) {
     let _ = child.start_kill();
-    let _ = child.wait();
+    while before_deadline(Instant::now(), deadline) {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => break,
+            Ok(None) => thread::sleep(Duration::from_millis(5)),
+        }
+    }
 }
 
 fn spawn_managed_process(command: Command) -> std::io::Result<Box<dyn ChildWrapper>> {
@@ -208,12 +210,16 @@ fn process_payload(value: &impl serde::Serialize) -> Result<String, DeliveryAtte
     })
 }
 
-fn classify_writer_result(
-    result: thread::Result<Result<(), DeliveryAttemptFailure>>,
+fn await_writer_result(
+    receiver: mpsc::Receiver<Result<(), DeliveryAttemptFailure>>,
+    deadline: Instant,
 ) -> Result<(), DeliveryAttemptFailure> {
-    match result {
+    match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(result) => result,
-        Err(_) => Err(DeliveryAttemptFailure::Process {
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(DeliveryAttemptFailure::Process {
+            message: "process stdin writer did not finish before delivery deadline".to_owned(),
+        }),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(DeliveryAttemptFailure::Process {
             message: "process stdin writer failed".to_owned(),
         }),
     }
@@ -286,8 +292,21 @@ fn webhook_payload(value: &impl serde::Serialize) -> Result<String, DeliveryAtte
     })
 }
 
-fn read_stderr(mut stderr: std::process::ChildStderr) -> thread::JoinHandle<String> {
-    thread::spawn(move || read_bounded_stderr(&mut stderr))
+fn read_stderr(mut stderr: std::process::ChildStderr) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let _ = sender.send(read_bounded_stderr(&mut stderr));
+    });
+    receiver
+}
+
+/// Returns stderr only when its bounded reader has finished; diagnostics never extend delivery.
+fn completed_stderr(receiver: Option<mpsc::Receiver<String>>) -> Option<String> {
+    receiver.and_then(|receiver| match receiver.try_recv() {
+        Ok(stderr) => Some(stderr),
+        Err(mpsc::TryRecvError::Empty) => None,
+        Err(mpsc::TryRecvError::Disconnected) => Some("stderr reader failed".to_owned()),
+    })
 }
 
 fn read_bounded_stderr(stderr: &mut impl Read) -> String {
