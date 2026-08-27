@@ -101,6 +101,8 @@ fn repeated_extraction_failure_escalates_and_dry_lock_contention_is_structured()
         crate::graph::EventKind::ExtractionEscalation
     );
     assert!(second.measurements()[0].extraction_health().is_some());
+    drop(first);
+    drop(second);
 
     let lease = source_dir
         .try_acquire_write_lease()

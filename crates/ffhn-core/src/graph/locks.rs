@@ -125,12 +125,19 @@ fn is_lock_contention(error: &std::io::Error) -> bool {
     }
     #[cfg(windows)]
     {
-        error.raw_os_error() == Some(33)
+        is_windows_lock_violation(error.raw_os_error())
     }
     #[cfg(not(windows))]
     {
         false
     }
+}
+
+/// Recognizes Windows' documented `ERROR_LOCK_VIOLATION` code independently of host platform.
+/// Keeping this closed mapping pure lets every supported host verify the Windows boundary.
+#[cfg(any(windows, test))]
+fn is_windows_lock_violation(raw_os_error: Option<i32>) -> bool {
+    raw_os_error == Some(33)
 }
 
 #[cfg(test)]

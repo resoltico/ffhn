@@ -162,10 +162,8 @@ fn lock_entries_must_be_regular_files() {
         !classify_lock_result(Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)))
             .expect("contended")
     );
-    #[cfg(windows)]
-    assert!(
-        !classify_lock_result(Err(std::io::Error::from_raw_os_error(33)))
-            .expect("Windows lock contention")
-    );
+    assert!(is_windows_lock_violation(Some(33)));
+    assert!(!is_windows_lock_violation(Some(32)));
+    assert!(!is_windows_lock_violation(None));
     assert!(classify_lock_result(Err(std::io::Error::other("failed"))).is_err());
 }
