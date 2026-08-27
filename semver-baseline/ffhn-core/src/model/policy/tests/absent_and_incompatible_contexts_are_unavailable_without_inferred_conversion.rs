@@ -2,7 +2,7 @@ use super::support::*;
 
 #[test]
 fn absent_and_incompatible_contexts_are_unavailable_without_inferred_conversion() {
-    let absolute = target(
+    let absolute = measurement(
         "integer",
         "",
         &one_condition(
@@ -12,12 +12,12 @@ fn absent_and_incompatible_contexts_are_unavailable_without_inferred_conversion(
     let integer = observation("integer", "", "2");
     let no_context = BTreeMap::new();
     assert_eq!(
-        valid_stage(&absolute, &integer, &no_context).outcome(),
+        evaluate(&absolute, &integer, &no_context).outcome(),
         ConditionOutcome::Unavailable
     );
     let decimal = observation("decimal", "", "1");
     assert_eq!(
-        valid_stage(
+        evaluate(
             &absolute,
             &integer,
             &context(Some(&decimal), None, None, false)
@@ -26,13 +26,13 @@ fn absent_and_incompatible_contexts_are_unavailable_without_inferred_conversion(
         ConditionOutcome::Unavailable
     );
 
-    let changed = target(
+    let changed = measurement(
         "integer",
         "",
         &one_condition("kind = \"changed\"\nreference = \"last_accepted_observation\""),
     );
     assert_eq!(
-        valid_stage(
+        evaluate(
             &changed,
             &integer,
             &context(Some(&decimal), None, None, false)
@@ -41,7 +41,7 @@ fn absent_and_incompatible_contexts_are_unavailable_without_inferred_conversion(
         ConditionOutcome::Unavailable
     );
 
-    let percentage = target(
+    let percentage = measurement(
         "integer",
         "",
         &one_condition(
@@ -49,17 +49,17 @@ fn absent_and_incompatible_contexts_are_unavailable_without_inferred_conversion(
         ),
     );
     assert_eq!(
-        valid_stage(&percentage, &integer, &context(None, None, None, false)).outcome(),
+        evaluate(&percentage, &integer, &context(None, None, None, false)).outcome(),
         ConditionOutcome::Unavailable
     );
 
-    let crosses = target(
+    let crosses = measurement(
         "integer",
         "",
         &one_condition("kind = \"crosses\"\nthreshold = \"2\"\ndirection = \"rising\""),
     );
     assert_eq!(
-        valid_stage(
+        evaluate(
             &crosses,
             &integer,
             &context(Some(&decimal), None, None, false)

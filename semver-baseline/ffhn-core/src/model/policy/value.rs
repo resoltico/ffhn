@@ -23,9 +23,21 @@ pub(super) enum PolicyValue {
 }
 
 impl PolicyValue {
+    fn canonical_text(&self) -> Result<String, String> {
+        match self {
+            Self::Text(value) => Ok(value.clone()),
+            Self::Integer(value) => Ok(value.to_string()),
+            Self::Decimal(value) | Self::Money { amount: value, .. } => {
+                Ok(value.normalize().to_string())
+            }
+            Self::Semver(value) => Ok(value.to_string()),
+            Self::Datetime(value) => value
+                .format(&Rfc3339)
+                .map_err(|_| "canonical datetime could not be formatted".to_owned()),
+        }
+    }
     pub(super) fn compare(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (Self::Text(_), Self::Text(_)) => None,
             (Self::Integer(left), Self::Integer(right)) => Some(left.cmp(right)),
             (Self::Decimal(left), Self::Decimal(right)) => Some(left.cmp(right)),
             (
@@ -229,6 +241,14 @@ pub(super) fn parse_config_value(
     parse_canonical_value_as_policy_value(declared_type, params, &canonical)
 }
 
+pub(crate) fn canonical_config_value(
+    declared_type: DeclaredType,
+    params: &TypeParams,
+    raw: &str,
+) -> Result<String, String> {
+    parse_config_value(declared_type, params, raw)?.canonical_text()
+}
+
 pub(super) fn parse_observation_value(observation: &Observation) -> Result<PolicyValue, String> {
     parse_canonical_value_as_policy_value(
         observation.declared_type_for_policy(),
@@ -237,7 +257,7 @@ pub(super) fn parse_observation_value(observation: &Observation) -> Result<Polic
     )
 }
 
-pub(super) fn parse_percentage(raw: &str) -> Result<Decimal, String> {
+pub(crate) fn parse_percentage(raw: &str) -> Result<Decimal, String> {
     if raw.trim() != raw || raw.is_empty() {
         return Err("must be a non-empty invariant decimal string".to_owned());
     }
@@ -284,6 +304,34 @@ mod coverage_tests {
         Decimal::from_str(raw).expect("exact decimal")
     }
 
+    #[test]
+    fn percentage_and_canonical_policy_parsers_preserve_exact_variants() {
+        assert_eq!(parse_percentage("12.50"), Ok(decimal("12.50")));
+        for invalid in ["", " 1", "1 "] {
+            assert_eq!(
+                parse_percentage(invalid),
+                Err("must be a non-empty invariant decimal string".to_owned())
+            );
+        }
+        assert_eq!(
+            parse_percentage("not-decimal"),
+            Err("must be an invariant decimal percentage".to_owned())
+        );
+
+        let params = TypeParams::default();
+        assert_eq!(
+            parse_canonical_value_as_policy_value(DeclaredType::Integer, &params, "42"),
+            Ok(PolicyValue::Integer(42))
+        );
+        assert_eq!(
+            parse_canonical_value_as_policy_value(DeclaredType::Text, &params, "value"),
+            Ok(PolicyValue::Text("value".to_owned()))
+        );
+        assert!(
+            parse_canonical_value_as_policy_value(DeclaredType::Integer, &params, "4.2").is_err()
+        );
+    }
+
     fn euro(amount: Decimal) -> PolicyValue {
         PolicyValue::Money {
             amount,
@@ -317,6 +365,18 @@ mod coverage_tests {
             compare_percentage_cross_products(Some(Unsigned256::ZERO), None),
             ArithmeticResult::Overflow
         );
+        for value in [
+            PolicyValue::Text("text".to_owned()),
+            PolicyValue::Integer(42),
+            PolicyValue::Decimal(decimal("1.20")),
+            euro(decimal("2.30")),
+            PolicyValue::Semver(Version::parse("1.2.3").expect("semver")),
+            PolicyValue::Datetime(
+                OffsetDateTime::parse("2026-08-25T00:00:00Z", &Rfc3339).expect("datetime"),
+            ),
+        ] {
+            assert!(!value.canonical_text().expect("canonical text").is_empty());
+        }
     }
 
     #[test]

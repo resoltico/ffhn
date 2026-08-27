@@ -192,7 +192,12 @@ impl<const LIMBS: usize> Unsigned<LIMBS> {
 
     pub(super) fn checked_mul_u128(mut self, mut multiplier: u128) -> Option<Self> {
         let mut product = Self::ZERO;
-        while multiplier != 0 {
+        // A `u128` multiplier has exactly this many possible set-bit positions. Keeping the loop
+        // structurally bounded makes the proof executable even under defensive fault injection.
+        for _ in 0..u128::BITS {
+            if multiplier == 0 {
+                return Some(product);
+            }
             if multiplier & 1 != 0 {
                 product = product.checked_add(self)?;
             }
@@ -201,6 +206,7 @@ impl<const LIMBS: usize> Unsigned<LIMBS> {
                 self = self.checked_double()?;
             }
         }
+        debug_assert_eq!(multiplier, 0);
         Some(product)
     }
 
@@ -232,8 +238,9 @@ impl<const LIMBS: usize> Unsigned<LIMBS> {
         let mut values = [0; LIMBS];
         let mut carry = 0;
         for (index, value) in values.iter_mut().enumerate() {
-            *value = (self.0[index] << 1) | carry;
-            carry = self.0[index] >> 63;
+            let (doubled, overflowed) = self.0[index].overflowing_mul(2);
+            *value = doubled + carry;
+            carry = u64::from(overflowed);
         }
         (carry == 0).then_some(Self(values))
     }
@@ -268,6 +275,46 @@ mod tests {
         assert_eq!(Unsigned::<0>::try_from_u128(0), Some(Unsigned([])));
         assert_eq!(multiply_by_power_of_ten(Some(maximum), 1), None);
         assert_eq!(maximum.checked_mul_u128(2), None);
+        assert_eq!(
+            Unsigned::<1>::try_from_u128(u128::from(u64::MAX)),
+            Some(Unsigned([u64::MAX]))
+        );
+        assert_eq!(Unsigned::<1>::try_from_u128(u128::from(u64::MAX) + 1), None);
+        assert_eq!(
+            Unsigned::<2>::try_from_u128(u128::MAX),
+            Some(Unsigned([u64::MAX; 2]))
+        );
+        assert_eq!(
+            Unsigned::<2>::try_from_u128(3)
+                .expect("three")
+                .checked_mul_u128(5),
+            Some(Unsigned([15, 0]))
+        );
+        assert_eq!(
+            Unsigned::<2>::try_from_u128(3)
+                .expect("three")
+                .checked_mul_u128(0),
+            Some(Unsigned::ZERO)
+        );
+        assert_eq!(
+            Unsigned::<2>([1_u64 << 63, 0]).checked_mul_u128(2),
+            Some(Unsigned([0, 1]))
+        );
+        assert_eq!(
+            Unsigned::<2>::try_from_u128(1)
+                .expect("one fits")
+                .checked_mul_u128(1_u128 << 127),
+            Some(Unsigned([0, 1_u64 << 63]))
+        );
+        assert_eq!(
+            Unsigned::<2>([1, 0]).checked_double(),
+            Some(Unsigned([2, 0]))
+        );
+        assert_eq!(
+            Unsigned::<2>([u64::MAX, 0]).checked_double(),
+            Some(Unsigned([u64::MAX - 1, 1]))
+        );
+        assert_eq!(Unsigned::<2>([0, 1_u64 << 63]).checked_double(), None);
         assert_eq!(
             Unsigned256::ZERO.checked_sub(Unsigned256::try_from_u128(1).expect("fits")),
             None
