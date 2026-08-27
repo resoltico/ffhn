@@ -269,7 +269,7 @@ fn mutation_runner_executes_both_safe_scopes_and_preserves_scope_evidence() {
 
     with_test_artifact_roots(root.path(), || {
         with_test_environment(&bin, Some(root.path()), || {
-            run_mutants(root.path(), MutantsScope::All, false, None, None)
+            run_mutants(root.path(), MutantsScope::All, None, None)
         })
         .expect("complete mutation runner");
 
@@ -295,7 +295,7 @@ fn mutation_runner_rejects_ambiguous_shards_and_classifies_survivors() {
             .contains("requires an explicit --scope")
     );
     assert!(
-        run_mutants(root.path(), MutantsScope::All, false, Some("0/12"), None,)
+        run_mutants(root.path(), MutantsScope::All, Some("0/12"), None,)
             .expect_err("ambiguous all-scope shard")
             .to_string()
             .contains("requires an explicit --scope")
@@ -310,7 +310,7 @@ fn mutation_runner_rejects_ambiguous_shards_and_classifies_survivors() {
     );
     let error = with_test_artifact_roots(root.path(), || {
         with_test_environment(&bin, Some(root.path()), || {
-            run_mutants(root.path(), MutantsScope::Runtime, true, None, None)
+            run_mutants(root.path(), MutantsScope::Runtime, None, None)
         })
     })
     .expect_err("surviving mutant");

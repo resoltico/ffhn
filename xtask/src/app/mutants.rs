@@ -47,7 +47,6 @@ const TOOLING: ScopeSpec = ScopeSpec {
 pub(crate) fn run_mutants(
     repo_root: &Path,
     scope: MutantsScope,
-    in_place: bool,
     shard: Option<&str>,
     in_diff: Option<&Path>,
 ) -> DynResult<()> {
@@ -79,7 +78,7 @@ pub(crate) fn run_mutants(
         remove_dir_if_exists(&output_dir.join("mutants.out.old"))?;
         let execution = run_spec(
             repo_root,
-            &mutants_command(&output_dir, *selected, in_place, shard, in_diff),
+            &mutants_command(&output_dir, *selected, shard, in_diff),
         );
         if let Err(error) = execution {
             return Err(mutation_execution_error(error, selected.name));
@@ -100,7 +99,6 @@ fn selected_scopes(scope: MutantsScope) -> &'static [ScopeSpec] {
 fn mutants_command(
     output_dir: &Path,
     scope: ScopeSpec,
-    in_place: bool,
     shard: Option<&str>,
     in_diff: Option<&Path>,
 ) -> CommandSpec {
@@ -111,9 +109,6 @@ fn mutants_command(
         "--output".to_owned(),
         output_dir.to_string_lossy().into_owned(),
     ];
-    if in_place {
-        args.push("--in-place".to_owned());
-    }
     if let Some(shard) = shard {
         args.extend(["--shard".to_owned(), shard.to_owned()]);
     }
@@ -161,8 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn command_preserves_safe_and_disposable_ci_modes() {
-        let safe = mutants_command(Path::new("/tmp/runtime"), RUNTIME, false, None, None);
+    fn command_always_uses_the_isolated_workspace_mode() {
+        let safe = mutants_command(Path::new("/tmp/runtime"), RUNTIME, None, None);
         assert_eq!(
             safe.args,
             [
@@ -176,7 +171,6 @@ mod tests {
         let ci = mutants_command(
             Path::new("/tmp/tooling"),
             TOOLING,
-            true,
             Some("2/4"),
             Some(Path::new("changes.diff")),
         );
@@ -188,7 +182,6 @@ mod tests {
                 ".cargo/mutants-tooling.toml",
                 "--output",
                 "/tmp/tooling",
-                "--in-place",
                 "--shard",
                 "2/4",
                 "--in-diff",

@@ -86,7 +86,7 @@ enum Task {
     Miri,
     #[command(
         about = "Run maintained mutation testing against first-party FFHN Rust source.",
-        long_about = "Run cargo-mutants against the checked-in runtime or maintainer-tool scope. Local runs copy the workspace; --in-place is reserved for disposable CI checkouts."
+        long_about = "Run cargo-mutants against the checked-in runtime or maintainer-tool scope. Every run uses cargo-mutants' isolated copied-workspace mode."
     )]
     Mutants(MutantsArgs),
     #[command(
@@ -164,9 +164,6 @@ struct MutantsArgs {
     /// First-party mutation surface to execute.
     #[arg(long, value_enum, default_value_t = mutants::MutantsScope::All)]
     scope: mutants::MutantsScope,
-    /// Mutate the current checkout. Use only inside a disposable CI checkout.
-    #[arg(long)]
-    in_place: bool,
     /// Run one zero-based cargo-mutants shard such as `0/12`.
     #[arg(long, value_name = "INDEX/TOTAL")]
     shard: Option<String>,
@@ -203,7 +200,6 @@ where
         Task::Mutants(args) => mutants::run_mutants(
             &repo_root,
             args.scope,
-            args.in_place,
             args.shard.as_deref(),
             args.in_diff.as_deref(),
         ),

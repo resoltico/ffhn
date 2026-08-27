@@ -117,7 +117,7 @@ jobs:
 
       - name: Run mutation shard
         shell: bash
-        run: cargo xtask mutants --scope "${{ matrix.shard.scope }}" --in-place --shard "${{ matrix.shard.selector }}"
+        run: cargo xtask mutants --scope "${{ matrix.shard.scope }}" --shard "${{ matrix.shard.selector }}"
 
       - name: Stage mutation results
         if: always()
@@ -229,7 +229,7 @@ jobs:
       - name: Run mutations in changed production code
         if: steps.diff_mutants.outputs.has_mutants == 'true'
         shell: bash
-        run: cargo xtask mutants --scope "${{ matrix.scope }}" --in-place --in-diff "${{ steps.mutation_diff.outputs.path }}"
+        run: cargo xtask mutants --scope "${{ matrix.scope }}" --in-diff "${{ steps.mutation_diff.outputs.path }}"
 
       - name: Stage mutation results
         if: always() && steps.diff_mutants.outputs.has_mutants == 'true'

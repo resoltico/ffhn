@@ -95,7 +95,7 @@ Mutation testing is intentionally opt-in because complete campaigns execute thou
 cargo xtask mutants
 ```
 
-Local mutation runs copy the workspace before changing source. `--in-place` is reserved for disposable CI checkouts.
+Every mutation run uses cargo-mutants' isolated copied-workspace mode, so it cannot create build output in the checkout it evaluates.
 
 ## Install Host-Native ShellCheck
 

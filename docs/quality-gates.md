@@ -198,7 +198,7 @@ There is no separate rustdoc-coverage percentage gate. Public-surface documentat
 
 Mutation testing asks whether the tests reject plausible behavioral changes; 100% line/branch coverage alone proves only that code executed. It complements coverage, fuzzing, and Miri and remains separate from `./check.sh` because complete campaigns contain thousands of mutants.
 
-Local runs use cargo-mutants' copied-workspace mode and retain results under `../.ffhn-artifacts/mutation-runs/<scope>/mutants.out`. Each new run clears only the selected scope's prior generated result tree. `--in-place` is accepted only for disposable CI checkouts.
+Every run uses cargo-mutants' copied-workspace mode and retains results under `../.ffhn-artifacts/mutation-runs/<scope>/mutants.out`. Each new run clears only the selected scope's prior generated result tree; no mutation mode writes build output into the checkout it evaluates.
 
 The dedicated [mutation workflow](../.github/workflows/mutants.yml) enumerates each pull-request diff first, then runs and retains a runtime or tooling mutation result only when that scope contains changed production mutants; an empty scope is a successful explicit zero rather than fabricated evidence. Weekly and manually dispatched full campaigns use one generated plan containing twelve runtime shards and four tooling shards. Machine selectors such as `0/12` remain distinct from artifact-safe identities. The summary authority rejects missing, unexpected, flattened, malformed, or incomplete shard evidence before aggregating caught, missed, timed-out, and unviable counts.
 

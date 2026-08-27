@@ -41,7 +41,7 @@ fn xtask_binary_help_exposes_the_targeted_semver_lane() {
 }
 
 #[test]
-fn xtask_binary_mutants_help_exposes_safe_scopes_and_ci_boundaries() {
+fn xtask_binary_mutants_help_exposes_isolated_scopes() {
     let output = Command::cargo_bin("xtask")
         .expect("xtask binary")
         .args(["mutants", "--help"])
@@ -50,11 +50,11 @@ fn xtask_binary_mutants_help_exposes_safe_scopes_and_ci_boundaries() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Local runs copy the workspace"));
+    assert!(stdout.contains("isolated copied-workspace mode"));
     assert!(stdout.contains("--scope <SCOPE>"));
     assert!(stdout.contains("runtime"));
     assert!(stdout.contains("tooling"));
-    assert!(stdout.contains("--in-place"));
+    assert!(!stdout.contains("--in-place"));
     assert!(stdout.contains("--in-diff <DIFF_FILE>"));
 }
 
