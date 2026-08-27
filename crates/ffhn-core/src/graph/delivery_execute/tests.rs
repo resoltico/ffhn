@@ -34,7 +34,35 @@ impl ChildWrapper for KillRecordingChild {
     }
 }
 
+fn accept_connection_within(
+    listener: &std::net::TcpListener,
+) -> std::io::Result<std::net::TcpStream> {
+    listener.set_nonblocking(true)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false)?;
+                return Ok(stream);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "client did not connect before the test deadline",
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn read_complete_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .expect("read deadline");
     let mut request = Vec::new();
     let mut chunk = [0_u8; 1_024];
     loop {
@@ -386,7 +414,7 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
     let address = listener.local_addr().expect("address");
     let worker = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("request");
+        let mut stream = accept_connection_within(&listener).expect("request");
         let _ = read_complete_http_request(&mut stream);
         stream
             .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
@@ -407,7 +435,7 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("header listener");
     let address = listener.local_addr().expect("header address");
     let worker = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("header request");
+        let mut stream = accept_connection_within(&listener).expect("header request");
         let request =
             String::from_utf8(read_complete_http_request(&mut stream)).expect("UTF-8 request");
         assert!(
@@ -479,6 +507,13 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
         read_bounded_stderr(&mut std::io::Cursor::new(vec![b'x'; 3_000])).len(),
         2_048
     );
+}
+
+#[test]
+fn local_webhook_fixture_refuses_a_missing_client_within_its_deadline() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let error = accept_connection_within(&listener).expect_err("missing client");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
 }
 
 #[cfg(unix)]
