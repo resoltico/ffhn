@@ -14,10 +14,23 @@ thread_local! {
 pub(in crate::graph) fn sync_directory(dir: &Dir, path: &Path) -> Result<(), CoreError> {
     #[cfg(test)]
     DIRECTORY_SYNC_COUNT.set(DIRECTORY_SYNC_COUNT.get() + 1);
-    let handle = dir.open(".").map_err(|error| CoreError::io(path, error))?;
-    handle
-        .sync_all()
-        .map_err(|error| CoreError::io(path, error))
+
+    // Windows does not provide directory-handle flush semantics through cap-std. File payloads
+    // are still synchronized before their atomic replacement; attempting a directory `sync_all`
+    // here instead turns successful writes into `AccessDenied` failures on supported Windows.
+    #[cfg(windows)]
+    {
+        let _ = (dir, path);
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        let handle = dir.open(".").map_err(|error| CoreError::io(path, error))?;
+        handle
+            .sync_all()
+            .map_err(|error| CoreError::io(path, error))
+    }
 }
 
 #[cfg(test)]

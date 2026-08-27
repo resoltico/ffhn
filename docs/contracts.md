@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: CONTRACTS
-updated: "2026-08-25"
+updated: "2026-08-27"
 route:
   keywords: [contracts, schema versions, graph identity, source state, measurement state, reports, reset]
   questions: ["which FFHN contracts exist?", "what is the persisted graph layout?", "what does reset replace?"]
@@ -36,7 +36,7 @@ The graph identity contains the immutable `graph_id`. Source identity is the sol
 
 Every lineage-dependent document must match the authoritative source and measurement instance identities exactly. Source state owns the source generation, acquisition health, source integration-fault episode, validators or file digest, and durable schedule. Measurement state owns the accepted typed observation, observation sequence, extraction health, measurement integration-fault episode, condition state, measurement value digest, and policy revision.
 
-A normal generation is visible only after its synchronized staged files and identity additions are installed through a validated commit manifest. A delivery record contains immutable envelope, adapter, secret-reference, and retry-policy snapshots plus append-only attempt bookkeeping. Successful delivery removes it; exhaustion atomically replaces it with a dead letter.
+A normal generation is visible only after its synchronized staged files and identity additions are installed through a validated commit manifest. FFHN synchronizes staged file payloads on every maintained platform; on Unix-like platforms it also synchronizes the parent directory after atomic replacement. Windows has no equivalent directory-handle flush through the capability API used by FFHN, so Windows preserves atomic replacement and file synchronization without claiming a directory-fsync guarantee. A delivery record contains immutable envelope, adapter, secret-reference, and retry-policy snapshots plus append-only attempt bookkeeping. Successful delivery removes it; exhaustion atomically replaces it with a dead letter.
 
 ## Reports and events
 

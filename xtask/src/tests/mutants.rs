@@ -50,7 +50,8 @@ fn mutation_configurations_partition_all_first_party_production_rust() {
 #[test]
 fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     let workflow = fs::read_to_string(repo_root().join(".github/workflows/mutants.yml"))
-        .expect("mutation workflow");
+        .expect("mutation workflow")
+        .replace("\r\n", "\n");
     assert!(workflow.contains("workflow_dispatch:"));
     assert!(workflow.contains("schedule:"));
     assert!(workflow.contains("pull_request:"));
