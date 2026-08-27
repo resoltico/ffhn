@@ -12,10 +12,11 @@ use crate::coverage::{
 };
 use crate::hygiene::{
     HygieneCleanMode, HygieneEntry, aggregate_entry_for_tests, clean_hygiene,
-    dir_size_bytes_for_tests, dir_size_bytes_result_for_tests, ensure_hygiene,
-    format_bytes_for_tests, hygiene_report, looks_like_cargo_target_dir_for_tests,
-    missing_managed_markers_for_tests, prepare_artifact_layout, render_hygiene_report,
-    report_violations_for_tests,
+    dir_size_bytes_excluding_roots_for_tests, dir_size_bytes_for_tests,
+    dir_size_bytes_result_for_tests, ensure_hygiene, format_bytes_for_tests, hygiene_report,
+    looks_like_cargo_target_dir_for_tests, missing_managed_markers_for_entry_for_tests,
+    missing_managed_markers_for_tests, prepare_artifact_layout, prepare_mutation_report_root,
+    render_hygiene_report, report_violations_for_tests,
 };
 #[cfg(unix)]
 use crate::hygiene::{entry_from_path_for_tests, repo_tmp_cargo_roots_for_tests};
@@ -24,13 +25,15 @@ use crate::model::{
     CoverageFileSummary, CoverageReport,
 };
 use crate::plan::{
-    binary_name, cargo_build_root, cargo_build_root_for_tests, cargo_target_root,
-    cargo_target_root_for_tests, check_plan, collect_shell_script_paths, coverage_build_root,
-    coverage_build_root_for_tests, coverage_cargo_build_dir, coverage_cargo_build_dir_for_tests,
-    coverage_cargo_target_dir, coverage_cargo_target_dir_for_tests, coverage_target_root,
-    coverage_target_root_for_tests, is_semver_check_spec, normalize_path,
-    release_binary_path_for_tests, release_tag_exists, semver_baseline_target_dir,
-    semver_build_dir, semver_release_type, semver_release_type_from_git_tag, semver_scratch_dir,
+    binary_name, binary_name_for_windows_for_tests, cargo_build_root, cargo_build_root_for_tests,
+    cargo_target_root, cargo_target_root_for_tests, check_plan, collect_shell_script_paths,
+    core_manifest_path, coverage_build_root, coverage_build_root_for_tests,
+    coverage_cargo_build_dir, coverage_cargo_build_dir_for_tests, coverage_cargo_target_dir,
+    coverage_cargo_target_dir_for_tests, coverage_target_root, coverage_target_root_for_tests,
+    fuzz_lockfile_path, fuzz_manifest_path, is_semver_check_spec, mutation_report_root,
+    mutation_report_root_for_tests, normalize_path, release_binary_path_for_tests,
+    release_tag_exists, semver_baseline_path, semver_baseline_target_dir, semver_build_dir,
+    semver_release_type, semver_release_type_from_git_tag, semver_scratch_dir,
     semver_scratch_dir_for_tests, shell_script_paths, sibling_artifact_dir_for_tests,
     with_cargo_artifact_root_overrides, with_workspace_stub, workspace_version,
     workspace_version_from_manifest,
@@ -54,21 +57,30 @@ fn write_repo_scaffold(repo_root: &Path) {
         "[workspace.package]\nversion = \"2.0.0\"\n",
     )
     .expect("write Cargo.toml");
+    fs::write(repo_root.join("Cargo.lock"), "version = 4\n").expect("write Cargo.lock");
+    fs::create_dir_all(repo_root.join("fuzz")).expect("create fuzz dir");
+    fs::write(
+        repo_root.join("fuzz/Cargo.toml"),
+        "[package]\nname = \"fixture-fuzz\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[workspace]\n",
+    )
+    .expect("write fuzz Cargo.toml");
+    fs::write(repo_root.join("fuzz/Cargo.lock"), "version = 4\n").expect("write fuzz Cargo.lock");
     fs::write(repo_root.join("changelog.md"), "## [Unreleased]\n").expect("write changelog.md");
     fs::write(
         repo_root.join("tooling/rust-tooling.env"),
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.50.0\n",
     )
     .expect("write rust tooling env");
     fs::write(
@@ -170,17 +182,18 @@ fn workspace_package_field(repo_root: &Path, field: &str) -> Option<String> {
 fn sample_tooling() -> RustTooling {
     parse_rust_tooling(
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.50.0\n",
     )
     .expect("parse sample tooling")
 }
@@ -207,16 +220,17 @@ fn parse_rust_tooling_rejects_invalid_and_empty_assignments() {
     let tooling = parse_rust_tooling(
         "# pinned toolchain metadata\n\
 RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.50.0\n",
     )
     .expect("commented tooling manifest");
     assert_eq!(tooling.workspace_edition, "2024");
@@ -226,14 +240,15 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
 fn parse_rust_tooling_requires_the_semver_check_version() {
     let error = parse_rust_tooling(
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n",
     )
     .expect_err("missing semver-checks version must be rejected");
@@ -251,10 +266,12 @@ fn run_git(repo_root: &Path, args: &[&str]) {
 }
 
 mod app;
+mod audit;
 mod automation;
 mod coverage;
 mod devcontainer;
 mod hygiene;
+mod mutants;
 mod plan;
 mod release;
 mod semver;

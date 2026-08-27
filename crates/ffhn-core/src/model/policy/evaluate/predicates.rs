@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::CoreError;
 
-use crate::{Observation, TargetDocument};
+use crate::{DeclaredType, Observation, TypeParams};
 
 use super::super::condition::{
     Condition, ConditionId, ConditionPredicate, ConditionReference, ThresholdDirection,
@@ -16,40 +16,65 @@ use super::types::{
     ConditionContext, ConditionEvaluation, ConditionOutcome, ConditionReferenceEvidence,
 };
 
-pub(super) fn evaluate_conditions(
-    target: &TargetDocument,
+/// Borrowed typed-policy contract owned by graph measurements.
+///
+/// It deliberately contains only the facts policy evaluation owns. Acquisition, identifiers,
+/// delivery routes, and health tuning cannot influence an exact condition decision.
+pub(crate) struct PolicyContract<'a> {
+    declared_type: DeclaredType,
+    type_params: &'a TypeParams,
+    conditions: &'a [Condition],
+}
+
+impl<'a> PolicyContract<'a> {
+    /// Borrows the exact typed facts needed for policy validation and evaluation.
+    pub(crate) const fn new(
+        declared_type: DeclaredType,
+        type_params: &'a TypeParams,
+        conditions: &'a [Condition],
+    ) -> Self {
+        Self {
+            declared_type,
+            type_params,
+            conditions,
+        }
+    }
+}
+
+pub(crate) fn evaluate_conditions(
+    contract: &PolicyContract<'_>,
     observation: &Observation,
     contexts: &BTreeMap<ConditionId, ConditionContext<'_>>,
 ) -> Result<Vec<ConditionEvaluation>, CoreError> {
     observation.validate()?;
-    if !observation_matches_target(target, observation) {
+    if !observation_matches_contract(contract, observation) {
         return Err(CoreError::contract(
-            "policy observation must use the target declared_type and type_params",
+            "policy observation must use the measurement declared_type and type_params",
         ));
     }
     let current = parse_observation_value(observation).map_err(CoreError::contract)?;
-    target
-        .conditions()
+    contract
+        .conditions
         .iter()
         .map(|condition| {
             let context = contexts
                 .get(condition.id())
                 .copied()
                 .unwrap_or_else(ConditionContext::empty);
-            evaluate_condition(target, condition, &current, context)
+            evaluate_condition(contract, condition, &current, context)
         })
         .collect()
 }
 
 fn evaluate_condition(
-    target: &TargetDocument,
+    contract: &PolicyContract<'_>,
     condition: &Condition,
     current: &PolicyValue,
     context: ConditionContext<'_>,
 ) -> Result<ConditionEvaluation, CoreError> {
     let (outcome, active_after, event_predicate) = match condition.predicate() {
         ConditionPredicate::Changed { reference } => (
-            evaluate_changed(current, resolve_reference(target, *reference, context)?),
+            evaluate_changed(current, resolve_reference(contract, *reference, context)?),
             context.active,
             true,
         ),
@@ -59,8 +84,8 @@ fn evaluate_condition(
         } => (
             evaluate_delta_abs(
                 current,
-                resolve_reference(target, *reference, context)?,
-                &parse_threshold(target, threshold)?,
+                resolve_reference(contract, *reference, context)?,
+                &parse_threshold(contract, threshold)?,
             )?,
             context.active,
             true,
@@ -71,7 +96,7 @@ fn evaluate_condition(
         } => (
             evaluate_delta_pct(
                 current,
-                resolve_reference(target, *reference, context)?,
+                resolve_reference(contract, *reference, context)?,
                 parse_percentage(threshold).map_err(CoreError::contract)?,
             )?,
             context.active,
@@ -82,10 +107,10 @@ fn evaluate_condition(
             direction,
         } => (
             evaluate_crosses(
-                target,
+                contract,
                 current,
                 context.last_accepted_observation,
-                &parse_threshold(target, threshold)?,
+                &parse_threshold(contract, threshold)?,
                 *direction,
             )?,
             context.active,
@@ -93,7 +118,7 @@ fn evaluate_condition(
         ),
         ConditionPredicate::Lt { threshold } => {
             let outcome =
-                evaluate_ordered(current, &parse_threshold(target, threshold)?, |order| {
+                evaluate_ordered(current, &parse_threshold(contract, threshold)?, |order| {
                     order.is_lt()
                 });
             let active = next_level_active(outcome, context.active);
@@ -101,7 +126,7 @@ fn evaluate_condition(
         }
         ConditionPredicate::Gt { threshold } => {
             let outcome =
-                evaluate_ordered(current, &parse_threshold(target, threshold)?, |order| {
+                evaluate_ordered(current, &parse_threshold(contract, threshold)?, |order| {
                     order.is_gt()
                 });
             let active = next_level_active(outcome, context.active);
@@ -113,8 +138,8 @@ fn evaluate_condition(
             direction,
         } => evaluate_band(
             current,
-            &parse_threshold(target, enter_threshold)?,
-            &parse_threshold(target, exit_threshold)?,
+            &parse_threshold(contract, enter_threshold)?,
+            &parse_threshold(contract, exit_threshold)?,
             *direction,
             context.active,
         ),
@@ -130,12 +155,12 @@ fn evaluate_condition(
         trigger,
         active_before: context.active,
         active_after,
-        reference_evidence: configured_reference_evidence(target, condition.predicate(), context),
+        reference_evidence: configured_reference_evidence(contract, condition.predicate(), context),
     })
 }
 
 fn configured_reference_evidence(
-    target: &TargetDocument,
+    contract: &PolicyContract<'_>,
     predicate: &ConditionPredicate,
     context: ConditionContext<'_>,
 ) -> Option<ConditionReferenceEvidence> {
@@ -154,7 +179,7 @@ fn configured_reference_evidence(
         ConditionReference::LastConditionTransition => context.last_condition_transition,
     };
     Some(match observation {
-        Some(observation) if observation_matches_target(target, observation) => {
+        Some(observation) if observation_matches_contract(contract, observation) => {
             ConditionReferenceEvidence::Resolved {
                 reference,
                 canonical_value: observation.canonical_value().to_owned(),
@@ -165,7 +190,7 @@ fn configured_reference_evidence(
 }
 
 fn resolve_reference(
-    target: &TargetDocument,
+    contract: &PolicyContract<'_>,
     reference: ConditionReference,
     context: ConditionContext<'_>,
 ) -> Result<Option<PolicyValue>, CoreError> {
@@ -175,9 +200,11 @@ fn resolve_reference(
         ConditionReference::LastConditionTransition => context.last_condition_transition,
     };
     match observation {
-        Some(value) if observation_matches_target(target, value) => parse_observation_value(value)
-            .map(Some)
-            .map_err(CoreError::contract),
+        Some(value) if observation_matches_contract(contract, value) => {
+            parse_observation_value(value)
+                .map(Some)
+                .map_err(CoreError::contract)
+        }
         Some(_) | None => Ok(None),
     }
 }
@@ -221,7 +248,7 @@ fn evaluate_delta_pct(
 }
 
 fn evaluate_crosses(
-    target: &TargetDocument,
+    contract: &PolicyContract<'_>,
     current: &PolicyValue,
     previous: Option<&Observation>,
     threshold: &PolicyValue,
@@ -230,7 +257,7 @@ fn evaluate_crosses(
     let Some(previous) = previous else {
         return Ok(ConditionOutcome::Unavailable);
     };
-    if !observation_matches_target(target, previous) {
+    if !observation_matches_contract(contract, previous) {
         return Ok(ConditionOutcome::Unavailable);
     }
     let previous = parse_observation_value(previous).map_err(CoreError::contract)?;
@@ -309,41 +336,40 @@ fn arithmetic_outcome(result: ArithmeticResult) -> ConditionOutcome {
     }
 }
 
-fn parse_threshold(target: &TargetDocument, threshold: &str) -> Result<PolicyValue, CoreError> {
-    parse_config_value(target.declared_type(), target.type_params(), threshold)
+fn parse_threshold(
+    contract: &PolicyContract<'_>,
+    threshold: &str,
+) -> Result<PolicyValue, CoreError> {
+    parse_config_value(contract.declared_type, contract.type_params, threshold)
         .map_err(CoreError::contract)
 }
 
-fn observation_matches_target(target: &TargetDocument, observation: &Observation) -> bool {
-    observation.declared_type_for_policy() == target.declared_type()
-        && observation.type_params_for_policy() == target.type_params()
+fn observation_matches_contract(contract: &PolicyContract<'_>, observation: &Observation) -> bool {
+    observation.declared_type_for_policy() == contract.declared_type
+        && observation.type_params_for_policy() == contract.type_params
 }
 
 #[cfg(test)]
 mod coverage_tests {
-    use super::super::types::StagedPolicyRun;
     use super::*;
-    use crate::SourceSuspectReason;
 
-    fn integer_target() -> TargetDocument {
-        let source_path = crate::test_support::absolute_file_path("coverage.json");
-        let target: TargetDocument = toml::from_str(&format!(
-            "schema_name = \"ffhn.target\"\nschema_version = 12\ntarget_id = \"coverage\"\ndisplay_name = \"Coverage\"\nenabled = true\nescalate_after = 1\ndeclared_type = \"integer\"\nconditions = []\n\n[target]\nkind = \"file\"\nfile_path = {source_path:?}\n\n[fetch]\nengine = \"file\"\nmax_bytes = 1024\n\n[projection]\nkind = \"json_pointer\"\npointer = \"/value\"\n",
-        ))
-        .expect("target TOML");
-        target.validate().expect("valid target");
-        target
+    fn integer_observation(value: &str) -> Observation {
+        crate::model::parse_json_scalar_token_for_contract(
+            DeclaredType::Integer,
+            &TypeParams::default(),
+            value.to_owned(),
+        )
+        .expect("integer observation")
     }
 
     #[test]
     fn defensive_policy_helpers_preserve_unavailability_and_issue_state() {
-        let target = integer_target();
-        let previous = target
-            .parse_json_scalar_token("1".to_owned())
-            .expect("observation");
+        let params = TypeParams::default();
+        let contract = PolicyContract::new(DeclaredType::Integer, &params, &[]);
+        let previous = integer_observation("1");
         assert_eq!(
             evaluate_crosses(
-                &target,
+                &contract,
                 &PolicyValue::Integer(2),
                 Some(&previous),
                 &PolicyValue::Decimal(rust_decimal::Decimal::ONE),
@@ -354,7 +380,7 @@ mod coverage_tests {
         );
         assert_eq!(
             evaluate_crosses(
-                &target,
+                &contract,
                 &PolicyValue::Decimal(rust_decimal::Decimal::TWO),
                 Some(&previous),
                 &PolicyValue::Integer(1),
@@ -390,10 +416,63 @@ mod coverage_tests {
             arithmetic_outcome(ArithmeticResult::Unavailable),
             ConditionOutcome::Unavailable
         );
-        let staged = StagedPolicyRun::SourceSuspect {
-            reason_class: SourceSuspectReason::FetchFailed,
-            event_eligibilities: Vec::new(),
-        };
-        assert_eq!(staged.condition_evaluations(), None);
+    }
+
+    #[test]
+    fn named_reference_resolution_and_evidence_preserve_contract_compatibility() {
+        let params = TypeParams::default();
+        let condition: Condition = toml::from_str(
+            "condition_id = \"changed\"\n[predicate]\nkind = \"changed\"\nreference = \"last_accepted_observation\"\n",
+        )
+        .expect("condition");
+        let contract = PolicyContract::new(
+            DeclaredType::Integer,
+            &params,
+            std::slice::from_ref(&condition),
+        );
+        let last = integer_observation("1");
+        let fixed = integer_observation("2");
+        let transition = integer_observation("3");
+        let context = ConditionContext::new(Some(&last), Some(&fixed), Some(&transition), false);
+        assert_eq!(
+            configured_reference_evidence(&contract, condition.predicate(), context),
+            Some(ConditionReferenceEvidence::Resolved {
+                reference: ConditionReference::LastAcceptedObservation,
+                canonical_value: "1".to_owned(),
+            })
+        );
+        for (reference, expected) in [
+            (ConditionReference::LastAcceptedObservation, 1),
+            (ConditionReference::FixedInitialBaseline, 2),
+            (ConditionReference::LastConditionTransition, 3),
+        ] {
+            assert_eq!(
+                resolve_reference(&contract, reference, context).expect("reference"),
+                Some(PolicyValue::Integer(expected))
+            );
+        }
+
+        let text = crate::model::parse_json_scalar_token_for_contract(
+            DeclaredType::Text,
+            &TypeParams::default(),
+            "\"text\"".to_owned(),
+        )
+        .expect("text observation");
+        let incompatible = ConditionContext::new(Some(&text), None, None, false);
+        assert_eq!(
+            configured_reference_evidence(&contract, condition.predicate(), incompatible),
+            Some(ConditionReferenceEvidence::Unavailable {
+                reference: ConditionReference::LastAcceptedObservation,
+            })
+        );
+        assert_eq!(
+            resolve_reference(
+                &contract,
+                ConditionReference::LastAcceptedObservation,
+                incompatible,
+            )
+            .expect("incompatible reference"),
+            None
+        );
     }
 }

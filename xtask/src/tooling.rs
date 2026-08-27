@@ -21,6 +21,7 @@ pub(crate) struct RustTooling {
     pub(crate) cargo_deny_version: String,
     pub(crate) cargo_fuzz_version: String,
     pub(crate) cargo_llvm_cov_version: String,
+    pub(crate) cargo_mutants_version: String,
     pub(crate) cargo_nextest_version: String,
     pub(crate) cargo_outdated_version: String,
     pub(crate) cargo_semver_checks_version: String,
@@ -106,6 +107,7 @@ pub(crate) fn parse_rust_tooling(text: &str) -> Result<RustTooling, String> {
         cargo_deny_version: required_tooling_value(&values, "CARGO_DENY_VERSION")?,
         cargo_fuzz_version: required_tooling_value(&values, "CARGO_FUZZ_VERSION")?,
         cargo_llvm_cov_version: required_tooling_value(&values, "CARGO_LLVM_COV_VERSION")?,
+        cargo_mutants_version: required_tooling_value(&values, "CARGO_MUTANTS_VERSION")?,
         cargo_nextest_version: required_tooling_value(&values, "CARGO_NEXTEST_VERSION")?,
         cargo_outdated_version: required_tooling_value(&values, "CARGO_OUTDATED_VERSION")?,
         cargo_semver_checks_version: required_tooling_value(

@@ -23,6 +23,13 @@ pub fn prepare_artifact_layout(
     layout::prepare_artifact_layout(repo_root, layout)
 }
 
+/// Prepares and returns the managed root that retains mutation-testing evidence.
+pub fn prepare_mutation_report_root(
+    repo_root: &std::path::Path,
+) -> crate::model::DynResult<std::path::PathBuf> {
+    layout::prepare_mutation_report_root(repo_root)
+}
+
 /// Builds a full repository artifact report.
 pub fn hygiene_report(repo_root: &std::path::Path) -> crate::model::DynResult<HygieneReport> {
     report::hygiene_report(repo_root)
@@ -74,6 +81,14 @@ pub(crate) fn dir_size_bytes_result_for_tests(
     filesystem::dir_size_bytes(path)
 }
 
+#[cfg(test)]
+pub(crate) fn dir_size_bytes_excluding_roots_for_tests(
+    path: &std::path::Path,
+    skipped_roots: &[std::path::PathBuf],
+) -> crate::model::DynResult<u64> {
+    filesystem::dir_size_bytes_excluding_roots(path, skipped_roots)
+}
+
 #[cfg(all(test, unix))]
 pub(crate) fn entry_from_path_for_tests(
     path: &std::path::Path,
@@ -105,6 +120,11 @@ pub(crate) fn missing_managed_markers_for_tests(path: &std::path::Path) -> Vec<S
         .into_iter()
         .map(str::to_owned)
         .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn missing_managed_markers_for_entry_for_tests(entry: &HygieneEntry) -> Vec<String> {
+    filesystem::missing_managed_markers_for_entry(entry)
 }
 
 #[cfg(test)]

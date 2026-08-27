@@ -123,17 +123,18 @@ mod tests {
     fn sample_tooling() -> RustTooling {
         parse_rust_tooling(
             "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.50.0\n",
         )
         .expect("parse tooling")
     }
@@ -147,7 +148,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
         assert_eq!(
             probe.args,
             vec![
-                "+nightly-2026-05-11".to_owned(),
+                "+nightly-2026-08-25".to_owned(),
                 "miri".to_owned(),
                 "--version".to_owned(),
             ]
@@ -155,7 +156,7 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
         assert_eq!(
             command.args,
             vec![
-                "+nightly-2026-05-11".to_owned(),
+                "+nightly-2026-08-25".to_owned(),
                 "miri".to_owned(),
                 "test".to_owned(),
                 "-p".to_owned(),
@@ -204,13 +205,13 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
             ],
         );
         assert!(
-            message.contains("rustup component add miri rust-src --toolchain nightly-2026-05-11")
+            message.contains("rustup component add miri rust-src --toolchain nightly-2026-08-25")
         );
 
         let broken_message =
             miri_preflight_message(&tooling, &[MiriPreflightFailure::BrokenQaNightlyMiriBinary]);
-        assert!(broken_message.contains("cargo +nightly-2026-05-11 miri --version"));
-        assert!(broken_message.contains("rustup toolchain uninstall nightly-2026-05-11"));
+        assert!(broken_message.contains("cargo +nightly-2026-08-25 miri --version"));
+        assert!(broken_message.contains("rustup toolchain uninstall nightly-2026-08-25"));
     }
 
     #[test]
@@ -218,14 +219,14 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
         let tooling = sample_tooling();
         let missing_miri =
             miri_preflight_message(&tooling, &[MiriPreflightFailure::MissingQaNightlyMiri]);
-        assert!(missing_miri.contains("rustup component add miri --toolchain nightly-2026-05-11"));
+        assert!(missing_miri.contains("rustup component add miri --toolchain nightly-2026-08-25"));
         assert!(!missing_miri.contains("miri rust-src --toolchain"));
 
         let missing_rust_src =
             miri_preflight_message(&tooling, &[MiriPreflightFailure::MissingQaNightlyRustSrc]);
         assert!(
             missing_rust_src
-                .contains("rustup component add rust-src --toolchain nightly-2026-05-11")
+                .contains("rustup component add rust-src --toolchain nightly-2026-08-25")
         );
         assert!(!missing_rust_src.contains("miri rust-src --toolchain"));
     }

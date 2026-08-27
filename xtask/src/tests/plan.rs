@@ -131,7 +131,7 @@ fn check_plan_includes_all_strict_gates() {
     assert!(plan.iter().any(|spec| {
         spec.args
             == [
-                "+nightly-2026-05-11".to_owned(),
+                "+nightly-2026-08-25".to_owned(),
                 "fuzz".to_owned(),
                 "check".to_owned(),
                 "--fuzz-dir".to_owned(),
@@ -247,6 +247,26 @@ fn semver_scratch_dir_lives_under_the_managed_target_root() {
 #[test]
 fn cargo_path_helpers_follow_the_configured_roots() {
     let repo_root = tempdir().expect("tempdir");
+    assert_eq!(
+        core_manifest_path(repo_root.path()),
+        repo_root.path().join("crates/ffhn-core/Cargo.toml")
+    );
+    assert_eq!(
+        fuzz_manifest_path(repo_root.path()),
+        repo_root.path().join("fuzz/Cargo.toml")
+    );
+    assert_eq!(
+        fuzz_lockfile_path(repo_root.path()),
+        repo_root.path().join("fuzz/Cargo.lock")
+    );
+    assert_eq!(
+        semver_baseline_path(repo_root.path()),
+        repo_root.path().join("semver-baseline/ffhn-core")
+    );
+    assert_eq!(
+        semver_baseline_target_dir(repo_root.path()),
+        repo_root.path().join("semver-baseline/ffhn-core/target")
+    );
     with_test_artifact_roots(repo_root.path(), || {
         assert_eq!(
             cargo_target_root(repo_root.path()),
@@ -299,6 +319,10 @@ fn cargo_path_helpers_follow_the_configured_roots() {
         repo_root.path().join("custom-target").join("semver-checks")
     );
     assert_eq!(
+        mutation_report_root_for_tests(repo_root.path(), Some(Path::new("managed-target"))),
+        repo_root.path().join("mutation-runs")
+    );
+    assert_eq!(
         release_binary_path_for_tests(repo_root.path(), Some(Path::new("custom-target"))),
         repo_root
             .path()
@@ -309,6 +333,27 @@ fn cargo_path_helpers_follow_the_configured_roots() {
     assert_eq!(
         sibling_artifact_dir_for_tests(Path::new("target"), "coverage-target"),
         PathBuf::from("coverage-target")
+    );
+}
+
+#[test]
+fn cargo_roots_read_the_repository_cargo_configuration() {
+    let repo_root = tempdir().expect("tempdir");
+    let cargo_dir = repo_root.path().join(".cargo");
+    fs::create_dir_all(&cargo_dir).expect("create cargo config directory");
+    fs::write(
+        cargo_dir.join("config.toml"),
+        "[build]\ntarget-dir = 'configured-target'\nbuild-dir = 'configured-build'\n",
+    )
+    .expect("write cargo config");
+
+    assert_eq!(
+        cargo_target_root(repo_root.path()),
+        repo_root.path().join("configured-target")
+    );
+    assert_eq!(
+        cargo_build_root(repo_root.path()),
+        repo_root.path().join("configured-build")
     );
 }
 

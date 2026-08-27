@@ -6,7 +6,7 @@ use crate::app::remove_dir_if_exists;
 use crate::model::DynResult;
 use crate::plan::{
     cargo_build_root, cargo_target_root, coverage_build_root, coverage_target_root,
-    semver_baseline_target_dir, semver_build_dir, semver_scratch_dir,
+    mutation_report_root, semver_baseline_target_dir, semver_build_dir, semver_scratch_dir,
 };
 
 use super::filesystem::{deduplicate_root_set, dir_size_bytes};
@@ -30,6 +30,7 @@ pub fn clean_hygiene(repo_root: &Path, mode: HygieneCleanMode) -> DynResult<Hygi
     if mode == HygieneCleanMode::Rebuildable {
         removal_roots.push(cargo_target_root(repo_root));
         removal_roots.push(cargo_build_root(repo_root));
+        removal_roots.push(mutation_report_root(repo_root));
     }
 
     let removal_roots = deduplicate_root_set(removal_roots);

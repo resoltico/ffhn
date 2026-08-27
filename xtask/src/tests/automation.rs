@@ -22,9 +22,7 @@ fn dependency_freshness_uses_only_its_pinned_tool() {
     let bootstrap = fs::read_to_string(repo_root.join("scripts/bootstrap-rust-tools.sh"))
         .expect("read Rust bootstrap script");
     assert!(bootstrap.contains("install_dependency_freshness_tool()"));
-    assert!(
-        bootstrap.contains(
-            "cargo install cargo-outdated --version \"${CARGO_OUTDATED_VERSION}\" --locked"
-        )
-    );
+    assert!(bootstrap.contains(
+        "ffhn_install_cargo_tool cargo-outdated --version \"${CARGO_OUTDATED_VERSION}\" --locked"
+    ));
 }

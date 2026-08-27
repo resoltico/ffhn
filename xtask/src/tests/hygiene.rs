@@ -2,8 +2,6 @@ use super::*;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
-use std::os::unix::net::UnixListener;
 
 #[test]
 fn prepare_artifact_layout_creates_managed_roots_and_marker_files() {
@@ -18,6 +16,8 @@ fn prepare_artifact_layout_creates_managed_roots_and_marker_files() {
             prepare_artifact_layout(repo_root.path(), CommandArtifactLayout::ManagedCoverage)
                 .expect("prepare coverage layout")
                 .expect("coverage dirs");
+        let mutation_reports =
+            prepare_mutation_report_root(repo_root.path()).expect("prepare mutation reports");
 
         for path in [
             workspace_target,
@@ -26,6 +26,7 @@ fn prepare_artifact_layout_creates_managed_roots_and_marker_files() {
             coverage_build,
             coverage_cargo_target_dir(repo_root.path()),
             coverage_cargo_build_dir(repo_root.path()),
+            mutation_reports,
         ] {
             assert!(path.is_dir(), "{} should exist", path.display());
             assert!(path.join("CACHEDIR.TAG").is_file());
@@ -46,6 +47,30 @@ fn prepare_artifact_layout_inherit_leaves_artifact_env_unmanaged() {
 }
 
 #[test]
+fn hygiene_report_publishes_exact_byte_budgets() {
+    let repo_root = tempdir().expect("repo tempdir");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        let report = hygiene_report(repo_root.path()).expect("hygiene report");
+        let budgets = report
+            .entries
+            .iter()
+            .map(|entry| (entry.id.as_str(), entry.budget_bytes))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(budgets["managed-workspace-target"], Some(4_294_967_296));
+        assert_eq!(budgets["managed-workspace-build"], Some(25_769_803_776));
+        assert_eq!(budgets["managed-coverage-target"], Some(2_147_483_648));
+        assert_eq!(budgets["managed-coverage-build"], Some(8_589_934_592));
+        assert_eq!(budgets["managed-mutation-reports"], Some(8_589_934_592));
+        assert_eq!(budgets["legacy-repo-target"], Some(536_870_912));
+        assert_eq!(budgets["legacy-repo-fuzz-target"], Some(536_870_912));
+        assert_eq!(budgets["repo-tmp"], Some(268_435_456));
+        assert_eq!(budgets["repo-tmp-cargo-targets"], None);
+    });
+}
+
+#[test]
 fn hygiene_report_repairs_missing_markers_for_existing_managed_roots() {
     let repo_root = tempdir().expect("repo tempdir");
 
@@ -57,6 +82,7 @@ fn hygiene_report_repairs_missing_markers_for_existing_managed_roots() {
             coverage_build_root(repo_root.path()),
             coverage_cargo_target_dir(repo_root.path()),
             coverage_cargo_build_dir(repo_root.path()),
+            mutation_report_root(repo_root.path()),
         ] {
             fs::create_dir_all(&path).expect("create managed artifact root");
         }
@@ -70,6 +96,7 @@ fn hygiene_report_repairs_missing_markers_for_existing_managed_roots() {
             coverage_build_root(repo_root.path()),
             coverage_cargo_target_dir(repo_root.path()),
             coverage_cargo_build_dir(repo_root.path()),
+            mutation_report_root(repo_root.path()),
         ] {
             assert!(path.join("CACHEDIR.TAG").is_file());
             assert!(path.join(".ffhn-artifact.toml").is_file());
@@ -81,6 +108,7 @@ fn hygiene_report_repairs_missing_markers_for_existing_managed_roots() {
                     | "managed-workspace-build"
                     | "managed-coverage-target"
                     | "managed-coverage-build"
+                    | "managed-mutation-reports"
             )
         }));
     });
@@ -107,6 +135,20 @@ fn hygiene_report_detects_legacy_target_roots_and_repo_tmp_cargo_roots() {
         let report = hygiene_report(repo_root.path()).expect("hygiene report");
         let rendered = render_hygiene_report(&report);
 
+        let repo_tmp = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == "repo-tmp")
+            .expect("repo tmp entry");
+        assert_eq!(
+            repo_tmp.details,
+            vec![
+                "Repository-local scratch root for temporary investigations.".to_owned(),
+                "Excludes 1 repo-local Cargo target roots reported separately under repo-tmp-cargo-targets."
+                    .to_owned(),
+            ]
+        );
+
         assert!(rendered.contains("repo-tmp-cargo-targets"));
         assert!(
             report
@@ -131,6 +173,25 @@ fn hygiene_report_detects_legacy_target_roots_and_repo_tmp_cargo_roots() {
 }
 
 #[test]
+fn hygiene_report_does_not_claim_empty_repo_tmp_exclusions() {
+    let repo_root = tempdir().expect("repo tempdir");
+    fs::create_dir_all(repo_root.path().join("tmp")).expect("create tmp root");
+
+    with_test_artifact_roots(repo_root.path(), || {
+        let report = hygiene_report(repo_root.path()).expect("hygiene report");
+        let repo_tmp = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == "repo-tmp")
+            .expect("repo tmp entry");
+        assert_eq!(
+            repo_tmp.details,
+            vec!["Repository-local scratch root for temporary investigations.".to_owned()]
+        );
+    });
+}
+
+#[test]
 fn clean_hygiene_safe_removes_only_safe_roots() {
     let repo_root = tempdir().expect("repo tempdir");
 
@@ -139,6 +200,9 @@ fn clean_hygiene_safe_removes_only_safe_roots() {
             .expect("prepare workspace layout");
         prepare_artifact_layout(repo_root.path(), CommandArtifactLayout::ManagedCoverage)
             .expect("prepare coverage layout");
+        let mutation_reports =
+            prepare_mutation_report_root(repo_root.path()).expect("prepare mutation reports");
+        fs::write(mutation_reports.join("evidence"), "retained").expect("mutation evidence");
         fs::create_dir_all(repo_root.path().join("target").join("debug"))
             .expect("create legacy target");
         fs::create_dir_all(repo_root.path().join("fuzz").join("target").join("debug"))
@@ -161,6 +225,7 @@ fn clean_hygiene_safe_removes_only_safe_roots() {
         assert!(!semver_baseline_target_dir(repo_root.path()).exists());
         assert!(cargo_target_root(repo_root.path()).exists());
         assert!(cargo_build_root(repo_root.path()).exists());
+        assert!(mutation_report_root(repo_root.path()).exists());
         assert!(result.reclaimed_bytes > 0);
     });
 }
@@ -172,13 +237,15 @@ fn clean_hygiene_rebuildable_also_removes_managed_roots() {
     with_test_artifact_roots(repo_root.path(), || {
         prepare_artifact_layout(repo_root.path(), CommandArtifactLayout::ManagedWorkspace)
             .expect("prepare workspace layout");
+        prepare_mutation_report_root(repo_root.path()).expect("prepare mutation reports");
 
         let result = clean_hygiene(repo_root.path(), HygieneCleanMode::Rebuildable)
             .expect("rebuildable clean should work");
 
         assert!(!cargo_target_root(repo_root.path()).exists());
         assert!(!cargo_build_root(repo_root.path()).exists());
-        assert_eq!(result.removed_paths.len(), 2);
+        assert!(!mutation_report_root(repo_root.path()).exists());
+        assert_eq!(result.removed_paths.len(), 3);
     });
 }
 
@@ -191,6 +258,7 @@ fn render_hygiene_report_uses_none_when_no_violations() {
             .expect("prepare workspace layout");
         prepare_artifact_layout(repo_root.path(), CommandArtifactLayout::ManagedCoverage)
             .expect("prepare coverage layout");
+        prepare_mutation_report_root(repo_root.path()).expect("prepare mutation reports");
 
         let report = hygiene_report(repo_root.path()).expect("hygiene report");
         let rendered = render_hygiene_report(&report);
@@ -407,181 +475,4 @@ fn hygiene_report_surfaces_legacy_root_inspection_failures() {
     });
 }
 
-#[test]
-fn report_violations_helpers_cover_missing_markers_budget_and_tmp_cargo_cases() {
-    let repo_root = tempdir().expect("repo tempdir");
-    let managed_root = repo_root.path().join("managed");
-    fs::create_dir_all(&managed_root).expect("create managed root");
-
-    let violations = report_violations_for_tests(&[
-        HygieneEntry {
-            id: "managed-workspace-target".to_owned(),
-            kind: "workspace-target".to_owned(),
-            path: managed_root.display().to_string(),
-            present: true,
-            bytes: 0,
-            budget_bytes: None,
-            managed: true,
-            safe_to_delete: true,
-            details: Vec::new(),
-        },
-        HygieneEntry {
-            id: "managed-workspace-build".to_owned(),
-            kind: "workspace-build".to_owned(),
-            path: repo_root.path().join("budget").display().to_string(),
-            present: true,
-            bytes: 2,
-            budget_bytes: Some(1),
-            managed: false,
-            safe_to_delete: true,
-            details: Vec::new(),
-        },
-        HygieneEntry {
-            id: "repo-tmp-cargo-targets".to_owned(),
-            kind: "repo-tmp-cargo-targets".to_owned(),
-            path: repo_root.path().join("tmp").display().to_string(),
-            present: true,
-            bytes: 0,
-            budget_bytes: None,
-            managed: false,
-            safe_to_delete: true,
-            details: vec![
-                "tmp/cargo-target-a".to_owned(),
-                "tmp/cargo-target-b".to_owned(),
-            ],
-        },
-    ]);
-
-    assert!(violations.iter().any(|violation| {
-        violation.id == "managed-workspace-target"
-            && violation
-                .message
-                .contains("missing managed-artifact markers")
-    }));
-    assert!(violations.iter().any(|violation| {
-        violation.id == "managed-workspace-build"
-            && violation.message.contains("exceeds its 1 B budget")
-    }));
-    assert!(violations.iter().any(|violation| {
-        violation.id == "repo-tmp-cargo-targets"
-            && violation
-                .message
-                .contains("repository tmp contains 2 cargo target roots")
-    }));
-}
-
-#[cfg(unix)]
-#[test]
-fn repo_tmp_cargo_roots_reports_unreadable_tmp_root() {
-    let repo_root = tempdir().expect("repo tempdir");
-    let tmp_root = repo_root.path().join("tmp");
-    fs::create_dir_all(&tmp_root).expect("create tmp root");
-
-    let mut permissions = fs::metadata(&tmp_root).expect("metadata").permissions();
-    permissions.set_mode(0o000);
-    fs::set_permissions(&tmp_root, permissions.clone()).expect("chmod tmp root");
-
-    let error = repo_tmp_cargo_roots_for_tests(repo_root.path())
-        .expect_err("unreadable tmp root should fail");
-
-    permissions.set_mode(0o700);
-    fs::set_permissions(&tmp_root, permissions).expect("restore tmp root permissions");
-
-    assert!(
-        error
-            .to_string()
-            .contains("failed to inspect repository temporary root")
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn dir_size_bytes_handles_symlinks_special_files_and_permission_failures() {
-    let repo_root = tempdir().expect("repo tempdir");
-    let file_path = repo_root.path().join("payload.bin");
-    fs::write(&file_path, vec![0u8; 8]).expect("write payload");
-
-    let symlink_path = repo_root.path().join("payload.link");
-    std::os::unix::fs::symlink(&file_path, &symlink_path).expect("create symlink");
-    assert_eq!(dir_size_bytes_for_tests(&symlink_path), 0);
-
-    let socket_path = repo_root.path().join("payload.sock");
-    let _listener = UnixListener::bind(&socket_path).expect("create unix socket");
-    assert_eq!(dir_size_bytes_for_tests(&socket_path), 0);
-
-    let blocked_parent = repo_root.path().join("blocked-parent");
-    fs::create_dir_all(&blocked_parent).expect("create blocked parent");
-    fs::write(blocked_parent.join("child.bin"), vec![0u8; 4]).expect("write blocked child");
-
-    let mut parent_permissions = fs::metadata(&blocked_parent)
-        .expect("metadata")
-        .permissions();
-    parent_permissions.set_mode(0o000);
-    fs::set_permissions(&blocked_parent, parent_permissions.clone()).expect("chmod blocked parent");
-
-    let metadata_error = dir_size_bytes_result_for_tests(&blocked_parent.join("child.bin"))
-        .expect_err("unreadable child metadata should fail");
-    let directory_error =
-        dir_size_bytes_result_for_tests(&blocked_parent).expect_err("unreadable dir should fail");
-
-    parent_permissions.set_mode(0o700);
-    fs::set_permissions(&blocked_parent, parent_permissions)
-        .expect("restore blocked parent permissions");
-
-    assert!(
-        metadata_error
-            .to_string()
-            .contains("failed to read hygiene metadata")
-    );
-    assert!(
-        directory_error
-            .to_string()
-            .contains("failed to read hygiene directory")
-    );
-}
-
-#[test]
-fn missing_managed_markers_reports_both_markers() {
-    let repo_root = tempdir().expect("repo tempdir");
-    let managed_root = repo_root.path().join("managed");
-    fs::create_dir_all(&managed_root).expect("create managed root");
-
-    assert_eq!(
-        missing_managed_markers_for_tests(&managed_root),
-        vec!["CACHEDIR.TAG".to_owned(), ".ffhn-artifact.toml".to_owned()]
-    );
-}
-
-#[test]
-fn helper_functions_classify_sizes_and_cargo_target_shapes() {
-    let repo_root = tempdir().expect("repo tempdir");
-    let sized_dir = repo_root.path().join("sized");
-    let aggregate_root = repo_root.path().join("aggregate");
-    let aggregate_child_a = aggregate_root.join("a");
-    let aggregate_child_b = aggregate_root.join("b");
-    fs::create_dir_all(&sized_dir).expect("create sized dir");
-    fs::create_dir_all(&aggregate_child_a).expect("create aggregate child a");
-    fs::create_dir_all(&aggregate_child_b).expect("create aggregate child b");
-    fs::write(sized_dir.join("payload.bin"), vec![0u8; 2048]).expect("write payload");
-    fs::write(aggregate_child_a.join("one.bin"), vec![0u8; 512]).expect("write child a");
-    fs::write(aggregate_child_b.join("two.bin"), vec![0u8; 256]).expect("write child b");
-    fs::write(sized_dir.join(".rustc_info.json"), "{}").expect("write rustc info");
-
-    assert_eq!(dir_size_bytes_for_tests(&sized_dir), 2050);
-    assert_eq!(format_bytes_for_tests(2048), "2.0 KiB");
-    assert!(looks_like_cargo_target_dir_for_tests(&sized_dir));
-    assert_eq!(
-        aggregate_entry_for_tests(
-            &aggregate_root,
-            &[aggregate_child_a.clone(), aggregate_child_b.clone()]
-        )
-        .expect("aggregate entry")
-        .bytes,
-        768
-    );
-    assert!(
-        dir_size_bytes_result_for_tests(&repo_root.path().join("missing"))
-            .expect("missing size should be zero")
-            == 0
-    );
-}
+mod policy;

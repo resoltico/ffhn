@@ -460,7 +460,7 @@ fn run_semver_check_prepares_the_isolated_target_tree_before_launch() {
     write_repo_scaffold(repo_root.path());
     write_executable(
         &bin_dir.join("cargo"),
-        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    semver-checks) printf 'cargo-semver-checks 0.48.0\\n' ; exit 0 ;;\n    audit) printf 'cargo-audit 0.22.2\\n' ; exit 0 ;;\n    deny) printf 'cargo-deny 0.20.2\\n' ; exit 0 ;;\n    nextest) printf 'cargo-nextest 0.9.140\\n' ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"semver-checks\" ]; then\n  test -d \"$CARGO_TARGET_DIR\"\n  test -d \"$CARGO_TARGET_DIR/debug\"\n  test -d \"$CARGO_TARGET_DIR/debug/deps\"\nfi\nexit 0\n",
+        "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then\n  case \"$1\" in\n    semver-checks) printf 'cargo-semver-checks 0.50.0\\n' ; exit 0 ;;\n    audit) printf 'cargo-audit 0.22.2\\n' ; exit 0 ;;\n    deny) printf 'cargo-deny 0.20.2\\n' ; exit 0 ;;\n    nextest) printf 'cargo-nextest 0.9.143\\n' ; exit 0 ;;\n  esac\nfi\nif [ \"$1\" = \"semver-checks\" ]; then\n  test -d \"$CARGO_TARGET_DIR\"\n  test -d \"$CARGO_TARGET_DIR/debug\"\n  test -d \"$CARGO_TARGET_DIR/debug/deps\"\nfi\nexit 0\n",
     );
 
     with_test_environment(&bin_dir, Some(repo_root.path()), || {
@@ -509,7 +509,7 @@ fn write_tracked_source(repo_root: &Path, relative_path: &str, source: impl AsRe
 }
 
 #[cfg(unix)]
-fn write_executable(path: &Path, contents: &str) {
+pub(super) fn write_executable(path: &Path, contents: &str) {
     fs::create_dir_all(path.parent().expect("parent")).expect("create executable parent");
     fs::write(path, contents).expect("write executable");
     let mut permissions = fs::metadata(path).expect("metadata").permissions();
@@ -542,7 +542,7 @@ fn write_coverage_cargo_stub(bin_dir: &Path, coverage_json: &str) {
 
 #[cfg(unix)]
 #[allow(unsafe_code)]
-fn with_test_environment<T>(
+pub(super) fn with_test_environment<T>(
     bin_dir: &Path,
     repo_root_override: Option<&Path>,
     operation: impl FnOnce() -> T,
@@ -558,7 +558,7 @@ fn with_test_environment<T>(
     updated_path.push(&original_path);
     write_executable(
         &bin_dir.join("rustc"),
-        "#!/bin/sh\ncase \"$1\" in\n  +1.97.0|+nightly-2026-05-11) printf 'rustc 1.97.0 (test stub)\\n' ;;\n  --version) printf 'rustc 1.97.0 (test stub)\\n' ;;\n  *) printf 'rustc 1.97.0 (test stub)\\n' ;;\nesac\n",
+        "#!/bin/sh\ncase \"$1\" in\n  +1.98.0|+nightly-2026-08-25) printf 'rustc 1.98.0 (test stub)\\n' ;;\n  --version) printf 'rustc 1.98.0 (test stub)\\n' ;;\n  *) printf 'rustc 1.98.0 (test stub)\\n' ;;\nesac\n",
     );
     write_executable(
         &bin_dir.join("shellcheck"),

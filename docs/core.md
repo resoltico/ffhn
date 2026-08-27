@@ -1,69 +1,43 @@
 ---
 afad: "4.0"
 domain: CORE
-updated: "2026-07-19"
+updated: "2026-08-25"
 route:
-  keywords: [core, typed observation, run order, state, dry run]
-  questions: ["what does one core run do?", "does dry run mutate state?", "when does state advance?"]
+  keywords: [graph, source, measurement, lineage, acquisition, outbox]
+  questions: ["what does one source cycle do?", "what does dry run change?", "when is delivery allowed?"]
 ---
 
-# Core Run Semantics
+# Observation-Graph Core Semantics
 
-A live run acquires the target lock, admits state only after a two-field `ffhn.state` version-17
-schema preflight, rejects a contract-digest mismatch, fetches the configured source, selects one
-scalar by JSON Pointer or one HTML value through
-HTMLCut, and parses that value into its declared type. HTMLCut is invoked with an FFHN-owned
-structured plan so that public match metadata is preserved; target authors never configure a
-structured output. A prior state schema is reset-required before full state decoding; malformed
-JSON is unreadable state. Only a valid typed observation can advance state. Parse and acquisition
-failures leave accepted state unchanged.
+FFHN v11 is an observation graph. A graph owns an immutable random `graph_id`; every source owns an independently minted `source_instance_id`; every measurement gets a `measurement_instance_id` only when its first state is atomically created or when it is explicitly reset.
 
-The first valid observation is `initialized`. Later values compare their declared-type canonical
-text, so
-decimal `1.0` and `1.00` are unchanged even though `raw_selected` preserves their presentation.
-For JSON strings, that evidence is the exact selected token, including its quoting and escapes.
-Text observations compare their exact decoded Unicode scalar sequence: no whitespace, case, locale,
-or normalization rule is applied. JSON text accepts strings only, while HTML text and attributes use
-their configured comparison projection.
+```text
+source acquisition
+  └── one complete in-memory representation
+        └── selected measurements: projection → typed value → policy → event/outbox
+              └── agent: independent acquire and drain capabilities
+```
 
-Dry runs take a shared lock and run the same validation, acquisition, and typing path, but never
-write `.ffhn/state.json`. Disabled targets do not acquire sources and report `skipped_disabled`.
+One source cycle acquires one complete HTTP or file representation, then evaluates each eligible configured measurement against that same in-memory document. A measurement owns its projection, typed value contract, temporal policy state, extraction health, integration-fault episode, event identity, and measurement outbox. A source owns acquisition health, source integration faults, conditional validators or file digest, source schedule, source outbox, and per-source generation.
 
-The live core invokes the policy algebra using only pre-run contexts. It stages every
-`on_condition` trigger and immediate `on_run` eligibility: initialization, arithmetic overflow,
-zero references, a source escalation, a newly begun permanent-error episode, and a newly begun
-integration-fault episode. The runtime
-retains that exact policy result with its staged next state through the commit boundary. A valid
-observation atomically advances the accepted baseline and sequence and persists every named
-condition result, active state, and result transition.
-Source-suspect runs persist only health episodes; permanent JSON or HTML contract failures persist
-only permanent-error episodes; integration faults persist only integration-fault episodes. None of
-these failure branches advances a baseline or resets hysteresis. Dry runs stage the same decisions
-without writing state. HTMLCut `NO_MATCH`, `AMBIGUOUS_MATCH`, `MISSING_ATTRIBUTE`, and
-`MATCH_INDEX_OUT_OF_RANGE` are source-health reasons; invalid selectors, slice patterns, invalid
-HTMLCut input URLs, and invalid FFHN HTML selection contracts are permanent. HTMLCut's closed
-`InternalError`, including an upstream `UNSUPPORTED_VALUE_TYPE` diagnostic, is
-`htmlcut_internal_error`; a contradictory successful
-HTMLCut result observed by FFHN is `ffhn_boundary_invariant_violation`. A failure of FFHN's
-fixed-width decimal proof is `ffhn_policy_invariant_violation`: the run retains the parsed
-observation for diagnosis but preserves the prior accepted baseline and condition state. The public
-planning API cannot stage an invented classification.
+## Lineage and storage
 
-For a live run, FFHN materializes the exact staged eligibilities into route-specific, immutable
-process-stdin payload bytes and enqueues them in the same state write as measurement and temporal
-facts. It starts delivery only after that commit is crash durable: the staged and installed state
-file have been synchronized, and Unix also synchronizes the replacement's directory metadata. It
-then drains due records, including older records, using only stored bytes; delivery never
-re-evaluates a predicate and never reads a run report. Success removes a record. A failed attempt
-persists deterministic retry state, and the terminal attempt removes the record while reporting it
-as dead-lettered. If FFHN cannot persist one of those outbox updates after a process has run, the
-report records an explicit uncommitted outcome and an `outbox_error_detail` instead of hiding the attempt; a
-later drain may duplicate a delivered payload. A full outbox drops only the newly staged route
-record and leaves both prior records and measurement state intact.
+The graph-root hierarchy is fixed and opened without following filesystem links. Source identity is authoritative; source and measurement state, delivery records, and manifests must match it exactly. A mismatch is `lineage_refused`, never silent repair.
 
-One drain considers only records already due when it began. Therefore a failed record's retry,
-which is scheduled from the actual completion time, always waits for a later drain even when the
-durable write takes longer than its configured backoff.
+Normal source work first resolves any lineage transition manifest, then any normal commit manifest, then applies the lineage gate. State and outbox changes are staged, synchronized, described by a durable commit manifest, installed idempotently, and only then become eligible for delivery. Event IDs include lineage and typed event facts but no wall-clock value.
 
-Dry runs may calculate prospective outbox overflow for the exact staged plan, but they neither
-write state nor invoke a delivery process.
+`reset --source` and `reset --measurement` are clean lineage transitions. They mint fresh random identity, discard only the selected owned state/outbox scope, and never migrate old state. A source reset is safe even when old authority or storage is corrupt because it does not derive new lineage from those artifacts.
+
+## Acquisition and typed policy
+
+HTTP accepts only complete `200` or `203` representations; a direct validator-matched `304` is `not_modified`. Other `2xx` statuses are not representations. Conditional validators are sent only to the exact issuing source URL. File sources read fresh bytes every cycle. HTTP redirects are manually bounded, never downgrade HTTPS to HTTP, and strip extensible configured headers and secrets on origin changes.
+
+JSON Pointer and HTMLCut projection select one scalar. HTMLCut plans are prepared once from configuration and executed once per HTML acquisition. `html_text` is plain DOM descendant text; `html_rendered_text` is semantic rendered text; `html_attribute` selects a named attribute. FFHN parses values under explicit type contracts and evaluates policy using only persisted pre-observation references. Decimal and money comparisons are exact.
+
+## Dry runs, health, and delivery
+
+Dry measurement takes a shared lock and executes the same configuration, lineage, acquisition, projection, parsing, and policy path. It never recovers a manifest, creates lineage, writes state, admits outbox records, or invokes adapters.
+
+Acquisition failures update source health; extraction failures update only the affected measurement health. Source and measurement integration faults are independent, code-keyed episodes. Escalation and integration events are materialized route-independently and admitted to their owner’s outbox only when routes are configured.
+
+Outbox records snapshot the event envelope, adapter, and retry policy. The agent drains snapshots independently from acquisition: invalid current configuration, quarantined measurements, and removed measurement configuration do not invalidate reachable pending records. Retry timing is deterministic from record identity, attempt count, and snapshot policy.

@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-07-20"
+updated: "2026-08-25"
 route:
-  keywords: [quality gates, check.sh, cargo xtask, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke, dependency freshness, cargo outdated]
-  questions: ["what does ffhn check.sh run?", "how does FFHN prevent god files and forbidden Rust module dependencies?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
+  keywords: [quality gates, check.sh, cargo xtask, cargo-mutants, mutation testing, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke, dependency freshness, cargo outdated]
+  questions: ["what does ffhn check.sh run?", "how do I run FFHN mutation testing?", "why is cargo-mutants separate from the required gate?", "how does FFHN prevent god files and forbidden Rust module dependencies?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
 ---
 
 # Quality Gates
@@ -81,6 +81,14 @@ Miri-only:
 
 ```bash
 cargo xtask miri
+```
+
+Mutation testing:
+
+```bash
+cargo xtask mutants
+cargo xtask mutants --scope runtime
+cargo xtask mutants --scope tooling
 ```
 
 That proof executes text, integer, decimal, money, semantic-version, and explicit-offset
@@ -174,6 +182,8 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 22. `cargo xtask hygiene clean --mode safe`
 23. a final hygiene verification pass
 
+The duplicate-dependency policy has one exact capability-stack exception: `io-lifetimes 2.0.4` remains required by `fs-set-times 0.20.3`, while the same current `cap-primitives 4.0.3` release uses `io-lifetimes 3` directly. Both are upstream requirements of FFHN’s no-follow capability storage. The exception names the precise old line rather than the crate family, so cargo-deny makes the entry stale as soon as upstream removes it.
+
 Dependency freshness is intentionally separate from the required correctness gate. FFHN keeps the
 freshness signal in [../.github/workflows/dependency-freshness.yml](../.github/workflows/dependency-freshness.yml),
 which runs the pinned `cargo-outdated` tool without blocking unrelated correctness work. That
@@ -181,6 +191,18 @@ workflow installs only `cargo-outdated`, rather than the full QA-tool suite, bec
 other QA lane; a reported update remains a failing, review-required maintenance signal.
 
 There is no separate rustdoc-coverage percentage gate. Public-surface documentation is enforced by `#![deny(missing_docs)]` in the Rust crates, so undocumented public items fail normal compilation and test builds.
+
+## Mutation Testing
+
+`cargo xtask mutants` runs the pinned cargo-mutants tool against two independently judged first-party scopes. The runtime scope mutates `ffhn-core` and `ffhn-cli` and runs their product tests; the tooling scope mutates `xtask` and runs its maintainer-policy tests. Both configurations use all features, locked Cargo resolution, built-in non-semantic call filtering, round-robin sharding, and exclude test modules from mutation.
+
+Mutation testing asks whether the tests reject plausible behavioral changes; 100% line/branch coverage alone proves only that code executed. It complements coverage, fuzzing, and Miri and remains separate from `./check.sh` because complete campaigns contain thousands of mutants.
+
+Every run uses cargo-mutants' copied-workspace mode and retains results under `../.ffhn-artifacts/mutation-runs/<scope>/mutants.out`. Each new run clears only the selected scope's prior generated result tree; no mutation mode writes build output into the checkout it evaluates.
+
+The dedicated [mutation workflow](../.github/workflows/mutants.yml) enumerates each pull-request diff first, then runs and retains a runtime or tooling mutation result only when that scope contains changed production mutants; an empty scope is a successful explicit zero rather than fabricated evidence. Weekly and manually dispatched full campaigns use one generated plan containing twelve runtime shards and four tooling shards. Machine selectors such as `0/12` remain distinct from artifact-safe identities. The summary authority rejects missing, unexpected, flattened, malformed, or incomplete shard evidence before aggregating caught, missed, timed-out, and unviable counts.
+
+Missed mutants and timeouts fail the campaign. FFHN maintains no survivor allowlist, skip annotations, or compatibility exemptions; fix the governing test or production design and rerun the affected scope. `--iterate` is suitable only for a local test-writing loop and never substitutes for a complete authoritative campaign.
 
 The contributor devcontainer is a maintained surface too, but it is validated separately from
 `./check.sh`. That split is intentional: `./check.sh` is designed to run inside the contributor
@@ -245,13 +267,13 @@ That source-tree scan deliberately excludes `tests.rs` and any nested `tests/` m
 
 The `xtask` test suite also enforces maintainer-facing repository contracts that are easy to let drift silently:
 
-1. AFAD-managed Markdown under `docs/`, `examples/`, and `fuzz/` must carry AFAD frontmatter using the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`; the root `README.md`, `CONTRIBUTING.md`, and `changelog.md` remain special docs and are validated without forced AFAD metadata
+1. AFAD-managed Markdown under `docs/` and `fuzz/` must carry AFAD frontmatter using the canonical AFAD protocol version from `.codex/PROTOCOL_AFAD.md`; the root `README.md`, `CONTRIBUTING.md`, and `changelog.md` remain special docs and are validated without forced AFAD metadata
 2. public Markdown local links and maintained repo-file path mentions must still resolve
-3. checked-in public target examples must still validate against the current `ffhn.target` contract
+3. public source, measurement, report, and reset documentation must name the current observation-graph contracts and must not reintroduce retired configuration or report families
 4. the repository-root `AGENTS.md` must remain the only maintained agent entrypoint, and shadow agent-entrypoint files under `.codex/` must not be reintroduced
-5. the README and `docs/cli.md` command catalogs must match the core-owned CLI contract metadata
-6. public Markdown must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
-7. user-facing Rust string literals in the maintained source tree must not mention unknown FFHN operation ids or unknown `ffhn.*` document ids
+5. the README, `docs/cli.md`, and CLI integration tests must agree on the current command grammar and result documents
+6. public Markdown must not mention unknown `ffhn.*` document ids
+7. user-facing Rust string literals in the maintained source tree must not mention unknown `ffhn.*` document ids
 8. the README, platform-support docs, and release protocol must stay aligned with the canonical release-target and release-asset inventory emitted by `scripts/release-targets.sh`
 9. every documented `cargo xtask refresh-semver-baseline` invocation in public Markdown must include the required `--git-ref` argument
 
@@ -260,6 +282,8 @@ The `ffhn-cli` test suite complements that repository lint by asserting that liv
 ## Fuzzing Policy
 
 The automatic gate security-audits the standalone fuzz lockfile, lint-checks the standalone fuzz package, and compile-smokes the maintained harnesses. FFHN routes RustSec auditing through `cargo xtask audit` so transient advisory-database fetch failures are retried by one maintained entrypoint instead of being reimplemented piecemeal across local and CI lanes.
+
+RustSec scans optional packages recorded in a lockfile even when no maintained feature graph can compile them. The sole maintained exception is `RUSTSEC-2026-0235` for `rkyv 0.7.46`, an optional `rust_decimal` integration FFHN never enables. Before passing `--ignore`, `cargo xtask audit` executes `cargo tree --all-targets --all-features --target all --invert rkyv@0.7.46 --locked` against the audited manifest and fails closed if that package is reachable or the proof cannot run. The exception therefore cannot mask a compiled vulnerable dependency.
 
 Automatic:
 

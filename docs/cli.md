@@ -1,69 +1,73 @@
 ---
 afad: "4.0"
 domain: CLI
-updated: "2026-07-18"
+updated: "2026-08-25"
 route:
-  keywords: [CLI, run, status, reset, JSON, HTML, typed measurement]
-  questions: ["how do I run a target?", "how do I reset typed state?", "what does the CLI emit?"]
+  keywords: [CLI, graph root, source, measurement, agent, reset]
+  questions: ["how do I create a graph?", "how do I measure one source?", "what does reset replace?"]
 ---
 
 # CLI Contract
 
-`ffhn-cli` renders v2 core documents. `json` and `json-pretty` are machine interfaces. `summary`
-is a distinct human-readable text view: a run summary shows the typed observation and prior value,
-every condition decision with its trigger, hysteresis state, and reference evidence, staged events,
-the durable-before and staged-after lifecycle snapshots, state persistence, and every structured diagnostic fact. That includes native I/O classes, typed
-HTTP and file acquisition evidence, HTMLCut error class, optional primary diagnostic code, boundary,
-parser, and diagnostic-detail evidence,
-integration-fault codes, and delivery evidence. For delivery-process evidence it renders every closed
-terminal, writer, stderr-status, stderr-metadata, and derived-primary fact, but never retained stderr
-text. Text containing control characters is rendered as a JSON string so each summary fact remains on
-one line. Batch summaries retain that complete run view for each target. Summary is intentionally not
-a parsing interface.
+FFHN operates on a graph root. A graph contains sources, and each source contains one acquisition contract and zero or more measurement contracts.
 
-`status` reads any persisted state under the target's shared lock before exposing its lifecycle
-snapshot. It first validates the target apart from projection syntax, then verifies the current
-state envelope and digest, and only then checks projection syntax. A projection-invalid target can
-therefore return `invalid_config` together with verified durable lifecycle facts; unreadable,
-stale, or digest-mismatched state never appears in status output.
+`json` and `json-pretty` are machine interfaces. `summary` is human-oriented text derived from the same structured document and is not a parsing interface.
 
 | Command | Result document | Purpose |
 | --- | --- | --- |
-| `ffhn run --target <id>` | `ffhn.run_report` | acquire and type one measurement |
-| `ffhn run --target <a> --target <b>` | `ffhn.batch_run_report` | bounded parallel measurement batch |
-| `ffhn run --all` | `ffhn.batch_run_report` | run immediate target directories |
-| `ffhn status --target <id>` | `ffhn.status_report` | inspect accepted v2 state |
-| `ffhn reset --target <id>` | `ffhn.reset_report` | blind-delete FFHN-owned storage |
+| `ffhn new source` | `ffhn.new_report` | initialize an empty graph when needed and create source TOML only |
+| `ffhn new measurement` | `ffhn.new_report` | create measurement TOML only |
+| `ffhn validate` | `ffhn.validate_report` | validate configuration offline |
+| `ffhn list` | `ffhn.list_report` | list configured sources or measurements |
+| `ffhn measure` | `ffhn.measure_report` | acquire one source and evaluate its measurements |
+| `ffhn status` | `ffhn.source_status_report` | inspect a source’s stable lineage, health, and measurement facts |
+| `ffhn reset` | `ffhn.reset_report` | mint fresh source or measurement lineage |
+| `ffhn agent tick` | `ffhn.agent_tick_report` | execute one finite scheduled turn |
+| `ffhn agent status` | `ffhn.agent_status_report` | inspect every configured source |
 
-## Run
-
-```text
-ffhn run (--target <ID>... | --all) [--watch-root <PATH>] [--jobs <N>] [--dry-run] [--format <FORMAT>]
-```
-
-`--watch-root` defaults to `watchlist`. `--all` discovers immediate directories containing
-`target.toml`; `--jobs` must be positive. `--dry-run` fetches, projects, parses, and stages policy
-without writing state or invoking delivery. A valid live observation writes
-`<target>/.ffhn/state.json` atomically; source-suspect, permanent-error, and integration-fault
-runs may also write it solely to commit health or episode facts. Every live commit then attempts due
-durable deliveries.
-
-`initialized`, `changed`, `unchanged`, and `skipped_disabled` exit zero. Acquisition, typed
-parsing, contract-refusal, integration faults, persistence, retry-scheduled delivery, dead-lettered
-delivery, and outbox overflow exit one while still writing a structured report. CLI misuse exits
-two; fatal failures before a document exits three.
-
-## Status and reset
+## Configuration workflow
 
 ```text
-ffhn status --target <ID> [--watch-root <PATH>] [--format <FORMAT>]
-ffhn reset --target <ID> [--watch-root <PATH>] [--format <FORMAT>]
+ffhn new source --source <ID> [--graph-root <PATH>]
+ffhn new measurement --source <ID> --measurement <ID> [--graph-root <PATH>]
+ffhn validate (--source <ID> | --all) [--graph-root <PATH>] [--format <FORMAT>]
+ffhn list (--sources | --measurements) [--graph-root <PATH>] [--format <FORMAT>]
 ```
 
-Status waits for a stable lock view and reports `pending`, `ready`, or structured invalid or
-unavailable state. Reset acquires the same target lock, does not inspect stored artifacts, deletes
-FFHN-owned storage, and leaves `target.toml` ready for a fresh initialization. If the still-valid
-target has an `on_run` route, reset creates fresh state only to enqueue and attempt one durable
-`reset` event; the reset report contains its delivery evidence and exits one when that evidence
-contains a delivery problem. This includes an `outbox_error_detail`: reset is already complete, but its
-new reset-event outbox work could not complete durably.
+`new source` creates a disabled, file-backed template and an immutable graph identity only when the requested graph root is absent or empty. `new measurement` creates a disabled, text JSON-Pointer template. Neither command creates source or measurement lineage, state, outbox records, or delivery attempts.
+
+`validate` performs both delivery and source/measurement contract validation without fetching, reading state, invoking adapters, or changing lineage. It exits one when any checked source or measurement is invalid.
+
+## Measurement and status
+
+```text
+ffhn measure --source <ID> [--measurement <ID>]... [--graph-root <PATH>] [--jobs <N>] [--dry-run] [--format <FORMAT>]
+ffhn status --source <ID> [--measurement <ID>] [--graph-root <PATH>] [--format <FORMAT>]
+```
+
+`measure` acquires one complete source representation and evaluates every selected configured measurement against the same in-memory document. Measurement selection is exact: an unknown or duplicate selected id is rejected. Live measurement holds the source writer lock and commits accepted state, health episodes, event envelopes, and admitted outbox records atomically before delivery can drain.
+
+`--dry-run` takes a shared lock and executes the same configuration, lineage, acquisition, projection, parsing, and policy path without recovering manifests, minting lineage, writing state, admitting outbox records, or invoking delivery.
+
+`status` takes a shared source lock with bounded retry. It never recovers a manifest: a present or unreadable manifest is reported as `pending` with its class. Status distinguishes invalid source/measurement configuration, source and measurement lineage reasons, MVD quarantine with stored/current digests, never-initialized and removed measurements, source acquisition health, and scoped integration-fault episodes. These facts do not depend on routes.
+
+## Agent and reset
+
+```text
+ffhn agent run|tick|status [--graph-root <PATH>] [--jobs <N>] [--format <FORMAT>]
+ffhn reset --source <ID> [--measurement <ID>] [--graph-root <PATH>] [--format <FORMAT>]
+```
+
+`agent tick` claims the graph lease, evaluates due source acquisition independently from source and measurement outbox draining, and reports both facts. `--jobs` bounds concurrency across sources only; measurements within one source remain serialized, and report order is stable by source id. `agent run` retains the lease until a handled termination signal, finishes already-started source turns, and sleeps interruptibly until the earliest permitted source due time, retry time, or in-memory deferral boundary. A second agent returns exit code 4.
+
+`reset --source` is blind and mint-only: it creates fresh source lineage, removes every source-owned measurement state and outbox under the fixed graph layout, and never interprets old state as migration input. `reset --measurement` creates fresh lineage and state only for the named measurement while preserving source and sibling lineage. There is no migration command or compatibility path.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | successful command, including initialized, changed, unchanged, not-modified, disabled, or skipped-locked source outcomes |
+| 1 | handled structured failure, such as invalid configuration, pending or refused lineage, MVD quarantine, extraction/acquisition failure, integration fault, delivery retry/dead letter, or acquisition hold |
+| 2 | CLI misuse |
+| 3 | fatal failure before a structured document can be emitted |
+| 4 | source busy or graph agent already running |

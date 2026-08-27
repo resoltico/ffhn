@@ -7,7 +7,7 @@ use crate::model::DynResult;
 #[cfg(test)]
 const ROOT_PUBLIC_MARKDOWN: &[&str] = &["README.md", "CONTRIBUTING.md", "changelog.md"];
 #[cfg(test)]
-const AFAD_MANAGED_MARKDOWN_ROOTS: &[&str] = &["docs", "examples", "fuzz"];
+const AFAD_MANAGED_MARKDOWN_ROOTS: &[&str] = &["docs", "fuzz"];
 #[cfg(test)]
 const ROOT_MAINTAINED_REPO_FILES: &[&str] = &[
     "AGENTS.md",
@@ -27,7 +27,6 @@ const MAINTAINED_REPO_OWNED_FILE_ROOTS: &[&str] = &[
     "crates/ffhn-cli/src",
     "crates/ffhn-core/src",
     "docs",
-    "examples",
     "fuzz",
     "scripts",
     "xtask/src",
@@ -95,31 +94,8 @@ pub(crate) fn maintained_repo_owned_paths(repo_root: &Path) -> DynResult<Vec<Pat
         }
     }
 
-    paths.extend(watchlist_target_config_paths(repo_root)?);
     paths.sort();
     paths.dedup();
-    Ok(paths)
-}
-
-#[cfg(test)]
-pub(crate) fn watchlist_target_config_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    let watchlist_dir = repo_root.join("watchlist");
-
-    if watchlist_dir.is_dir() {
-        for entry in fs::read_dir(&watchlist_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                let target_file = path.join("target.toml");
-                if target_file.is_file() {
-                    paths.push(target_file);
-                }
-            }
-        }
-    }
-
-    paths.sort();
     Ok(paths)
 }
 

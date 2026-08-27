@@ -109,41 +109,27 @@ fn source_shape_inventory_includes_unit_integration_and_fuzz_rust_files() {
 }
 
 #[test]
-fn maintained_repo_owned_paths_skip_watchlist_runtime_artifacts_and_mac_metadata() {
+fn maintained_repo_owned_paths_skip_mac_metadata() {
     let repo = tempfile::tempdir().expect("tempdir");
     let repo_root = repo.path();
 
     fs::write(repo_root.join("AGENTS.md"), "# agents\n").expect("write AGENTS.md");
-    fs::create_dir_all(repo_root.join("examples/file-example")).expect("create examples dir");
-    fs::create_dir_all(repo_root.join("watchlist/demo/.ffhn")).expect("create state dir");
-    fs::create_dir_all(repo_root.join("watchlist/.ffhn-locks")).expect("create lock dir");
+    fs::create_dir_all(repo_root.join("docs/fixtures")).expect("create docs directory");
 
-    fs::write(repo_root.join("examples/.DS_Store"), "ignore").expect("write .DS_Store");
-    fs::write(repo_root.join("examples/._release-notes.html"), "ignore")
+    fs::write(repo_root.join("docs/.DS_Store"), "ignore").expect("write .DS_Store");
+    fs::write(repo_root.join("docs/._release-notes.html"), "ignore")
         .expect("write AppleDouble metadata");
     fs::write(
-        repo_root.join("examples/file-example/release-notes.html"),
+        repo_root.join("docs/fixtures/release-notes.html"),
         "<main>demo</main>\n",
     )
     .expect("write maintained example");
-    fs::write(
-        repo_root.join("watchlist/demo/target.toml"),
-        "schema_name = \"ffhn.target\"\n",
-    )
-    .expect("write starter target");
-    fs::write(repo_root.join("watchlist/demo/.ffhn/state.json"), "{}\n")
-        .expect("write runtime state");
-    fs::write(repo_root.join("watchlist/.ffhn-locks/demo.lock"), "lock\n").expect("write run lock");
-
     let paths = maintained_repo_owned_paths(repo_root).expect("maintained repo-owned paths");
 
     assert!(paths.contains(&repo_root.join("AGENTS.md")));
-    assert!(paths.contains(&repo_root.join("examples/file-example/release-notes.html")));
-    assert!(paths.contains(&repo_root.join("watchlist/demo/target.toml")));
-    assert!(!paths.contains(&repo_root.join("examples/.DS_Store")));
-    assert!(!paths.contains(&repo_root.join("examples/._release-notes.html")));
-    assert!(!paths.contains(&repo_root.join("watchlist/demo/.ffhn/state.json")));
-    assert!(!paths.contains(&repo_root.join("watchlist/.ffhn-locks/demo.lock")));
+    assert!(paths.contains(&repo_root.join("docs/fixtures/release-notes.html")));
+    assert!(!paths.contains(&repo_root.join("docs/.DS_Store")));
+    assert!(!paths.contains(&repo_root.join("docs/._release-notes.html")));
 }
 
 #[cfg(unix)]
@@ -154,16 +140,16 @@ fn maintained_repo_owned_paths_skip_non_file_non_directory_entries() {
     let repo = tempfile::tempdir().expect("tempdir");
     let repo_root = repo.path();
 
-    fs::create_dir_all(repo_root.join("examples/file-example")).expect("create examples dir");
+    fs::create_dir_all(repo_root.join("docs/fixtures")).expect("create docs directory");
     symlink(
-        repo_root.join("examples/missing-release-notes.html"),
-        repo_root.join("examples/file-example/broken-link.html"),
+        repo_root.join("docs/missing-release-notes.html"),
+        repo_root.join("docs/fixtures/broken-link.html"),
     )
     .expect("create broken symlink");
 
     let paths = maintained_repo_owned_paths(repo_root).expect("maintained repo-owned paths");
 
-    assert!(!paths.contains(&repo_root.join("examples/file-example/broken-link.html")));
+    assert!(!paths.contains(&repo_root.join("docs/fixtures/broken-link.html")));
 }
 
 #[test]
@@ -186,21 +172,13 @@ fn regular_file_collection_skips_retired_runtime_roots_and_metadata_files() {
 }
 
 #[test]
-fn repository_inventory_ignores_missing_roots_and_incomplete_watchlist_entries() {
+fn repository_inventory_ignores_missing_roots() {
     let repo = tempfile::tempdir().expect("temporary directory");
     let repo_root = repo.path();
 
     assert!(
         public_markdown_paths(repo_root)
             .expect("empty public markdown")
-            .is_empty()
-    );
-
-    fs::create_dir_all(repo_root.join("watchlist/empty")).expect("watchlist directory");
-    fs::write(repo_root.join("watchlist/not-a-target"), "not a directory").expect("watchlist file");
-    assert!(
-        watchlist_target_config_paths(repo_root)
-            .expect("incomplete watchlist")
             .is_empty()
     );
 }

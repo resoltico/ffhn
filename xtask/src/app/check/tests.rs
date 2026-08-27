@@ -33,17 +33,18 @@ fn unsuccessful_probe_command() -> (&'static str, &'static [&'static str]) {
 fn sample_tooling() -> RustTooling {
     crate::tooling::parse_rust_tooling(
         "RUST_WORKSPACE_EDITION=2024\n\
-RUST_WORKSPACE_RUST_VERSION=1.97\n\
-RUST_STABLE_TOOLCHAIN=1.97.0\n\
-RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-05-11\n\
+RUST_WORKSPACE_RUST_VERSION=1.98\n\
+RUST_STABLE_TOOLCHAIN=1.98.0\n\
+RUST_QA_NIGHTLY_TOOLCHAIN=nightly-2026-08-25\n\
 \n\
 CARGO_AUDIT_VERSION=0.22.2\n\
 CARGO_DENY_VERSION=0.20.2\n\
 CARGO_FUZZ_VERSION=0.13.2\n\
-CARGO_LLVM_COV_VERSION=0.8.7\n\
-CARGO_NEXTEST_VERSION=0.9.140\n\
+CARGO_LLVM_COV_VERSION=0.9.0\n\
+CARGO_MUTANTS_VERSION=27.1.0\n\
+CARGO_NEXTEST_VERSION=0.9.143\n\
 CARGO_OUTDATED_VERSION=0.19.0\n\
-CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
+CARGO_SEMVER_CHECKS_VERSION=0.50.0\n",
     )
     .expect("parse tooling")
 }
@@ -52,6 +53,38 @@ CARGO_SEMVER_CHECKS_VERSION=0.48.0\n",
 fn reported_version_extracts_digit_prefixed_segments_and_rejects_plain_text() {
     assert_eq!(reported_version("cargo-audit 0.22.2"), Some("0.22.2"));
     assert_eq!(reported_version("cargo-audit version unknown"), None);
+    assert_eq!(
+        bootstrap_hint(),
+        "Run `./scripts/bootstrap-rust-tools.sh install-all` to install FFHN's pinned Rust toolchains and QA tools."
+    );
+}
+
+#[test]
+fn coverage_failure_messages_preserve_independent_line_and_branch_diagnostics() {
+    let line_only = crate::model::CoverageFailure {
+        file: "line.rs".to_owned(),
+        uncovered_lines: vec!["7".to_owned()],
+        uncovered_branch_count: 0,
+    };
+    assert_eq!(
+        coverage_failure_messages(&line_only),
+        ["- line.rs lines: 7".to_owned()]
+    );
+    let branch_only = crate::model::CoverageFailure {
+        file: "branch.rs".to_owned(),
+        uncovered_lines: Vec::new(),
+        uncovered_branch_count: 1,
+    };
+    assert_eq!(
+        coverage_failure_messages(&branch_only),
+        ["- branch.rs branches: 1 uncovered".to_owned()]
+    );
+    let both = crate::model::CoverageFailure {
+        file: "both.rs".to_owned(),
+        uncovered_lines: vec!["9".to_owned()],
+        uncovered_branch_count: 2,
+    };
+    assert_eq!(coverage_failure_messages(&both).len(), 2);
 }
 
 #[test]
@@ -214,7 +247,7 @@ fn ensure_miri_prerequisites_reports_missing_components() {
     write_executable(
         bin_dir.path(),
         "cargo",
-        "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-05-11\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  printf 'miri 0.1.0 (test stub)\\n'\n  exit 0\nfi\nexit 0\n",
+        "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-08-25\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  printf 'miri 0.1.0 (test stub)\\n'\n  exit 0\nfi\nexit 0\n",
     );
 
     // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
@@ -227,7 +260,7 @@ fn ensure_miri_prerequisites_reports_missing_components() {
     assert!(
         error
             .to_string()
-            .contains("rustup component add miri --toolchain nightly-2026-05-11")
+            .contains("rustup component add miri --toolchain nightly-2026-08-25")
     );
 }
 
@@ -254,7 +287,7 @@ fn ensure_miri_prerequisites_reports_broken_miri_binaries() {
     write_executable(
         bin_dir.path(),
         "cargo",
-        "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-05-11\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  exit 7\nfi\nexit 0\n",
+        "#!/bin/sh\nif [ \"$1\" = \"+nightly-2026-08-25\" ] && [ \"$2\" = \"miri\" ] && [ \"$3\" = \"--version\" ]; then\n  exit 7\nfi\nexit 0\n",
     );
 
     // SAFETY: PROCESS_ENV_LOCK serializes process-environment mutation in this module.
@@ -267,12 +300,12 @@ fn ensure_miri_prerequisites_reports_broken_miri_binaries() {
     assert!(
         error
             .to_string()
-            .contains("cargo +nightly-2026-05-11 miri --version")
+            .contains("cargo +nightly-2026-08-25 miri --version")
     );
     assert!(
         error
             .to_string()
-            .contains("rustup toolchain uninstall nightly-2026-05-11")
+            .contains("rustup toolchain uninstall nightly-2026-08-25")
     );
 }
 
@@ -308,7 +341,7 @@ fn ensure_miri_prerequisites_reports_component_query_failure() {
     assert!(
         error
             .to_string()
-            .contains("failed to query rustup nightly components for `nightly-2026-05-11`")
+            .contains("failed to query rustup nightly components for `nightly-2026-08-25`")
     );
 }
 
@@ -344,6 +377,6 @@ fn ensure_miri_prerequisites_reports_non_utf8_component_output() {
     assert!(
         error
             .to_string()
-            .contains("rustup component list returned non-UTF-8 output for `nightly-2026-05-11`")
+            .contains("rustup component list returned non-UTF-8 output for `nightly-2026-08-25`")
     );
 }

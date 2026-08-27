@@ -4,74 +4,99 @@ use std::path::Path;
 use super::*;
 
 #[test]
-fn public_docs_describe_current_v2_json_and_html_measurement_contracts() {
+fn public_docs_describe_only_current_observation_graph_contracts() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root");
     let targets = fs::read_to_string(root.join("docs/targets.md")).expect("targets documentation");
     assert!(targets.contains("JSON Pointer"));
+    assert!(targets.contains("ffhn.source"));
+    assert!(targets.contains("ffhn.measurement"));
+    assert!(targets.contains("source_id"));
+    assert!(targets.contains("measurement_id"));
     assert!(targets.contains("HTMLCut"));
     assert!(targets.contains("html_text"));
     assert!(targets.contains("html_rendered_text"));
     assert!(targets.contains("html_attribute"));
     assert!(targets.contains("plain DOM descendant text"));
     assert!(targets.contains("dom_canonicalization"));
-    assert!(targets.contains("htmlcut_plan_invalid"));
-    assert!(targets.contains("html_text_requires_css_selector"));
-    assert!(targets.contains("rust_decimal"));
-    assert!(targets.contains("ffhn reset"));
+    assert!(targets.contains("require a CSS selector"));
+    assert!(targets.contains("rejects it as inert configuration"));
+    assert!(targets.contains("exact"));
+    assert!(targets.contains("reset --source"));
     assert!(!targets.contains("notification_endpoints"));
 
     let contracts =
         fs::read_to_string(root.join("docs/contracts.md")).expect("contracts documentation");
     let contracts = normalize_whitespace(&contracts);
-    assert!(contracts.contains("html_plain_text"));
-    assert!(contracts.contains("html_rendered_text"));
-    assert!(contracts.contains("detached canonical clone supplies comparison"));
+    for schema in [
+        "ffhn.agent",
+        "ffhn.graph_identity",
+        "ffhn.source",
+        "ffhn.source_identity",
+        "ffhn.measurement",
+        "ffhn.source_state",
+        "ffhn.measurement_state",
+        "ffhn.commit_manifest",
+        "ffhn.lineage_manifest",
+        "ffhn.delivery_record",
+        "ffhn.dead_letter",
+        "ffhn.event_envelope",
+        "ffhn.measure_report",
+        "ffhn.agent_tick_report",
+        "ffhn.agent_status_report",
+        "ffhn.source_status_report",
+        "ffhn.measurement_status_report",
+        "ffhn.reset_report",
+        "ffhn.validate_report",
+        "ffhn.list_report",
+        "ffhn.new_report",
+    ] {
+        assert!(contracts.contains(schema), "missing {schema}");
+    }
+    for retired in [
+        "ffhn.target",
+        "ffhn.state`",
+        "ffhn.run_report",
+        "ffhn.batch_run_report",
+        "ffhn.process_stdin",
+    ] {
+        assert!(!contracts.contains(retired), "retired contract {retired}");
+    }
 
     let reports = fs::read_to_string(root.join("docs/reports.md")).expect("reports documentation");
     let reports = normalize_whitespace(&reports);
-    assert!(reports.contains("detached selected-subtree clone"));
-    let htmlcut_major = pinned_htmlcut_major_version(root);
-    assert!(reports.contains(&format!("HTMLCut {htmlcut_major} diagnostic-detail shapes")));
+    assert!(reports.contains("ffhn.measure_report"));
+    assert!(reports.contains("ffhn.source_status_report"));
+    assert!(reports.contains("ffhn.measurement_status_report"));
+    assert!(reports.contains("route-independent"));
+
+    for path in [
+        "docs/README.md",
+        "docs/architecture.md",
+        "docs/cli.md",
+        "docs/contracts.md",
+        "docs/core.md",
+        "docs/getting-started.md",
+        "docs/reports.md",
+        "docs/targets.md",
+        "docs/versioning-policy.md",
+    ] {
+        let current = fs::read_to_string(root.join(path)).expect("current public documentation");
+        for retired in [
+            "ffhn.target",
+            "ffhn.run_report",
+            "ffhn.batch_run_report",
+            "target.toml",
+            "--watch-root",
+        ] {
+            assert!(!current.contains(retired), "{path} retains {retired}");
+        }
+    }
 }
 
 fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn pinned_htmlcut_major_version(repo_root: &Path) -> String {
-    let manifest = fs::read_to_string(repo_root.join("Cargo.toml")).expect("workspace manifest");
-    let manifest = toml::from_str::<toml::Value>(&manifest).expect("valid workspace manifest");
-    let version = manifest
-        .get("workspace")
-        .and_then(toml::Value::as_table)
-        .and_then(|workspace| workspace.get("dependencies"))
-        .and_then(toml::Value::as_table)
-        .and_then(|dependencies| dependencies.get("htmlcut-core"))
-        .and_then(toml::Value::as_table)
-        .and_then(|dependency| dependency.get("version"))
-        .and_then(toml::Value::as_str)
-        .expect("pinned htmlcut-core version");
-    let exact_version = version
-        .strip_prefix('=')
-        .expect("exact pinned htmlcut-core version");
-    let major = exact_version
-        .split_once('.')
-        .map_or(exact_version, |(major, _)| major);
-    format!("v{major}")
-}
-
-#[test]
-fn public_target_examples_decode_as_current_v2_contracts() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root");
-    for path in public_target_example_paths(root).expect("public target paths") {
-        let text = fs::read_to_string(&path).expect("target text");
-        let target: ffhn_core::TargetDocument = toml::from_str(&text).expect("current target TOML");
-        target.validate().expect("current target contract");
-    }
 }
 
 #[test]
@@ -136,25 +161,9 @@ fn afad_metadata_parsers_reject_incomplete_or_legacy_frontmatter_without_guessin
 }
 
 #[test]
-fn repo_contract_inventory_helpers_keep_errors_and_current_target_paths_visible() {
+fn repo_contract_inventory_helpers_keep_errors_visible() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let root = temporary.path();
-    fs::create_dir_all(root.join("examples")).expect("examples");
-    fs::write(root.join("examples/standalone.toml"), "target = true\n").expect("example");
-    fs::write(root.join("examples/ignore.txt"), "ignored\n").expect("text example");
-    fs::create_dir_all(root.join("watchlist/demo")).expect("watchlist");
-    fs::write(root.join("watchlist/demo/target.toml"), "target = true\n").expect("watch target");
-    let paths = public_target_example_paths(root).expect("target inventory");
-    assert!(paths.contains(&root.join("examples/standalone.toml")));
-    assert!(paths.contains(&root.join("watchlist/demo/target.toml")));
-
-    let no_examples = tempfile::tempdir().expect("empty temporary directory");
-    assert!(
-        public_target_example_paths(no_examples.path())
-            .expect("empty target inventory")
-            .is_empty()
-    );
-
     let invalid = root.join("invalid.md");
     fs::write(&invalid, "---\nafad: \"4.0\"\n").expect("invalid document");
     assert!(afad_frontmatter(&invalid).is_err());

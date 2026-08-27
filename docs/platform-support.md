@@ -42,6 +42,12 @@ The maintained asset names are:
 
 macOS and Linux targets ship as `.tar.gz` packages so the executable bit survives extraction. Windows ships as a `.zip` package.
 
+## macOS distribution boundary
+
+FFHN does not purchase or use Apple notarization. The release workflow still builds, packages, checksums, and attests both macOS architectures, but a browser-downloaded archive receives Apple quarantine metadata and Gatekeeper refuses the contained binary. Browser download is therefore not a supported macOS installation path, and FFHN does not document an `xattr` command that asks operators to bypass that decision.
+
+Supported macOS acquisition is a host-native build from the verified release source archive or source checkout obtained without browser quarantine. This is a distribution-channel boundary, not a reduction in the maintained macOS build/test target matrix.
+
 Each standalone package contains:
 
 - the platform binary

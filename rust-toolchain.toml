@@ -1,6 +1,6 @@
 [toolchain]
-# Rust 1.97.0 is the maintained FFHN toolchain for development, linting, tests,
-# and release builds. We install nightly separately only for branch coverage, because
-# `cargo llvm-cov --branch` currently requires it.
-channel = "1.97.0"
+# Rust 1.98.0 is the maintained FFHN toolchain for development, linting, tests,
+# and release builds. We install nightly separately for the maintained Miri proof, branch
+# coverage, and optional sanitizer-backed fuzzing because those surfaces still require it.
+channel = "1.98.0"
 components = ["clippy", "rustfmt", "llvm-tools-preview"]

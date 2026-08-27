@@ -19,7 +19,7 @@ fn coverage_command_targets_repo_coverage_file() {
     assert_eq!(
         command.args,
         vec![
-            "+nightly-2026-05-11".to_owned(),
+            "+nightly-2026-08-25".to_owned(),
             "llvm-cov".to_owned(),
             "--branch".to_owned(),
             "--workspace".to_owned(),
@@ -43,7 +43,7 @@ fn coverage_command_targets_repo_coverage_file() {
     assert_eq!(
         clean.args,
         vec![
-            "+nightly-2026-05-11".to_owned(),
+            "+nightly-2026-08-25".to_owned(),
             "llvm-cov".to_owned(),
             "clean".to_owned(),
             "--workspace".to_owned(),

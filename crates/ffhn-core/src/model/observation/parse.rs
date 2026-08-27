@@ -6,65 +6,50 @@ use semver::Version;
 use serde_json::value::RawValue;
 use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset, format_description};
 
-use super::super::failure::SourceSuspectReason;
-use super::super::{
-    DeclaredType, DiagnosticDetail, DiagnosticKind, DiagnosticOperation, NumericLocale,
-    TargetDocument, TypeParams,
-};
+use super::super::{DeclaredType, NumericLocale, TypeParams};
 use super::record::Observation;
 use super::types::HtmlObservationInput;
-use crate::model::plain_detail;
 
 /// A structured JSON-acquisition failure before it becomes a persisted health fact.
 #[derive(Debug)]
 pub(crate) enum JsonAcquisitionFailure {
-    Malformed(DiagnosticDetail),
-    MissingPointerTarget(DiagnosticDetail),
-    NonScalarPointerTarget(DiagnosticDetail),
+    Malformed,
+    MissingPointerTarget,
+    NonScalarPointerTarget,
 }
 
 impl JsonAcquisitionFailure {
-    pub(crate) const fn reason(&self) -> SourceSuspectReason {
-        match self {
-            Self::Malformed(_) => SourceSuspectReason::JsonMalformed,
-            Self::MissingPointerTarget(_) => SourceSuspectReason::JsonMissingPointerTarget,
-            Self::NonScalarPointerTarget(_) => SourceSuspectReason::JsonNonScalarPointerTarget,
-        }
-    }
-
-    pub(crate) fn into_detail(self) -> DiagnosticDetail {
-        match self {
-            Self::Malformed(detail)
-            | Self::MissingPointerTarget(detail)
-            | Self::NonScalarPointerTarget(detail) => detail,
-        }
-    }
-
-    fn malformed(message: impl Into<String>) -> Self {
-        Self::Malformed(plain_detail(
-            DiagnosticKind::Json,
-            DiagnosticOperation::JsonPointerSelection,
-            message,
-            None,
-        ))
+    fn malformed(_message: impl Into<String>) -> Self {
+        Self::Malformed
     }
 
     fn missing_pointer_target() -> Self {
-        Self::MissingPointerTarget(plain_detail(
-            DiagnosticKind::Json,
-            DiagnosticOperation::JsonPointerSelection,
-            "projection.pointer did not select a JSON value",
-            None,
-        ))
+        Self::MissingPointerTarget
     }
 
     fn non_scalar_pointer_target() -> Self {
-        Self::NonScalarPointerTarget(plain_detail(
-            DiagnosticKind::Json,
-            DiagnosticOperation::JsonPointerSelection,
-            "projection.pointer must select a scalar JSON leaf",
-            None,
-        ))
+        Self::NonScalarPointerTarget
+    }
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::JsonAcquisitionFailure;
+
+    #[test]
+    fn acquisition_failure_constructors_preserve_distinct_variants() {
+        assert!(matches!(
+            JsonAcquisitionFailure::malformed("ignored"),
+            JsonAcquisitionFailure::Malformed
+        ));
+        assert!(matches!(
+            JsonAcquisitionFailure::missing_pointer_target(),
+            JsonAcquisitionFailure::MissingPointerTarget
+        ));
+        assert!(matches!(
+            JsonAcquisitionFailure::non_scalar_pointer_target(),
+            JsonAcquisitionFailure::NonScalarPointerTarget
+        ));
     }
 }
 
@@ -83,58 +68,35 @@ impl JsonScalarError {
     }
 }
 
-pub(in crate::model) fn parse_json_scalar_token(
-    target: &TargetDocument,
+/// Parses a selected JSON scalar against an explicit v11 measurement value contract.
+pub(crate) fn parse_json_scalar_token_for_contract(
+    declared_type: DeclaredType,
+    type_params: &TypeParams,
     raw_selected: String,
-) -> Result<Observation, DiagnosticDetail> {
-    let parser_input = json_input_for_declared_type(target.declared_type(), &raw_selected)
-        .map_err(|error| {
-            plain_detail(
-                DiagnosticKind::ValueUnparseable,
-                DiagnosticOperation::ValueParse,
-                error.message(),
-                None,
-            )
-        })?;
-    let canonical_value =
-        parse_canonical_value(target.declared_type(), target.type_params(), &parser_input)
-            .map_err(|message| {
-                plain_detail(
-                    DiagnosticKind::ValueUnparseable,
-                    DiagnosticOperation::ValueParse,
-                    message,
-                    None,
-                )
-            })?;
+) -> Result<Observation, String> {
+    let parser_input = json_input_for_declared_type(declared_type, &raw_selected)
+        .map_err(|error| error.message().to_owned())?;
+    let canonical_value = parse_canonical_value(declared_type, type_params, &parser_input)?;
     Ok(Observation::json(
         raw_selected,
-        target.declared_type(),
-        target.type_params().clone(),
+        declared_type,
+        type_params.clone(),
         canonical_value,
     ))
 }
 
-pub(in crate::model) fn parse_html_projection(
-    target: &TargetDocument,
+/// Parses prepared HTMLCut evidence against an explicit v11 measurement value contract.
+pub(crate) fn parse_html_projection_for_contract(
+    declared_type: DeclaredType,
+    type_params: &TypeParams,
     input: HtmlObservationInput,
-) -> Result<Observation, DiagnosticDetail> {
-    let canonical_value = parse_canonical_value(
-        target.declared_type(),
-        target.type_params(),
-        &input.comparison_projection,
-    )
-    .map_err(|message| {
-        plain_detail(
-            DiagnosticKind::ValueUnparseable,
-            DiagnosticOperation::ValueParse,
-            message,
-            None,
-        )
-    })?;
+) -> Result<Observation, String> {
+    let canonical_value =
+        parse_canonical_value(declared_type, type_params, &input.comparison_projection)?;
     Ok(Observation::html(
         input,
-        target.declared_type(),
-        target.type_params().clone(),
+        declared_type,
+        type_params.clone(),
         canonical_value,
     ))
 }

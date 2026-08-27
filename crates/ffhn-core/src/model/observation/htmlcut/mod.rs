@@ -177,21 +177,6 @@ pub enum HtmlcutDiagnosticDetails {
     },
 }
 
-impl HtmlcutDiagnosticDetails {
-    /// Returns selector-parse evidence when this closed detail family carries it.
-    pub(crate) const fn selector_parse(&self) -> Option<&HtmlcutSelectorParse> {
-        match self {
-            Self::SelectorParse { selector_parse } => Some(selector_parse),
-            Self::CandidateSelection { .. }
-            | Self::EffectiveBaseUrlUnresolved { .. }
-            | Self::SliceSplitsMarkup { .. }
-            | Self::SlicePattern { .. }
-            | Self::UnsupportedValueType { .. }
-            | Self::MissingAttribute { .. } => None,
-        }
-    }
-}
-
 /// One HTMLCut delimiter match affected by a markup-splitting warning.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -272,7 +257,7 @@ impl HtmlcutSelectorParse {
     }
 }
 
-/// Closed selector-parser failure classes published by HTMLCut v12.
+/// Closed selector-parser failure classes published by HTMLCut v13.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HtmlcutSelectorParseErrorClass {
@@ -387,7 +372,53 @@ impl HtmlcutDiagnostic {
 
 #[cfg(test)]
 mod tests {
-    use super::HtmlcutSelectorParseErrorClass;
+    use super::*;
+
+    #[test]
+    fn selector_parse_and_diagnostic_accessors_preserve_nondefault_evidence() {
+        let range = HtmlcutByteRange { start: 7, end: 19 };
+        assert_eq!(range.start(), 7);
+        assert_eq!(range.end(), 19);
+        let markup = HtmlcutSliceMarkupMatch {
+            match_index: 7,
+            candidate_index: 13,
+            selected_range: range,
+        };
+        assert_eq!(markup.match_index(), 7);
+        assert_eq!(markup.candidate_index(), 13);
+        assert_eq!(markup.selected_range().start(), 7);
+        assert_eq!(markup.selected_range().end(), 19);
+        HtmlcutByteRange { start: 5, end: 5 }
+            .validate()
+            .expect("empty half-open range");
+        assert!(HtmlcutByteRange { start: 6, end: 5 }.validate().is_err());
+        let selector_parse = HtmlcutSelectorParse {
+            line: 7,
+            column_utf16: 13,
+            parse_error_class: HtmlcutSelectorParseErrorClass::InvalidAtRule,
+        };
+        assert_eq!(selector_parse.line(), 7);
+        assert_eq!(selector_parse.column_utf16(), 13);
+        assert_eq!(
+            selector_parse.parse_error_class(),
+            HtmlcutSelectorParseErrorClass::InvalidAtRule
+        );
+        let details = HtmlcutDiagnosticDetails::SelectorParse {
+            selector_parse: selector_parse.clone(),
+        };
+        let diagnostic = HtmlcutDiagnostic {
+            level: HtmlcutDiagnosticLevel::Warning,
+            code: HtmlcutDiagnosticCode::InvalidSelector,
+            message: "selector failed".to_owned(),
+            details: Some(details.clone()),
+        };
+        assert_eq!(diagnostic.details(), Some(&details));
+        let without_details = HtmlcutDiagnostic {
+            details: None,
+            ..diagnostic
+        };
+        assert_eq!(without_details.details(), None);
+    }
 
     #[test]
     fn selector_parse_class_display_spelling_matches_its_serialized_contract() {

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
 
-use super::super::target::validate_type_params;
+use super::super::validate_type_params;
 use super::super::{DeclaredType, TypeParams};
 use super::HtmlcutDiagnostic;
 use super::parse::{json_input_for_declared_type, parse_canonical_value};
@@ -128,7 +128,7 @@ impl Observation {
                 if !self
                     .plan_digest_sha256
                     .as_deref()
-                    .is_some_and(super::super::state::is_sha256)
+                    .is_some_and(super::super::validate::is_sha256)
                 {
                     return Err(CoreError::contract(
                         "HTML observation plan_digest_sha256 must be lowercase SHA-256",
@@ -174,6 +174,17 @@ impl Observation {
     /// Returns the declared-type canonical value.
     pub fn canonical_value(&self) -> &str {
         &self.canonical_value
+    }
+
+    /// Returns whether this durable observation belongs to one exact typed-value contract.
+    ///
+    /// This does not parse or coerce; it compares the same grammar-bearing facts policy uses.
+    pub fn matches_type_contract(
+        &self,
+        declared_type: DeclaredType,
+        type_params: &TypeParams,
+    ) -> bool {
+        self.declared_type == declared_type && self.type_params == *type_params
     }
     /// Returns the HTMLCut extraction-semantics counter for HTML observations.
     pub const fn htmlcut_semantics_version(&self) -> Option<u32> {

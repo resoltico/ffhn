@@ -25,6 +25,7 @@ Usage:
   ./scripts/bootstrap-rust-tools.sh install-toolchains
   ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
   ./scripts/bootstrap-rust-tools.sh install-dependency-freshness-tool
+  ./scripts/bootstrap-rust-tools.sh install-mutation-tool
   ./scripts/bootstrap-rust-tools.sh install-qa-tools
   ./scripts/bootstrap-rust-tools.sh install-all
 
@@ -35,6 +36,24 @@ EOF
 verify_stable_toolchain_entrypoints() {
     cargo build --help >/dev/null
     rustc --version >/dev/null
+}
+
+ffhn_install_cargo_tool() {
+    local build_root
+    build_root="$(mktemp -d "${TMPDIR:-/tmp}/ffhn-cargo-install.XXXXXX")"
+
+    if (
+        cd "${build_root}"
+        unset CARGO_TARGET_DIR CARGO_BUILD_BUILD_DIR CARGO_BUILD_TARGET
+        cargo install "$@"
+    ); then
+        rm -rf -- "${build_root}"
+        return
+    else
+        local status=$?
+        rm -rf -- "${build_root}"
+        return "${status}"
+    fi
 }
 
 retry() {
@@ -68,21 +87,28 @@ install_toolchains() {
 }
 
 install_cross_platform_qa_tools() {
-    cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked
-    cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
-    cargo install cargo-nextest --version "${CARGO_NEXTEST_VERSION}" --locked
-    cargo install cargo-semver-checks --version "${CARGO_SEMVER_CHECKS_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-deny --version "${CARGO_DENY_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-nextest --version "${CARGO_NEXTEST_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-semver-checks \
+        --git https://github.com/obi1kenobi/cargo-semver-checks.git \
+        --rev "${CARGO_SEMVER_CHECKS_GIT_REVISION}" \
+        --locked
 }
 
 install_dependency_freshness_tool() {
-    cargo install cargo-outdated --version "${CARGO_OUTDATED_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-outdated --version "${CARGO_OUTDATED_VERSION}" --locked
     retry 3 rustup default "${RUST_STABLE_TOOLCHAIN}"
+}
+
+install_mutation_tool() {
+    ffhn_install_cargo_tool cargo-mutants --version "${CARGO_MUTANTS_VERSION}" --locked
 }
 
 install_qa_tools() {
     install_cross_platform_qa_tools
-    cargo install cargo-fuzz --version "${CARGO_FUZZ_VERSION}" --locked
-    cargo install cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-fuzz --version "${CARGO_FUZZ_VERSION}" --locked
+    ffhn_install_cargo_tool cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked
     install_dependency_freshness_tool
 }
 
@@ -109,6 +135,9 @@ main() {
             ;;
         install-dependency-freshness-tool)
             install_dependency_freshness_tool
+            ;;
+        install-mutation-tool)
+            install_mutation_tool
             ;;
         install-qa-tools)
             install_qa_tools

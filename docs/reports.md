@@ -1,114 +1,50 @@
 ---
 afad: "4.0"
 domain: REPORTS
-updated: "2026-07-19"
+updated: "2026-08-25"
 route:
-  keywords: [run report, state, status report, reset report, observation]
-  questions: ["what does FFHN persist?", "what is in a run report?", "how do I interpret reset?"]
+  keywords: [measure report, source status, agent tick, event envelope, outbox]
+  questions: ["what does measure report?", "how do I inspect source health?", "which facts require routes?"]
 ---
 
-# v2 Measurement Artifacts
+# Observation-Graph Reports
 
-Live measurement uses `ffhn.state` as its persisted artifact and emits `ffhn.run_report`,
-`ffhn.batch_run_report`, `ffhn.status_report`, and `ffhn.reset_report` as operation results.
+Every v11 operation emits a version-1 JSON document. `json` and `json-pretty` preserve the document; `summary` renders the same facts for people. Reports are operation evidence, not delivery payloads.
 
-`ffhn.state` is written after every committed valid observation, source-suspect episode update,
-permanent-error episode update, or integration-fault episode update. Its accepted observation,
-when present, records
-`raw_selected`, `comparison_projection`, its acquisition kind, parser identity and grammar version,
-declared type and parameters, declared-type `canonical_value`, and `parse_diagnostics`.
-For JSON acquisition the first two fields are the exact selected scalar token, including any string
-quoting and escapes. Raw presentation is evidence; comparison uses the declared-type canonical
-value. Text JSON observations accept strings only, decode escape spelling into their canonical
-Unicode scalar sequence, and apply no trimming, case folding, locale rule, or Unicode normalization.
-JSON observations produce and accept only an empty `parse_diagnostics` list; a persisted
-nonempty list is invalid state and requires reset.
+| Schema | Command | Main facts |
+| --- | --- | --- |
+| `ffhn.new_report` | `new source`, `new measurement` | created configuration kind and source/measurement identity |
+| `ffhn.measure_report` | `measure` | source outcome; per-measurement status, policy decisions, staged event envelopes, and outbox-overflow facts |
+| `ffhn.agent_tick_report` | `agent tick`, each completed `agent run` tick | one source turn per configured source, independent acquisition/drain facts, and deferral boundaries |
+| `ffhn.agent_status_report` | `agent status` | stable status reports for all sources |
+| `ffhn.source_status_report` | `status` | source lineage/config status, generation, schedule, health, faults, and measurement status |
+| `ffhn.measurement_status_report` | `status --measurement` | one configured, authoritative, or artifact-backed measurement status |
+| `ffhn.validate_report` | `validate` | offline source and measurement validation facts |
+| `ffhn.list_report` | `list` | stable source or configured measurement listing |
+| `ffhn.reset_report` | `reset` | reset source and optional measurement scope |
 
-Normal state loading first admits only the `ffhn.state` version-17 schema envelope. A different
-decoded schema is reset-required before FFHN decodes any state facts; FFHN never migrates or
-partially interprets it. Malformed JSON remains unreadable state. Each public state or report type
-also rejects a noncurrent schema during direct deserialization, rather than relying on callers to
-remember a separate validation step.
+## Measurement report
 
-For `html_text`, raw evidence is HTMLCut's original plain DOM descendant text output. For
-`html_rendered_text`, it is HTMLCut's semantic rendered-text output. Without DOM canonicalization,
-each is also its comparison projection; with canonicalization, comparison comes from the same
-projection of HTMLCut's detached selected-subtree clone. For `html_attribute`, both remain the
-original selected CSS attribute value. An HTML observation also persists
-`htmlcut_semantics_version`, `plan_digest_sha256`, a positive `htmlcut_candidate_count`, and the
-public `htmlcut_diagnostics`; absence, a stale semantics version, an invented diagnostic shape, or
-a nonpositive count is invalid state. FFHN accepts only its closed projection of the exact HTMLCut
-v12 diagnostic-detail shapes reachable through its pinned interop profile. In particular,
-invalid-selector evidence retains the one-based source line, one-based UTF-16 column, and closed
-parser class. A failed HTML acquisition or rejected HTMLCut preflight plan carries a closed
-`error_class`, an optional closed primary diagnostic code, candidate count when known, plan digest,
-diagnostics, selector-parse evidence when applicable, and typed FFHN postcondition evidence in the
-run report's structured error detail. No HTMLCut structured
-result or canonical clone is exposed as an FFHN target or observation projection.
+`ffhn.measure_report` is route-independent. A measurement with no `[outbox]` or `[[routes]]` still reports typed policy evaluations, reference evidence, event envelopes that policy or lifecycle staged, and candidates rejected because its bounded outbox was full.
 
-State also persists a pending-only durable outbox. Its records have a deterministic event id and
-route id, adapter-neutral event kind and optional condition id, immutable payload bytes, attempt
-count, a bounded structured delivery-failure detail when an attempt has failed, and next retry
-timestamp. The durable detail retains complete process terminal, writer, and stderr facts; stderr
-evidence retains its exact bounded raw bytes as canonical base64, records the total source-byte
-count as a canonical decimal string so it cannot saturate at a platform word-size limit, and derives
-display text and retained-byte encoding only when rendered. The encoding describes the bounded
-retained byte artifact, not unretained child-process stderr; JSON exposes the raw artifact only as
-base64 so machine consumers can make the same interpretation. Its stable JSON encoding is bounded
-before state is written.
-Successful deliveries remove records; terminal failures are reported and removed. Pending records
-are never evicted to admit newer events.
+Every measurement result carries a closed status such as `initialized`, `changed`, `unchanged`, `not_modified`, `extraction_failed`, `integration_fault`, `quarantined`, `lineage_held`, `config_invalid`, or `disabled`. A successful result includes the complete accepted typed observation and its raw/comparison/parser/HTMLCut evidence. Policy evaluation records the condition id, exact outcome, trigger decision, active-before/active-after hysteresis facts, and resolved or unavailable named-reference evidence.
 
-Run reports contain the outcome, mode, timestamps, target identity, optional contract digest,
-optional observation, prior canonical value, structured error detail, `policy_evaluation`, a
-separate `lifecycle` facet, whether state persisted, delivery outcomes, outbox-overflow evidence,
-and any `outbox_error_detail` that
-halted delivery processing. `policy_evaluation` lists every named condition decision for a valid typed
-observation, its pre-run reference evidence, and every route-independent event eligibility; other
-branches explicitly report that condition evaluation did not run. An `integration_fault` outcome
-carries the closed `error_detail.integration_fault_code`: `htmlcut_internal_error`,
-`ffhn_boundary_invariant_violation`, or `ffhn_policy_invariant_violation`. Delivery outcomes and
-overflow evidence carry the same event kind and condition identity retained in durable state.
+Source results retain configuration errors, unresolvable manifest class, lineage-refusal reason, acquisition health, source integration-fault episode, and the current failure’s typed `kind` plus `reason_class` when applicable. Measurement results retain configuration or lineage-hold reason, stored/current MVD evidence for quarantine, extraction health, and measurement integration-fault episodes.
 
-`lifecycle.before` is the complete durable snapshot read before a run when valid matching state
-was safely available. `lifecycle.after` is the complete staged successor when the run transitions
-state. Each snapshot always contains source health (`state`, reason, unresolved count, first-seen
-time, and last detail), plus nullable permanent-error and integration-fault episodes.
-`state_persisted` answers only whether the staged write committed: dry runs and failed commits
-expose their staged `after` snapshot while remaining `false`. Status reports expose the same
-current durable lifecycle snapshot after acquiring the target's shared lock, admitting and
-validating the state envelope, and verifying the contract digest. A target that is base-valid but
-projection-invalid therefore reports `invalid_config` with its verified lifecycle, whereas
-unreadable, stale, or mismatched state exposes none.
-Every diagnostic carries a closed `kind` and `operation`. Every `io` diagnostic carries exactly one
-typed cause: a native operating-system failure has its closed `io_error_class`, while HTTP status,
-configured byte-limit, and UTF-8 acquisition failures carry typed `fetch_failure` evidence. Its
-`message` is only the unclassified explanatory payload, never rendered foreign I/O, parser, URL,
-time, or embedded acquisition metadata prose. When FFHN must retain only a bounded message prefix,
-the separate `message_truncation` object records the original byte count and SHA-256 digest; no
-truncation state is encoded into the payload text.
-Source-health details must match their closed reason: fetch failures carry file or HTTP I/O evidence;
-JSON failures carry
-JSON-selection evidence; value failures carry typed-value parsing evidence; and HTML failures carry
-HTMLCut extraction evidence. Delivery and integration-fault diagnostics are rejected from persisted
-health state.
-A delivery outcome carries `error_detail` for a failed process attempt and
-`outbox_error_detail` when the matching outbox update could not be committed. A process that
-exited successfully can instead carry `delivery_observability_detail` when stderr capture was
-incomplete. The detail distinguishes a reader I/O failure, an unavailable configured reader, and
-a reader panic; it never changes delivery success or retry behavior. HTML acquisition evidence is retained only in observations
-and HTMLCut failure details; there is no snapshot-history artifact.
+`ffhn.event_envelope` has a deterministic `event_id` derived only from its typed event key. The key binds graph, source, and measurement lineage where applicable, definition and observation or episode facts, and excludes wall-clock time. Envelope evidence records its commit time and display facts but does not influence identity. HTMLCut remains a pinned upstream extraction dependency; FFHN reports only its validated plain DOM text, rendered-text, or attribute projection facts rather than exposing an HTMLCut structured payload.
 
-The `summary` CLI view renders every structured diagnostic fact carried by these documents, including
-typed acquisition and HTMLCut evidence. It deliberately excludes retained stderr text but labels its
-metadata as `retained_encoding`, so the label cannot imply a claim about discarded bytes. If an exact
-raw byte prefix has a valid UTF-8 prefix followed only by an incomplete terminal UTF-8 sequence, the
-label is `utf8_incomplete_at_retention_boundary`; `utf8_lossy` remains reserved for genuinely invalid
-retained bytes. Any diagnostic text that contains control characters is JSON-string encoded in the
-summary so one evidence item cannot corrupt the line-oriented human view.
+## Status report
 
-State is isolated at `<watch_root>/<target_id>/.ffhn/state.json`. A missing file means no state of
-any kind has committed; an existing file may contain health, permanent-error, or integration-fault
-facts before a valid observation. `ffhn.reset_report.storage_cleared` tells whether the v2 storage root existed
-when it was blind-deleted; it is never a migration record or preserved historical evidence. A reset
-report can also carry delivery evidence when the target has `on_run` routes.
+`status` acquires a shared source lock and observes only a fully installed generation. A present or unreadable lineage or commit manifest is `pending`; a source lineage mismatch is `lineage_refused`; a never-run configured source is `uninitialized`.
+
+Ready source status includes durable source acquisition health, any source integration-fault episode, generation, and next due UTC time. Measurement status distinguishes `never_initialized`, `ready`, `config_invalid`, `quarantined`, `lineage_held`, and `not_configured`; it retains accepted-observation sequence, stored/current MVDs, exact hold reason, extraction health, and any measurement integration-fault episode where those facts are authoritative.
+
+`ffhn.agent_tick_report` embeds the complete acquisition report for every attempted source and reports source/measurement drain dispositions separately. Every active in-memory acquire or drain deferral carries both its UTC boundary and a closed reason such as `lock_contention`, `config_invalid`, `lineage_refused`, `delivery_unreachable`, or `unreadable`.
+
+A source reset that discards an unresolvable lineage or commit manifest reports its class and exact opaque bytes as Base64 when the fixed manifest entry was readable. `bytes_unavailable = true` records the narrower case where reset remained safe but evidence capture could not read the artifact. Measurement reset never discards a source-scoped manifest.
+
+## Delivery evidence
+
+Delivery records are owned by their emitting source or measurement. A record snapshots its event envelope, adapter configuration, and retry policy. The agent drains only from that snapshot, so a later route edit, measurement quarantine, or configuration removal cannot reroute existing delivery. Success removes a record; exhausted attempts become a `ffhn.dead_letter`; reset drops only records in the reset scope.
+
+Outbox admission preserves declaration priority and never evicts older pending records. A rejected new admission is reported as `outbox_overflow` with event kind, optional condition id, route id, and route family; it does not erase state or an existing record. Retry timing is deterministic from immutable record identity, attempt, and policy, based on the retry-state transition time after the failed adapter attempt completes.
