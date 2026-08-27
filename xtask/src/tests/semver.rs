@@ -4,6 +4,14 @@ fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
+/// Serializes one fixture that invokes external programs against process-wide environment changes.
+fn process_environment_guard() -> std::sync::MutexGuard<'static, ()> {
+    PROCESS_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
 #[test]
 fn workspace_version_from_manifest_extracts_workspace_package_version() {
     let version = workspace_version_from_manifest(
@@ -42,6 +50,7 @@ version = "2.0.0"
 
 #[test]
 fn refresh_semver_baseline_uses_the_requested_git_ref_instead_of_the_worktree() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     write_semver_fixture(
         repo_root.path(),
@@ -97,6 +106,7 @@ fn refresh_semver_baseline_uses_the_requested_git_ref_instead_of_the_worktree() 
 
 #[test]
 fn refresh_semver_baseline_replaces_existing_baseline_artifacts() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     write_semver_fixture(
         repo_root.path(),
@@ -137,6 +147,7 @@ fn refresh_semver_baseline_replaces_existing_baseline_artifacts() {
 
 #[test]
 fn refresh_semver_baseline_reports_missing_git_refs() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     write_semver_fixture(
         repo_root.path(),
@@ -165,6 +176,7 @@ fn refresh_semver_baseline_reports_missing_git_refs() {
 
 #[test]
 fn refresh_semver_baseline_reports_archive_failures_after_reading_the_workspace_manifest() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     fs::write(
         repo_root.path().join("Cargo.toml"),
@@ -193,6 +205,7 @@ fn refresh_semver_baseline_reports_archive_failures_after_reading_the_workspace_
 #[cfg(unix)]
 #[test]
 fn refresh_semver_baseline_reports_tar_extraction_failures() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     write_semver_fixture(
         repo_root.path(),
@@ -224,6 +237,7 @@ fn refresh_semver_baseline_reports_tar_extraction_failures() {
 
 #[test]
 fn refresh_semver_baseline_reports_invalid_workspace_stub_source() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     write_semver_fixture(
         repo_root.path(),
@@ -253,6 +267,7 @@ fn refresh_semver_baseline_reports_invalid_workspace_stub_source() {
 
 #[test]
 fn refresh_semver_baseline_rejects_non_utf8_workspace_manifests_from_git() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     fs::create_dir_all(
         repo_root
@@ -324,6 +339,7 @@ fn workspace_version_reads_from_repo_manifest() {
 
 #[test]
 fn semver_release_type_uses_major_until_the_current_version_has_a_release_tag() {
+    let _guard = process_environment_guard();
     let repo_root = tempdir().expect("tempdir");
     fs::write(
         repo_root.path().join("Cargo.toml"),
@@ -470,16 +486,12 @@ fn write_test_executable(path: &Path, contents: &str) {
 #[cfg(unix)]
 #[allow(unsafe_code)]
 fn with_path_prefix<T>(prefix: &Path, operation: impl FnOnce() -> T) -> T {
-    let _guard = PROCESS_ENV_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
     let original_path = std::env::var_os("PATH").unwrap_or_default();
     let mut updated_path = std::ffi::OsString::from(prefix);
     updated_path.push(":");
     updated_path.push(&original_path);
 
-    // SAFETY: PROCESS_ENV_LOCK serializes every test that mutates PATH for the full operation.
+    // SAFETY: the caller holds PROCESS_ENV_LOCK for the complete mutation window.
     unsafe { std::env::set_var("PATH", &updated_path) };
     let result = operation();
     // SAFETY: PROCESS_ENV_LOCK is still held, so restoring PATH cannot race another test.
