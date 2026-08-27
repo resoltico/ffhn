@@ -23,7 +23,7 @@ pub(crate) use command::run_spec;
 pub(crate) use command::{remove_file_if_exists, repo_root};
 pub(crate) use gate::{GateOutputFormat, GateOutputOptions, GateVerbosity};
 pub(crate) use hygiene::HygieneTask;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use mutants::{MutantsScope, run_mutants};
 #[cfg(test)]
 pub(crate) use semver::refresh_semver_baseline;
