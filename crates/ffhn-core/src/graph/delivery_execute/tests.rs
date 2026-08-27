@@ -34,7 +34,7 @@ impl ChildWrapper for KillRecordingChild {
     }
 }
 
-fn read_complete_http_request(stream: &mut std::net::TcpStream) {
+fn read_complete_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
     let mut request = Vec::new();
     let mut chunk = [0_u8; 1_024];
     loop {
@@ -60,7 +60,7 @@ fn read_complete_http_request(stream: &mut std::net::TcpStream) {
             .parse::<usize>()
             .expect("content length number");
         if request.len() >= header_end + content_length {
-            return;
+            return request;
         }
     }
 }
@@ -122,19 +122,14 @@ fn envelope(canonical_value: &str) -> EventEnvelope {
     .expect("envelope")
 }
 
-fn webhook_record(secret: bool) -> DeliveryRecord {
+fn webhook_record_with_missing_secret() -> DeliveryRecord {
     let policy: DeliveryPolicy = toml::from_str(
         "max_pending = 1\nmax_attempts = 2\nbase_backoff_ms = 10\nmax_backoff_ms = 100\njitter_ratio = \"0\"\n",
     )
     .expect("policy");
-    let secret = if secret {
-        "[adapter.header_secrets]\nAuthorization = { env = \"FFHN_TEST_MISSING_WEBHOOK_SECRET_F74A\", format = \"Bearer {value}\" }\n"
-    } else {
-        ""
-    };
-    let route: GraphRoute = toml::from_str(&format!(
-        "route_id = \"webhook\"\nroute_family = \"on_condition\"\n[adapter]\nkind = \"http_webhook\"\nurl = \"https://127.0.0.1:9/hook\"\ntimeout_ms = 100\n{secret}"
-    ))
+    let route: GraphRoute = toml::from_str(
+        "route_id = \"webhook\"\nroute_family = \"on_condition\"\n[adapter]\nkind = \"http_webhook\"\nurl = \"https://127.0.0.1:9/hook\"\ntimeout_ms = 100\n[adapter.header_secrets]\nAuthorization = { env = \"FFHN_TEST_MISSING_WEBHOOK_SECRET_F74A\", format = \"Bearer {value}\" }",
+    )
     .expect("webhook route");
     OutboxAdmission::admit(
         &[],
@@ -247,7 +242,7 @@ fn process_and_webhook_attempts_preserve_spawn_stderr_secret_transport_and_clock
     }
 
     let DeliveryExecution::Retry(secret) = execute_delivery_attempt_with_clock(
-        webhook_record(true),
+        webhook_record_with_missing_secret(),
         "2026-08-25T00:00:00Z".to_owned(),
         || Ok("2026-08-25T00:01:00Z".to_owned()),
     )
@@ -257,34 +252,6 @@ fn process_and_webhook_attempts_preserve_spawn_stderr_secret_transport_and_clock
     assert!(matches!(
         serde_json::to_value(secret).expect("wire")["attempts"][0]["failure"]["kind"].as_str(),
         Some("secret_unavailable")
-    ));
-    assert!(matches!(
-        execute_delivery_attempt_with_clock(
-            webhook_record(false),
-            "2026-08-25T00:00:00Z".to_owned(),
-            || Ok("2026-08-25T00:01:00Z".to_owned()),
-        )
-        .expect("transport retry"),
-        DeliveryExecution::Retry(_)
-    ));
-    let webhook = webhook_record(true);
-    let GraphDeliveryAdapter::HttpWebhook {
-        url,
-        timeout_ms,
-        header_secrets,
-    } = webhook.adapter()
-    else {
-        panic!("webhook adapter");
-    };
-    assert!(matches!(
-        deliver_webhook_with_secret_lookup(
-            webhook.envelope(),
-            url,
-            *timeout_ms,
-            header_secrets,
-            &|_| Some("secret".to_owned()),
-        ),
-        Err(DeliveryAttemptFailure::HttpWebhook { status: None, .. })
     ));
     assert!(
         execute_delivery_attempt_with_clock(
@@ -417,7 +384,7 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
     let address = listener.local_addr().expect("address");
     let worker = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("request");
-        read_complete_http_request(&mut stream);
+        let _ = read_complete_http_request(&mut stream);
         stream
             .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             .expect("response");
@@ -433,6 +400,45 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
         .post(&format!("http://{address}/hook"));
     assert!(send_and_finish_webhook("{}".to_owned(), |payload| request.send(payload)).is_ok());
     worker.join().expect("worker");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("header listener");
+    let address = listener.local_addr().expect("header address");
+    let worker = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("header request");
+        let request =
+            String::from_utf8(read_complete_http_request(&mut stream)).expect("UTF-8 request");
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer secret"),
+            "resolved secret header must cross the adapter boundary"
+        );
+        stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .expect("header response");
+        stream.flush().expect("flush header response");
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish header response");
+    });
+    let headers = std::collections::BTreeMap::from([(
+        "Authorization".to_owned(),
+        super::super::DeliveryHeaderSecret {
+            env: "TOKEN".to_owned(),
+            format: "Bearer {value}".to_owned(),
+        },
+    )]);
+    assert!(
+        deliver_webhook_with_secret_lookup(
+            &envelope("1"),
+            &url::Url::parse(&format!("http://{address}/hook")).expect("header URL"),
+            1_000,
+            &headers,
+            &|_| Some("secret".to_owned()),
+        )
+        .is_ok()
+    );
+    worker.join().expect("header worker");
 
     assert!(classify_webhook_status(200).is_ok());
     assert!(classify_webhook_status(299).is_ok());
