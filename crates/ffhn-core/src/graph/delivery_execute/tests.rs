@@ -34,6 +34,37 @@ impl ChildWrapper for KillRecordingChild {
     }
 }
 
+fn read_complete_http_request(stream: &mut std::net::TcpStream) {
+    let mut request = Vec::new();
+    let mut chunk = [0_u8; 1_024];
+    loop {
+        let count = stream.read(&mut chunk).expect("request");
+        assert!(count > 0, "request ended before its complete body arrived");
+        request.extend_from_slice(&chunk[..count]);
+        let Some(header_end) = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .map(|position| position + 4)
+        else {
+            continue;
+        };
+        let headers = std::str::from_utf8(&request[..header_end]).expect("request headers");
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then_some(value.trim())
+            })
+            .expect("content length")
+            .parse::<usize>()
+            .expect("content length number");
+        if request.len() >= header_end + content_length {
+            return;
+        }
+    }
+}
+
 fn record_with(
     program: &str,
     args: &[String],
@@ -386,11 +417,14 @@ fn irrelevant_webhook_response_bodies_are_discarded_under_a_fixed_read_bound() {
     let address = listener.local_addr().expect("address");
     let worker = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("request");
-        let mut request = [0_u8; 1024];
-        let _ = stream.read(&mut request).expect("request");
+        read_complete_http_request(&mut stream);
         stream
             .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             .expect("response");
+        stream.flush().expect("flush response");
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish response");
     });
     let request = ureq::Agent::config_builder()
         .http_status_as_error(false)
