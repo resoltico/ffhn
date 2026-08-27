@@ -18,19 +18,19 @@ fn text_conditions_are_changed_only_with_exact_unicode_identity() {
             context(None, None, Some(&reference), false),
         ),
     ] {
-        let target = target(
+        let target = measurement(
             "text",
             "",
             &one_condition(&format!(
                 "kind = \"changed\"\nreference = \"{reference_name}\""
             )),
         );
-        let evaluation = valid_stage(&target, &current, &contexts);
+        let evaluation = evaluate(&target, &current, &contexts);
         assert_eq!(evaluation.outcome(), ConditionOutcome::Satisfied);
         assert!(evaluation.trigger());
     }
 
-    let target = target(
+    let target = measurement(
         "text",
         "",
         &one_condition("kind = \"changed\"\nreference = \"last_accepted_observation\""),
@@ -39,7 +39,7 @@ fn text_conditions_are_changed_only_with_exact_unicode_identity() {
     let literal = observation("text", "", r#""é""#);
     let decomposed = observation("text", "", r#""e\u0301""#);
     assert_eq!(
-        valid_stage(
+        evaluate(
             &target,
             &literal,
             &context(Some(&escaped), None, None, false)
@@ -48,7 +48,7 @@ fn text_conditions_are_changed_only_with_exact_unicode_identity() {
         ConditionOutcome::NotSatisfied
     );
     assert_eq!(
-        valid_stage(
+        evaluate(
             &target,
             &decomposed,
             &context(Some(&literal), None, None, false),
@@ -65,9 +65,9 @@ fn text_conditions_are_changed_only_with_exact_unicode_identity() {
         "kind = \"gt\"\nthreshold = \"In Stock\"",
         "kind = \"band\"\nenter_threshold = \"In Stock\"\nexit_threshold = \"Out of Stock\"\ndirection = \"rising\"",
     ] {
-        let document: TargetDocument =
-            toml::from_str(&target_toml("text", "", &one_condition(predicate)))
-                .expect("structurally valid text target");
-        assert!(document.validate().is_err(), "text rejects {predicate}");
+        assert!(
+            decode_measurement(&measurement_toml("text", "", &one_condition(predicate),)).is_err(),
+            "text rejects {predicate}"
+        );
     }
 }

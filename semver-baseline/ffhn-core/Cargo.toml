@@ -8,55 +8,64 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 publish = false
-description = "Deterministic monitoring engine for FFHN."
+description = "Deterministic observation-graph engine for FFHN."
 
 [dependencies]
 base64.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
 fs2.workspace = true
 htmlcut-core.workspace = true
-regex.workspace = true
+process-wrap.workspace = true
 rust_decimal.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error.workspace = true
 sha2.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
 toml.workspace = true
 ureq.workspace = true
 url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
 
 [workspace.dependencies]
 assert_cmd = "2.2.2"
-base64 = "0.22.1"
+base64 = "0.23.1"
+cap-fs-ext = "4.0.3"
+cap-std = "4.0.3"
 fs2 = "0.4.3"
 predicates = "3.1.4"
-regex = "1.13.0"
 semver = "1.0.28"
-serde_path_to_error = "0.1.20"
 sha2 = "0.11.0"
 tempfile = "3.27.0"
-thiserror = "2.0.18"
-toml = "1.1.2"
+thiserror = "2.0.20"
+toml = "1.1.4"
 
 [workspace.dependencies.clap]
 features = ["derive"]
-version = "4.6.1"
+version = "4.6.6"
 
 [workspace.dependencies.ffhn-core]
 path = "crates/ffhn-core"
-version = "=10.0.0"
+version = "=11.0.0"
 
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
 package = "htmlcut-core"
-tag = "v12.0.1"
-version = "=12.0.1"
+tag = "v13.1.0"
+version = "=13.1.0"
+
+[workspace.dependencies.process-wrap]
+default-features = false
+features = ["std", "process-group", "job-object"]
+version = "10.0.0"
 
 [workspace.dependencies.rust_decimal]
 default-features = false
@@ -65,24 +74,28 @@ version = "=1.42.1"
 
 [workspace.dependencies.serde]
 features = ["derive"]
-version = "1.0.228"
+version = "1.0.229"
 
 [workspace.dependencies.serde_json]
 features = ["arbitrary_precision", "raw_value"]
-version = "1.0.150"
+version = "1.0.151"
 
 [workspace.dependencies.time]
 features = ["formatting", "parsing"]
-version = "0.3.53"
+version = "0.3.55"
 
 [workspace.dependencies.ureq]
 default-features = false
 features = ["gzip", "platform-verifier", "rustls"]
-version = "3.3.0"
+version = "3.4.0"
 
 [workspace.dependencies.url]
 features = ["serde"]
 version = "2.5.8"
+
+[workspace.dependencies.uuid]
+features = ["serde", "v4"]
+version = "1.25.0"
 
 [workspace.lints.clippy]
 all = "warn"
@@ -95,10 +108,10 @@ unused_must_use = "deny"
 
 [workspace.package]
 authors = ["Ervins Strauhmanis"]
-description = "Deterministic typed JSON and HTML measurement for HTTP and local file sources"
+description = "Deterministic observation graphs for typed HTTP and local-file measurements"
 edition = "2024"
 homepage = "https://github.com/resoltico/ffhn"
 license = "MIT"
 repository = "https://github.com/resoltico/ffhn"
-rust-version = "1.97"
-version = "10.0.0"
+rust-version = "1.98"
+version = "11.0.0"

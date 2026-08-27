@@ -3,39 +3,6 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-/// FFHN-owned target-document decode failure that never exposes parser prose in reports.
-#[derive(Debug, Error)]
-pub enum TargetDecodeError {
-    /// The target file is not syntactically valid TOML.
-    #[error("target TOML is syntactically invalid")]
-    Syntax,
-    /// One target field could not be decoded into FFHN's closed target schema.
-    #[error("target field {field:?} could not be decoded")]
-    InvalidField {
-        /// Stable dotted target-document field path.
-        field: String,
-        /// Safe representation of a closed-vocabulary value when available.
-        received: Option<String>,
-    },
-}
-
-impl TargetDecodeError {
-    /// Returns the FFHN-owned, user-actionable diagnostic message.
-    pub fn diagnostic_message(&self) -> String {
-        match self {
-            Self::Syntax => "target TOML is syntactically invalid".to_owned(),
-            Self::InvalidField {
-                field,
-                received: Some(received),
-            } => format!("target field {field:?} has unsupported value {received}"),
-            Self::InvalidField {
-                field,
-                received: None,
-            } => format!("target field {field:?} could not be decoded"),
-        }
-    }
-}
-
 /// Process-level FFHN errors raised before a structured schema document can be returned.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -54,9 +21,6 @@ pub enum CoreError {
     /// TOML parsing failed.
     #[error("toml error: {0}")]
     Toml(#[from] toml::de::Error),
-    /// Target TOML could not be decoded into FFHN's closed configuration model.
-    #[error("target decode error: {0}")]
-    TargetDecode(#[from] TargetDecodeError),
     /// URL parsing failed.
     #[error("url parse error: {0}")]
     Url(#[from] url::ParseError),

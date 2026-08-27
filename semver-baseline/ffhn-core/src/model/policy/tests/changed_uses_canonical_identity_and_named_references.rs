@@ -2,14 +2,14 @@ use super::support::*;
 
 #[test]
 fn changed_uses_canonical_identity_and_named_references() {
-    let changed_target = target(
+    let changed_target = measurement(
         "decimal",
         "",
         &one_condition("kind = \"changed\"\nreference = \"last_accepted_observation\""),
     );
     let current = observation("decimal", "", "1.00");
     let equal = observation("decimal", "", "1.0");
-    let evaluation = valid_stage(
+    let evaluation = evaluate(
         &changed_target,
         &current,
         &context(Some(&equal), None, None, false),
@@ -20,7 +20,7 @@ fn changed_uses_canonical_identity_and_named_references() {
     assert!(!evaluation.active_after());
 
     let different = observation("decimal", "", "2");
-    let evaluation = valid_stage(
+    let evaluation = evaluate(
         &changed_target,
         &different,
         &context(Some(&current), None, None, true),
@@ -30,7 +30,7 @@ fn changed_uses_canonical_identity_and_named_references() {
     assert!(evaluation.active_after());
 
     let later = observation("decimal", "", "3");
-    let second_distinct_change = valid_stage(
+    let second_distinct_change = evaluate(
         &changed_target,
         &later,
         &context(Some(&different), None, None, false),
@@ -41,14 +41,14 @@ fn changed_uses_canonical_identity_and_named_references() {
     );
     assert!(second_distinct_change.trigger());
 
-    let unavailable = valid_stage(
+    let unavailable = evaluate(
         &changed_target,
         &different,
         &context(None, None, None, false),
     );
     assert_eq!(unavailable.outcome(), ConditionOutcome::Unavailable);
 
-    let fixed_target = target(
+    let fixed_target = measurement(
         "integer",
         "",
         &one_condition("kind = \"changed\"\nreference = \"fixed_initial_baseline\""),
@@ -56,7 +56,7 @@ fn changed_uses_canonical_identity_and_named_references() {
     let integer = observation("integer", "", "3");
     let initial = observation("integer", "", "1");
     assert_eq!(
-        valid_stage(
+        evaluate(
             &fixed_target,
             &integer,
             &context(None, Some(&initial), None, false)
@@ -65,7 +65,7 @@ fn changed_uses_canonical_identity_and_named_references() {
         ConditionOutcome::Satisfied
     );
 
-    let semver_target = target(
+    let semver_target = measurement(
         "semver",
         "",
         &one_condition("kind = \"changed\"\nreference = \"last_condition_transition\""),
@@ -73,7 +73,7 @@ fn changed_uses_canonical_identity_and_named_references() {
     let left = observation("semver", "", r#""1.2.3+left""#);
     let right = observation("semver", "", r#""1.2.3+right""#);
     assert_eq!(
-        valid_stage(
+        evaluate(
             &semver_target,
             &right,
             &context(None, None, Some(&left), false)

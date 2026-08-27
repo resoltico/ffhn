@@ -207,3 +207,25 @@ fn text_optional(value: Option<&str>) -> Result<(), CoreError> {
 pub(super) fn unsupported_shape() -> CoreError {
     CoreError::contract("HTMLCut emitted a diagnostic-details shape outside FFHN's pinned contract")
 }
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_text_helpers_enforce_absence_and_both_length_boundaries() {
+        assert!(text_required("x").is_ok());
+        assert!(text_required(&"x".repeat(1_024)).is_ok());
+        assert!(text_required("").is_err());
+        assert!(text_required(&"x".repeat(1_025)).is_err());
+        assert!(text_optional(None).is_ok());
+        assert!(text_optional(Some("value")).is_ok());
+        assert!(text_optional(Some("")).is_err());
+        assert!(text_optional(Some(&"x".repeat(1_025))).is_err());
+        assert!(
+            unsupported_shape()
+                .to_string()
+                .contains("outside FFHN's pinned contract")
+        );
+    }
+}

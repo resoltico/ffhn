@@ -347,3 +347,77 @@ fn exact_key_set(details: &Map<String, Value>, accepted: &[&[&str]]) -> Result<(
         .then_some(())
         .ok_or_else(unsupported_shape)
 }
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    #[test]
+    fn required_boolean_preserves_both_values_and_rejects_other_shapes() {
+        for expected in [false, true] {
+            let details = serde_json::json!({"value": expected})
+                .as_object()
+                .expect("object")
+                .clone();
+            assert_eq!(
+                bool_required(&details, "value").expect("boolean value"),
+                expected
+            );
+        }
+        let missing = Map::new();
+        assert!(bool_required(&missing, "value").is_err());
+        let wrong = serde_json::json!({"value": "true"})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert!(bool_required(&wrong, "value").is_err());
+    }
+
+    #[test]
+    fn exact_key_guards_distinguish_exact_missing_extra_and_alternate_shapes() {
+        let one = serde_json::json!({"a": 1})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert!(exact_keys(&one, &["a"]).is_ok());
+        assert!(exact_keys(&one, &["b"]).is_err());
+        assert!(exact_keys(&one, &[]).is_err());
+
+        let extra = serde_json::json!({"a": 1, "b": 2})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert!(exact_keys(&extra, &["a"]).is_err());
+        assert!(exact_key_set(&extra, &[&["a"], &["a", "b"]]).is_ok());
+        assert!(exact_key_set(&extra, &[&["a"], &["b", "c"]]).is_err());
+    }
+
+    #[test]
+    fn optional_or_null_string_preserves_present_absent_null_and_wrong_type() {
+        let present = serde_json::json!({"value": "text"})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert_eq!(
+            string_optional_or_null(&present, "value").expect("present string"),
+            Some("text".to_owned())
+        );
+        let null = serde_json::json!({"value": null})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert_eq!(
+            string_optional_or_null(&null, "value").expect("null string"),
+            None
+        );
+        assert_eq!(
+            string_optional_or_null(&Map::new(), "value").expect("missing string"),
+            None
+        );
+        let wrong = serde_json::json!({"value": 7})
+            .as_object()
+            .expect("object")
+            .clone();
+        assert!(string_optional_or_null(&wrong, "value").is_err());
+    }
+}
