@@ -4,6 +4,9 @@ mod record;
 mod types;
 
 #[cfg(test)]
+#[path = "htmlcut/tests/exhaustive.rs"]
+mod htmlcut_exhaustive_tests;
+#[cfg(test)]
 mod tests;
 
 pub use htmlcut::{

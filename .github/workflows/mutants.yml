@@ -1,0 +1,285 @@
+name: Mutation testing
+
+on:
+  pull_request:
+    paths:
+      - ".cargo/mutants-*.toml"
+      - ".github/workflows/mutants.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**/*.rs"
+      - "crates/**/Cargo.toml"
+      - "scripts/bootstrap-rust-tools.sh"
+      - "scripts/mutation-shard-plan.sh"
+      - "scripts/summarize-mutation-results.sh"
+      - "tooling/rust-tooling.env"
+      - "xtask/src/**/*.rs"
+      - "xtask/Cargo.toml"
+  workflow_dispatch:
+  schedule:
+    - cron: "47 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutation-plan:
+    if: github.event_name != 'pull_request'
+    name: Plan cargo-mutants shards
+    runs-on: ubuntu-24.04
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Export complete shard plan
+        id: shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          shards="$(./scripts/mutation-shard-plan.sh)"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
+  mutants:
+    if: github.event_name != 'pull_request'
+    needs: mutation-plan
+    name: cargo-mutants (${{ matrix.shard.scope }} ${{ matrix.shard.selector }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.mutation-plan.outputs.shards) }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./tooling/rust-tooling.env
+          rustup toolchain install "$RUST_STABLE_TOOLCHAIN" --profile minimal
+
+      - name: Export mutation tool version
+        id: mutation_tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./tooling/rust-tooling.env
+          echo "tool=cargo-mutants@$CARGO_MUTANTS_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
+        with:
+          tool: ${{ steps.mutation_tool.outputs.tool }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.shard.artifact_name }}
+          workspaces: ". -> ../.ffhn-artifacts/target"
+
+      - name: Verify mutation scope
+        shell: bash
+        env:
+          MUTATION_SCOPE: ${{ matrix.shard.scope }}
+        run: |
+          set -euo pipefail
+          config=".cargo/mutants-$MUTATION_SCOPE.toml"
+          cargo mutants --config "$config" --list --json > "$RUNNER_TEMP/mutants.json"
+          case "$MUTATION_SCOPE" in
+            runtime)
+              jq -e '
+                length > 0
+                and ([.[].package] | unique == ["ffhn-cli", "ffhn-core"])
+                and all(.[].file; test("^crates/(ffhn-cli|ffhn-core)/src/"))
+              ' "$RUNNER_TEMP/mutants.json" >/dev/null
+              ;;
+            tooling)
+              jq -e '
+                length > 0
+                and ([.[].package] | unique == ["xtask"])
+                and all(.[].file; test("^xtask/src/"))
+              ' "$RUNNER_TEMP/mutants.json" >/dev/null
+              ;;
+            *)
+              echo "unknown mutation scope: $MUTATION_SCOPE" >&2
+              exit 1
+              ;;
+          esac
+          jq -e 'all(.[].file; test("/(tests/|tests\\.rs$)") | not)' "$RUNNER_TEMP/mutants.json" >/dev/null
+
+      - name: Run mutation shard
+        shell: bash
+        run: cargo xtask mutants --scope "${{ matrix.shard.scope }}" --in-place --shard "${{ matrix.shard.selector }}"
+
+      - name: Stage mutation results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$GITHUB_WORKSPACE/../.ffhn-artifacts/mutation-runs/${{ matrix.shard.scope }}/mutants.out"
+          stage_dir="$RUNNER_TEMP/ffhn-mutation-results"
+          test -d "$source_dir"
+          mkdir -p "$stage_dir"
+          cp -R "$source_dir" "$stage_dir/mutants.out"
+
+      - name: Upload mutation results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.shard.artifact_name }}
+          path: ${{ runner.temp }}/ffhn-mutation-results
+          if-no-files-found: error
+
+  mutants-diff:
+    if: github.event_name == 'pull_request'
+    name: cargo-mutants (${{ matrix.scope }} pull-request diff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [runtime, tooling]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./tooling/rust-tooling.env
+          rustup toolchain install "$RUST_STABLE_TOOLCHAIN" --profile minimal
+
+      - name: Export mutation tool version
+        id: mutation_tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ./tooling/rust-tooling.env
+          echo "tool=cargo-mutants@$CARGO_MUTANTS_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
+        with:
+          tool: ${{ steps.mutation_tool.outputs.tool }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: mutants-pr-diff-${{ matrix.scope }}
+          workspaces: ". -> ../.ffhn-artifacts/target"
+
+      - name: Verify mutation scope
+        shell: bash
+        env:
+          MUTATION_SCOPE: ${{ matrix.scope }}
+        run: |
+          set -euo pipefail
+          config=".cargo/mutants-$MUTATION_SCOPE.toml"
+          cargo mutants --config "$config" --list --json > "$RUNNER_TEMP/mutants.json"
+          case "$MUTATION_SCOPE" in
+            runtime)
+              jq -e 'length > 0 and ([.[].package] | unique == ["ffhn-cli", "ffhn-core"])' "$RUNNER_TEMP/mutants.json" >/dev/null
+              ;;
+            tooling)
+              jq -e 'length > 0 and ([.[].package] | unique == ["xtask"])' "$RUNNER_TEMP/mutants.json" >/dev/null
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Prepare pull-request mutation diff
+        id: mutation_diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff_path="$RUNNER_TEMP/ffhn-mutants.diff"
+          git diff --no-ext-diff --unified=0 "${{ github.event.pull_request.base.sha }}" HEAD > "$diff_path"
+          echo "path=$diff_path" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect mutations in changed production code
+        id: diff_mutants
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=".cargo/mutants-${{ matrix.scope }}.toml"
+          cargo mutants \
+            --config "$config" \
+            --list \
+            --json \
+            --in-diff "${{ steps.mutation_diff.outputs.path }}" \
+            > "$RUNNER_TEMP/diff-mutants.json"
+          count="$(jq 'length' "$RUNNER_TEMP/diff-mutants.json")"
+          if (( count > 0 )); then
+            echo "has_mutants=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_mutants=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "${{ matrix.scope }} diff mutants: $count" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run mutations in changed production code
+        if: steps.diff_mutants.outputs.has_mutants == 'true'
+        shell: bash
+        run: cargo xtask mutants --scope "${{ matrix.scope }}" --in-place --in-diff "${{ steps.mutation_diff.outputs.path }}"
+
+      - name: Stage mutation results
+        if: always() && steps.diff_mutants.outputs.has_mutants == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$GITHUB_WORKSPACE/../.ffhn-artifacts/mutation-runs/${{ matrix.scope }}/mutants.out"
+          stage_dir="$RUNNER_TEMP/ffhn-mutation-results"
+          test -d "$source_dir"
+          mkdir -p "$stage_dir"
+          cp -R "$source_dir" "$stage_dir/mutants.out"
+
+      - name: Upload mutation results
+        if: always() && steps.diff_mutants.outputs.has_mutants == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-mutants-pr-diff-${{ matrix.scope }}
+          path: ${{ runner.temp }}/ffhn-mutation-results
+          if-no-files-found: error
+
+  mutation-summary:
+    if: github.event_name != 'pull_request' && always()
+    needs: [mutation-plan, mutants]
+    name: cargo-mutants summary
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download mutation results
+        if: always()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: cargo-mutants-*-shard-*-of-*
+          path: mutation-artifacts
+          merge-multiple: false
+
+      - name: Verify complete shards and summarize results
+        if: always()
+        shell: bash
+        env:
+          MUTATION_SHARDS: ${{ needs.mutation-plan.outputs.shards }}
+        run: |
+          set -euo pipefail
+          ./scripts/summarize-mutation-results.sh \
+            "$MUTATION_SHARDS" \
+            mutation-artifacts \
+            "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${{ needs.mutants.result }}" != "success" ]]; then
+            echo "one or more mutation shards did not complete successfully" >&2
+            exit 1
+          fi

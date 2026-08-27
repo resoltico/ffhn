@@ -3,7 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use crate::model::DynResult;
-use crate::plan::{cargo_build_root, cargo_target_root, coverage_build_root, coverage_target_root};
+use crate::plan::{
+    cargo_build_root, cargo_target_root, coverage_build_root, coverage_target_root,
+    mutation_report_root,
+};
 
 use super::filesystem::{
     dir_size_bytes, dir_size_bytes_excluding_roots, format_bytes,
@@ -24,7 +27,8 @@ use super::types::{
     HygieneEntry, HygieneReport, HygieneViolation, LEGACY_REPO_FUZZ_TARGET_BUDGET_BYTES,
     LEGACY_REPO_TARGET_BUDGET_BYTES, MANAGED_BUILD_BUDGET_BYTES,
     MANAGED_COVERAGE_BUILD_BUDGET_BYTES, MANAGED_COVERAGE_TARGET_BUDGET_BYTES,
-    MANAGED_TARGET_BUDGET_BYTES, REPO_TMP_BUDGET_BYTES, SCHEMA_NAME,
+    MANAGED_MUTATION_REPORT_BUDGET_BYTES, MANAGED_TARGET_BUDGET_BYTES, REPO_TMP_BUDGET_BYTES,
+    SCHEMA_NAME,
 };
 
 /// Builds a full repository artifact report.
@@ -39,6 +43,7 @@ pub fn hygiene_report(repo_root: &Path) -> DynResult<HygieneReport> {
     let managed_build = cargo_build_root(repo_root);
     let managed_coverage_target = coverage_target_root(repo_root);
     let managed_coverage_build = coverage_build_root(repo_root);
+    let managed_mutation_reports = mutation_report_root(repo_root);
 
     let mut entries = managed_entries([
         (
@@ -64,6 +69,12 @@ pub fn hygiene_report(repo_root: &Path) -> DynResult<HygieneReport> {
             "coverage-build",
             managed_coverage_build.as_path(),
             MANAGED_COVERAGE_BUILD_BUDGET_BYTES,
+        ),
+        (
+            "managed-mutation-reports",
+            "mutation-reports",
+            managed_mutation_reports.as_path(),
+            MANAGED_MUTATION_REPORT_BUDGET_BYTES,
         ),
     ])?;
     entries.extend(unmanaged_entries([
@@ -188,9 +199,8 @@ fn unmanaged_entries<const N: usize>(
 }
 
 fn repo_tmp_entry(tmp_root: &Path, tmp_cargo_roots: &[PathBuf]) -> DynResult<HygieneEntry> {
-    let mut details = vec![
-        "Repository scratch root mandated by AGENTS.md for temporary investigations.".to_owned(),
-    ];
+    let mut details =
+        vec!["Repository-local scratch root for temporary investigations.".to_owned()];
     if !tmp_cargo_roots.is_empty() {
         details.push(format!(
             "Excludes {} repo-local Cargo target roots reported separately under repo-tmp-cargo-targets.",

@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::model::{CommandArtifactLayout, DynResult};
 use crate::plan::{
     cargo_build_root, cargo_target_root, coverage_build_root, coverage_cargo_build_dir,
-    coverage_cargo_target_dir, coverage_target_root,
+    coverage_cargo_target_dir, coverage_target_root, mutation_report_root,
 };
 
 use super::types::{
@@ -23,6 +23,20 @@ struct ArtifactRootManifest<'a> {
     repo_root: &'a str,
     safe_to_delete: bool,
     purpose: &'a str,
+}
+
+/// Prepares and returns the managed root that retains mutation-testing evidence.
+pub fn prepare_mutation_report_root(repo_root: &Path) -> DynResult<PathBuf> {
+    let root = mutation_report_root(repo_root);
+    prepare_managed_artifact_roots(
+        repo_root,
+        [(
+            root.as_path(),
+            ManagedArtifactKind::MutationReports,
+            "retained cargo-mutants results for the latest runtime and tooling campaigns",
+        )],
+    )?;
+    Ok(root)
 }
 
 /// Prepares the managed artifact roots for one command layout and returns the env paths to use.
@@ -120,6 +134,11 @@ pub(super) fn reconcile_managed_artifact_roots(repo_root: &Path) -> DynResult<()
                 coverage_cargo_build_dir(repo_root),
                 ManagedArtifactKind::CoverageBuild,
                 "nested Cargo build root created by cargo llvm-cov",
+            ),
+            (
+                mutation_report_root(repo_root),
+                ManagedArtifactKind::MutationReports,
+                "retained cargo-mutants results for the latest runtime and tooling campaigns",
             ),
         ],
     )

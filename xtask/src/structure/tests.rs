@@ -122,8 +122,8 @@ fn measures_every_declared_shape_dimension_from_the_rust_ast() {
     let metrics = Metrics::from_source(source).expect("metrics");
 
     assert_eq!(metrics.import_count, 4);
-    assert!(metrics.item_count >= 16);
-    assert!(metrics.public_item_count >= 11);
+    assert_eq!(metrics.item_count, 19);
+    assert_eq!(metrics.public_item_count, 12);
     assert_eq!(metrics.function_count, 4);
     assert_eq!(metrics.decision_points, 7);
     assert_eq!(metrics.match_arms, 2);
@@ -145,6 +145,12 @@ fn extracts_only_direct_internal_crate_dependencies() {
     assert_eq!(
         dependencies.into_iter().collect::<Vec<_>>(),
         ["crate", "model"]
+    );
+
+    assert!(
+        measured_internal_dependencies("use serde::Serialize; use std::path::Path;")
+            .expect("external-only dependencies")
+            .is_empty()
     );
 }
 
@@ -306,6 +312,33 @@ fn reports_every_budget_dimension_and_stale_rules() {
 }
 
 #[test]
+fn structure_budgets_accept_values_exactly_at_every_declared_maximum() {
+    let directory = TempDir::new().expect("temporary directory");
+    let path = "crates/ffhn-core/src/model.rs";
+    let policy = write_policy(
+        &directory,
+        &format!("version = 1\n{}", rule_block(path, "exact", 1, "")),
+    );
+    let metrics = Metrics {
+        physical_lines: 1,
+        item_count: 1,
+        public_item_count: 1,
+        import_count: 1,
+        function_count: 1,
+        decision_points: 1,
+        match_arms: 1,
+    };
+
+    assert!(
+        policy
+            .rule_for(path)
+            .expect("exact rule")
+            .budget_findings(path, &metrics)
+            .is_empty()
+    );
+}
+
+#[test]
 fn policy_validation_rejects_unreadable_malformed_and_ambiguous_contracts() {
     let directory = TempDir::new().expect("temporary directory");
     let missing = Policy::load(&directory.path().join("missing.toml")).expect_err("missing policy");
@@ -463,10 +496,11 @@ fn policy_validation_rejects_unreadable_malformed_and_ambiguous_contracts() {
 #[test]
 fn policy_expirations_are_enforced_only_when_the_review_date_has_passed() {
     let directory = TempDir::new().expect("temporary directory");
+    let today = time::OffsetDateTime::now_utc().date();
     let policy = write_policy(
         &directory,
         &format!(
-            "version = 1\n{}{}",
+            "version = 1\n{}{}{}",
             rule_block(
                 "crates/ffhn-core/src/",
                 "prefix",
@@ -478,6 +512,12 @@ fn policy_expirations_are_enforced_only_when_the_review_date_has_passed() {
                 "prefix",
                 1,
                 "review_expires_on = \"2999-01-01\""
+            ),
+            rule_block(
+                "crates/ffhn-cli/src/",
+                "prefix",
+                1,
+                &format!("review_expires_on = \"{today}\"")
             )
         ),
     );

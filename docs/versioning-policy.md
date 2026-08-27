@@ -1,81 +1,48 @@
 ---
 afad: "4.0"
 domain: MAINTAINER
-updated: "2026-07-19"
+updated: "2026-08-25"
 route:
-  keywords: [versioning policy, typed observation, schema naming, semver baseline, workspace version]
-  questions: ["how does ffhn version its contracts?", "when should the ffhn semver baseline be refreshed?", "what is frozen versus generic in ffhn versioning?"]
+  keywords: [versioning policy, observation graph, schema naming, semver baseline, workspace version]
+  questions: ["how does FFHN version its contracts?", "when should the FFHN semver baseline be refreshed?", "what changes require a schema bump?"]
 ---
 
 # Versioning Policy
 
-**Purpose**: Define how FFHN versions its release line, its v2 typed-observation contracts, and the checked-in semver baseline.
+**Purpose**: Define how FFHN versions its release line, serialized observation-graph contracts, semantic counters, and checked-in Rust API baseline.
 **Prerequisites**: [contracts.md](contracts.md), [reports.md](reports.md), [targets.md](targets.md), and [release-protocol.md](release-protocol.md).
 
-## Release Version
+## Release version
 
-`Cargo.toml` `[workspace.package] version` is FFHN's sole release-version source. It supplies both workspace crates, `ffhn --version`, release tags of the form `vX.Y.Z`, and the release asset names. Do not create a second version source in code, documentation, scripts, or workflows.
+`Cargo.toml` `[workspace.package] version` is FFHN’s sole release-version source. It supplies both workspace crates, `ffhn --version`, tags of the form `vX.Y.Z`, and release asset names. Do not create a second version source in code, documentation, scripts, or workflows.
 
-## FFHN-Owned Contracts
+## Serialized contracts
 
-The maintained v2 document families are:
+The current document families are `ffhn.agent`, `ffhn.graph_identity`, `ffhn.source`, `ffhn.source_identity`, `ffhn.measurement`, `ffhn.source_state`, `ffhn.measurement_state`, `ffhn.commit_manifest`, `ffhn.lineage_manifest`, `ffhn.delivery_record`, `ffhn.dead_letter`, `ffhn.event_envelope`, and the operation reports listed in [contracts.md](contracts.md). Every current family starts at schema version 1.
 
-- `ffhn.target` schema version `12`
-- `ffhn.state` schema version `17`
-- `ffhn.run_report` schema version `17`
-- `ffhn.batch_run_report` schema version `17`
-- `ffhn.status_report` schema version `13`
-- `ffhn.reset_report` schema version `7`
-- `ffhn.process_stdin` schema version `4`
+A serialized-contract change updates its Rust model and validation, schema version, docs, fuzz harnesses, tests, and `CHANGELOG.md` Unreleased section together. A new major may replace the whole contract family. FFHN does not retain aliases, compatibility parsers, translation layers, or migrations for retired schemas.
 
-The typed parser identity is also contractual: `parser_id = "ffhn.typed-value"` with `parser_grammar_version = 1`.
+## State and lineage boundary
 
-FFHN evolves these product-owned contracts decisively. A contract change updates the Rust model and validation, relevant schema versions, docs and examples, fuzz harnesses, tests, and the `CHANGELOG.md` Unreleased section in one slice. FFHN does not retain aliases, compatibility parsers, translation layers, or migrations for retired schemas.
+Durable state lives only under `sources/<source-id>/.ffhn/`; `.ffhn-identity.json` is the sole lineage authority outside that swap scope. Normal readers require the exact current schema and exact source/measurement lineage stamp before interpreting a dependent document. An unknown schema, unreadable artifact, missing authoritative state, or foreign stamp is refused at its owned source or measurement scope.
 
-## State Boundary
+Reset is the clean-break operation. It mints fresh UUIDv4 lineage and replaces only the selected fixed storage scope through the lineage-manifest protocol. It never migrates, partially interprets, or derives a successor identity from replaced artifacts.
 
-V2 durable state exists only at `<watch-root>/<target>/.ffhn/state.json`. Normal v2 commands never parse v1 artifacts. `ffhn reset --target <ID>` is the explicit clean-break operation: under the target lock it blindly deletes only that target's `.ffhn` storage root, without decoding or inspecting its contents. The next accepted run initializes a new v2 state document.
+The Source Representation Digest binds representation-affecting acquisition configuration. The Measurement Value Digest binds the SRD, projection, type contract, parser grammar, acquisition semantics, and HTMLCut extraction semantics where applicable. A condition definition digest separately binds normalized policy and policy-evaluation semantics, allowing policy rebasing without changing observation lineage.
 
-Normal reads first decode only the state schema envelope. An envelope other than
-`schema_name = "ffhn.state"` and `schema_version = 17` is refused with reset-required guidance
-before FFHN attempts to decode any state facts. FFHN does not migrate or partially interpret a
-retired state; malformed JSON remains unreadable state and also requires explicit reset.
+Increment `acquisition_semantics_version` whenever the same source configuration and origin state could yield different accepted bytes. Increment `measurement_value_semantics_version`, parser grammar, or HTMLCut’s pinned extraction counter whenever the same projection evidence could yield a different typed value. Increment `policy_evaluation_semantics_version` whenever the same typed observations and condition definition could yield a different decision.
 
-Normal state reads and writes accept only an actual `.ffhn` directory and a regular `state.json`
-file. A symlink, directory, or other non-regular state node is invalid state and is refused without
-following it; reset remains the only blind recovery operation and removes only the `.ffhn` root
-node.
+## Typed value policy
 
-The state contract binds its temporal facts to a source-contract digest. That digest includes the
-complete named-condition policy canonicalized by condition identifier, `escalate_after`, and FFHN's policy-evaluation semantics
-version; HTML measurement contracts additionally bind HTMLCut's extraction-semantics version,
-while JSON measurements do not. A policy-semantics version changes whenever the same accepted
-observations could yield different condition decisions. A run whose target definition or semantics
-yields a different digest refuses before acquisition or mutation; reset is required before that
-changed measurement contract can establish state. Target declaration order is deliberately excluded:
-it controls only the operational admission priority of new bounded-outbox candidates.
+Raw JSON scalar tokens and validated HTMLCut evidence are retained as observation evidence; comparison uses the declared-type canonical value. Supported types are `text`, `integer`, `decimal`, `money`, `semver`, and `datetime`. Text preserves exact Unicode scalar-sequence identity without normalization. Decimal and money policy arithmetic is exact. Date-time parsing never falls back to machine-local time.
 
-## Typed Value Policy
+## Semver baseline policy
 
-Raw selected JSON scalar tokens are retained byte-for-byte as evidence, including string quoting and
-escapes. `html_text` retains HTMLCut's plain DOM descendant text; `html_rendered_text` retains its
-semantic rendered text; and `html_attribute` retains the selected attribute. Each carries plan and
-diagnostic evidence. Comparison uses the declared-type canonical
-value. The
-current declared types are `text`, `integer`, `decimal`, `money`, `semver`, and `datetime`.
-Text retains exact Unicode scalar-sequence identity: JSON accepts only strings and decodes their
-escape spelling, while HTML uses its configured comparison projection; no trimming, case folding,
-locale rule, or Unicode normalization applies. Decimal and money use `rust_decimal`, semantic
-versions use `semver`, and date-times either carry an offset or declare `assumed_offset`;
-machine-local time is never a fallback.
-
-## Semver Baseline Policy
-
-The checked-in `semver-baseline/ffhn-core` directory represents the last published `ffhn-core` API, not the current worktree.
+The checked-in `semver-baseline/ffhn-core` directory represents the last published `ffhn-core` Rust API, not the current worktree.
 
 1. Refresh it only after the corresponding release has been published.
-2. Until a matching local tag exists, treat the current workspace version as an unreleased major line.
+2. Until a matching local tag exists, treat the workspace version as an unreleased major line.
 3. Refresh from an explicit published reference: `cargo xtask refresh-semver-baseline --git-ref vX.Y.Z`.
 4. Never regenerate it from unreleased worktree state.
 
-The baseline protects the published Rust API. It does not authorize retaining obsolete serialized contracts or legacy runtime behavior.
+The baseline protects the published Rust API. It never authorizes retaining superseded serialized contracts or runtime behavior.

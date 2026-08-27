@@ -5,7 +5,6 @@ use crate::model::DynResult;
 use crate::repo_files::{
     afad_managed_markdown_paths as repo_afad_managed_markdown_paths, maintained_rust_source_paths,
     public_markdown_paths as repo_public_markdown_paths,
-    watchlist_target_config_paths as repo_watchlist_target_config_paths,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,26 +33,6 @@ pub(crate) fn protocol_afad_version(repo_root: &Path) -> DynResult<String> {
     parse_protocol_afad_version(&text).map_err(|error| {
         format!("{} has invalid protocol metadata: {error}", path.display()).into()
     })
-}
-
-pub(crate) fn public_target_example_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-
-    let examples_dir = repo_root.join("examples");
-    if examples_dir.is_dir() {
-        for entry in fs::read_dir(&examples_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension() == Some(std::ffi::OsStr::new("toml")) {
-                paths.push(path);
-            }
-        }
-    }
-
-    paths.extend(repo_watchlist_target_config_paths(repo_root)?);
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
 }
 
 pub(crate) fn user_facing_source_paths(repo_root: &Path) -> DynResult<Vec<PathBuf>> {

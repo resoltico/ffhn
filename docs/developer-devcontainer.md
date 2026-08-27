@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: DEVCONTAINER
-updated: "2026-05-15"
+updated: "2026-08-25"
 route:
   keywords: [devcontainer, docker desktop, contributor container, vscode, dev containers, rust toolchain, cargo xtask, ffhn contributor workflow]
   questions: ["what is the preferred FFHN contributor workflow?", "how do I use the FFHN devcontainer?", "does FFHN have a contributor container?", "how do I validate the FFHN devcontainer?", "how do I run the full FFHN maintainer gate inside the devcontainer?"]
@@ -43,7 +43,7 @@ The contributor image is pinned to Ubuntu `24.04`.
 Why:
 
 1. it gives FFHN one reproducible Linux maintainer environment
-2. it bakes the pinned Rust toolchains plus QA tools into the same place
+2. it bakes the pinned Rust toolchains plus required QA tools into the same place
 3. it avoids host-by-host drift in `clang`, `shellcheck`, Cargo subcommands, and release helpers
 
 ## What The Contributor Container Owns
@@ -53,6 +53,8 @@ The image bakes in:
 1. the pinned stable and coverage Rust toolchains from [../tooling/rust-tooling.env](../tooling/rust-tooling.env)
 2. `cargo-nextest`, `cargo-audit`, `cargo-deny`, `cargo-semver-checks`, `cargo-outdated`, `cargo-llvm-cov`, and `cargo-fuzz`
 3. `clang`, `shellcheck`, `gh`, and Linux build tooling
+
+The optional cargo-mutants tool is not baked into the default image. Install it only for a mutation campaign with `./scripts/bootstrap-rust-tools.sh install-mutation-tool`; its exact version remains owned by [../tooling/rust-tooling.env](../tooling/rust-tooling.env).
 4. the Linux `x86_64-unknown-linux-musl` Rust target for local Linux package work
 
 The devcontainer mounts named volumes for Cargo registry/git caches and the user cache directory.
@@ -113,7 +115,7 @@ That script:
 2. poisons the mounted cache and build-output volumes with root-owned files
 3. verifies that [../scripts/devcontainer-prepare-user-home.sh](../scripts/devcontainer-prepare-user-home.sh) repairs writability for the contributor user
 4. checks the pinned toolchains and Cargo QA versions from [../tooling/rust-tooling.env](../tooling/rust-tooling.env), plus the nightly `cargo +... miri` entrypoint, `shellcheck`, `gh`, `clang`, and `./check.sh --help`, on the raw Docker image
-5. builds a small Dev Container CLI helper from the already-built contributor image, layers in a pinned Node 20 runtime plus a pinned Docker Buildx CLI plugin for the pinned Dev Containers CLI, proves that `docker buildx` works inside that helper, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
+5. builds a small Dev Container CLI helper from the already-built contributor image, layers in a pinned Node 24 LTS runtime plus a pinned Docker Buildx CLI plugin for the pinned Dev Containers CLI, proves that `docker buildx` works inside that helper, brings up the committed devcontainer through that client path, and reruns the same runtime probe inside the materialized environment
 6. promotes the validated contributor image to the canonical local tag `ffhn-devcontainer:local` so later cached-image checks can reuse the exact proven image instead of an ambient older tag
 
 The contributor image copies exactly the pinned tooling manifest plus the standalone

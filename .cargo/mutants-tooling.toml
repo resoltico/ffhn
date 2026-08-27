@@ -1,0 +1,26 @@
+# Maintainer-tool mutation testing is separate from the product runtime so each mutant is judged
+# by the tests that own its repository-policy semantics.
+all_features = true
+# The repository's normal sibling artifact roots would be shared by cargo-mutants' parallel
+# scratch workspaces. Override both roots into each scratch checkout so no mutant can reuse or
+# overwrite another worker's build evidence.
+additional_cargo_args = [
+    "--locked",
+    "--config",
+    "build.target-dir='target/cargo-mutants'",
+    "--config",
+    "build.build-dir='target/cargo-mutants-build'",
+]
+test_tool = "cargo"
+test_package = ["xtask"]
+skip_calls_defaults = true
+sharding = "round-robin"
+
+examine_globs = ["xtask/src/**/*.rs"]
+
+exclude_globs = [
+    "**/src/tests/**/*.rs",
+    "**/src/**/tests/**/*.rs",
+    "**/src/tests.rs",
+    "**/src/**/tests.rs",
+]

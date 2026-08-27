@@ -1,40 +1,48 @@
-# FFHN — deterministic typed measurements
+# FFHN — deterministic observation graphs
 
-FFHN monitors one selected JSON or HTML value from an HTTP endpoint or local UTF-8 file, validates it against an explicit semantic type, and preserves accepted evidence in auditable per-target state. It supports exact Unicode text, integers, decimals, money, Semantic Versions, explicit-offset date-times, and named typed policy conditions. HTML monitoring distinguishes plain DOM descendant text, document-structured rendered text, and attributes. FFHN never infers values or uses a machine-local time zone. It persists accepted observations, per-condition temporal state, source health, permanent configuration errors, and integration faults; optional process-stdin delivery routes use a durable per-target outbox with immutable payloads.
+FFHN monitors typed scalar measurements from shared HTTP or local-file sources. A source is acquired once per cycle; its measurements project, parse, and evaluate independent typed policies over that same complete representation. Durable lineage, state, event identities, outboxes, and retry behavior make every accepted decision auditable and deterministic.
+
+FFHN supports exact Unicode text, integers, decimals, money, Semantic Versions, and explicit-offset date-times. It never infers values, rounds policy arithmetic, or uses the machine time zone for typed decisions. HTML extraction uses HTMLCut v13.1.0 with plain DOM text, rendered text, or attributes as explicitly configured.
 
 ## Install
 
-Download the archive for your platform from [GitHub Releases](https://github.com/resoltico/ffhn/releases). Each public release ships these maintained binary assets:
+On Linux and Windows, download a platform archive and its checksum manifest from [GitHub Releases](https://github.com/resoltico/ffhn/releases), verify the archive’s SHA-256 entry, extract it, and place `ffhn` on your `PATH`.
 
-- `ffhn-<version>-aarch64-apple-darwin.tar.gz`
-- `ffhn-<version>-x86_64-apple-darwin.tar.gz`
-- `ffhn-<version>-x86_64-unknown-linux-musl.tar.gz`
-- `ffhn-<version>-x86_64-pc-windows-msvc.zip`
-
-Download `ffhn-<version>-checksums.txt` with the matching archive, validate its SHA-256 entry, extract the archive, and add the contained `ffhn` executable to your `PATH`. Source archives are also available as `ffhn-source-<version>.zip` and `ffhn-source-<version>.tar.gz`.
+FFHN does not use Apple notarization. Browser-downloaded macOS binaries are unsupported because Gatekeeper quarantines them, and FFHN does not prescribe an `xattr` clearance flow. Supported macOS installation is a host-native build from the verified source archive or source checkout obtained without browser quarantine.
 
 ## Quick start
 
-From a source checkout or extracted source archive, materialize the checked-in local JSON example and run it with the installed binary:
+Create a graph root, then create editable source and measurement configuration templates:
 
 ```bash
-WATCH_ROOT="$(mktemp -d)"
-sh ./examples/file-target-json/materialize-target.sh "$WATCH_ROOT/price/target.toml"
-ffhn run --watch-root "$WATCH_ROOT" --target price --format summary
-ffhn status --watch-root "$WATCH_ROOT" --target price --format json-pretty
+GRAPH_ROOT="$(mktemp -d)"
+ffhn new source --source shop --graph-root "$GRAPH_ROOT"
+ffhn new measurement --source shop --measurement price --graph-root "$GRAPH_ROOT"
 ```
 
-A target-definition change is intentionally refused once state exists. Reset it explicitly before accepting observations under the new contract:
+Enable and edit `sources/shop/source.toml` and `sources/shop/measurements/price/measurement.toml` to select a source, projection, declared type, and conditions. Validate configuration without network access or state changes:
 
 ```bash
-ffhn reset --watch-root "$WATCH_ROOT" --target price
+ffhn validate --all --graph-root "$GRAPH_ROOT" --format summary
 ```
 
-The reset keeps `target.toml`, acquires the same target lock as runs, and blindly clears only FFHN-owned storage. It never translates old artifacts.
+Preview an acquisition without creating lineage, state, outbox records, or delivery attempts:
 
-See [docs/targets.md](docs/targets.md) for the target contract,
-[docs/cli.md](docs/cli.md) for commands, and
-[docs/getting-started.md](docs/getting-started.md) for a from-scratch local target.
+```bash
+ffhn measure --source shop --graph-root "$GRAPH_ROOT" --dry-run --format summary
+```
+
+Run one live source cycle, inspect its route-independent state, or start the graph agent:
+
+```bash
+ffhn measure --source shop --graph-root "$GRAPH_ROOT" --format summary
+ffhn status --source shop --graph-root "$GRAPH_ROOT" --format json-pretty
+ffhn agent run --graph-root "$GRAPH_ROOT" --format summary
+```
+
+Resets are deliberate clean breaks. `ffhn reset --source <ID>` mints fresh source lineage and removes all owned measurement state; `ffhn reset --source <ID> --measurement <ID>` replaces only the named measurement lineage. FFHN does not read old state as a migration input and provides no migration path.
+
+See [the CLI reference](docs/cli.md), [source and measurement configuration](docs/targets.md), [operation reports](docs/reports.md), and [the architecture guide](docs/architecture.md).
 
 ## Legal
 

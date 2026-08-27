@@ -8,11 +8,12 @@ pub const EXIT_CODE_RUN_FAILED: i32 = 1;
 pub const EXIT_CODE_USAGE: i32 = 2;
 /// Exit code for fatal process-level failures before document emission.
 pub const EXIT_CODE_FATAL: i32 = 3;
+/// Exit code when an exclusive source or graph lease is already held.
+pub const EXIT_CODE_BUSY: i32 = 4;
 
 mod args;
 mod error;
 mod execute;
-mod metadata;
 mod render;
 
 pub use execute::run;

@@ -11,13 +11,13 @@ use crate::CoreError;
 use super::super::{DeclaredType, TypeParams};
 use super::value::{PolicyValue, parse_config_value, parse_percentage};
 
-/// A stable identifier for one target-local named condition.
+/// A stable identifier for one measurement-local named condition.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ConditionId(String);
 
 impl ConditionId {
-    /// Parses a target-local condition identifier.
+    /// Parses a measurement-local condition identifier.
     pub fn new(value: impl Into<String>) -> Result<Self, CoreError> {
         let value = value.into();
         validate_condition_id(&value)?;
@@ -64,7 +64,7 @@ impl fmt::Display for ConditionId {
     }
 }
 
-/// A complete named policy condition configured by a target.
+/// A complete named policy condition configured by a measurement.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Condition {
@@ -73,7 +73,7 @@ pub struct Condition {
 }
 
 impl Condition {
-    /// Returns the typed target-local identifier for internal policy lookup.
+    /// Returns the typed measurement-local identifier for internal policy lookup.
     pub(crate) const fn id(&self) -> &ConditionId {
         &self.condition_id
     }
@@ -95,7 +95,7 @@ impl Condition {
 pub enum ConditionReference {
     /// The accepted observation immediately preceding the current run.
     LastAcceptedObservation,
-    /// The first accepted observation for the current target contract.
+    /// The first accepted observation for the current measurement value contract.
     FixedInitialBaseline,
     /// The last transition recorded for the condition currently being evaluated.
     LastConditionTransition,
@@ -135,7 +135,7 @@ pub enum ConditionPredicate {
     DeltaAbs {
         /// The pre-run accepted observation selected for comparison.
         reference: ConditionReference,
-        /// Non-negative literal in the target's declared type grammar.
+        /// Non-negative literal in the measurement's declared type grammar.
         threshold: String,
     },
     /// Tests whether the exact percentage delta reaches a non-negative percentage threshold.
@@ -147,19 +147,19 @@ pub enum ConditionPredicate {
     },
     /// Tests whether the last accepted value crossed one typed threshold in a direction.
     Crosses {
-        /// Literal in the target's declared type grammar.
+        /// Literal in the measurement's declared type grammar.
         threshold: String,
         /// The required direction of the crossing.
         direction: ThresholdDirection,
     },
     /// Tests whether the current typed value is strictly below one threshold.
     Lt {
-        /// Literal in the target's declared type grammar.
+        /// Literal in the measurement's declared type grammar.
         threshold: String,
     },
     /// Tests whether the current typed value is strictly above one threshold.
     Gt {
-        /// Literal in the target's declared type grammar.
+        /// Literal in the measurement's declared type grammar.
         threshold: String,
     },
     /// Tests a directional hysteresis band using enter and exit thresholds.
@@ -173,19 +173,7 @@ pub enum ConditionPredicate {
     },
 }
 
-impl ConditionPredicate {
-    pub(crate) const fn is_event_predicate(&self) -> bool {
-        matches!(
-            self,
-            Self::Changed { .. }
-                | Self::DeltaAbs { .. }
-                | Self::DeltaPct { .. }
-                | Self::Crosses { .. }
-        )
-    }
-}
-
-pub(in crate::model) fn validate_conditions(
+pub(crate) fn validate_conditions(
     declared_type: DeclaredType,
     params: &TypeParams,
     conditions: &[Condition],
@@ -337,4 +325,33 @@ fn validate_condition_id(value: &str) -> Result<(), CoreError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod identifier_mutation_tests {
+    use super::validate_condition_id;
+
+    #[test]
+    fn condition_id_grammar_distinguishes_every_boundary_predicate() {
+        for valid in ["a", "1", "a1", "a-b", "a_b", &"a".repeat(64)] {
+            validate_condition_id(valid).expect(valid);
+        }
+        for invalid in [
+            "",
+            &"a".repeat(65),
+            "A",
+            "-a",
+            "_a",
+            "a-",
+            "a_",
+            "a--b",
+            "a__b",
+            "a-_b",
+            "a_-b",
+            "a/b",
+            "a b",
+        ] {
+            assert!(validate_condition_id(invalid).is_err(), "{invalid}");
+        }
+    }
 }

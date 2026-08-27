@@ -4,10 +4,9 @@ Copyright (c) 2026 Ervins Strauhmanis
 Licensed under the MIT License. See LICENSE for details.
 
 The ffhn binary includes crates from crates.io and `htmlcut-core` plus its `htmlcut-*` companion
-crates from the public HTMLCut v12.0.1 source tagged at
+crates from the public HTMLCut v13.0.0 source tagged at
 https://github.com/resoltico/HTMLCut. The root Cargo.toml identifies that immutable source, and
-Cargo.lock records the exact resolved package graph. `cargo deny check advisories bans licenses
-sources` verifies the allowed license and source policy for that graph before release.
+Cargo.lock records the exact resolved package graph. `cargo deny check advisories bans licenses sources` verifies the allowed license and source policy for that graph before release.
 
 HTMLCut is MIT-licensed. Its parser stack includes the MPL-2.0 `cssparser`, `cssparser-macros`,
 `dtoa-short`, and Servo-derived `htmlcut-selectors` crates. MPL-2.0 is file-level copyleft; its

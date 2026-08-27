@@ -95,6 +95,11 @@ pub(crate) fn coverage_target_root(repo_root: &Path) -> PathBuf {
     sibling_artifact_dir(&cargo_target_root(repo_root), "coverage-target")
 }
 
+/// Returns the managed evidence root retained for mutation-testing campaigns.
+pub(crate) fn mutation_report_root(repo_root: &Path) -> PathBuf {
+    sibling_artifact_dir(&cargo_target_root(repo_root), "mutation-runs")
+}
+
 /// Returns the nested Cargo build directory created by `cargo llvm-cov`.
 pub(crate) fn coverage_cargo_build_dir(repo_root: &Path) -> PathBuf {
     coverage_build_root(repo_root).join("llvm-cov-target")
@@ -125,16 +130,13 @@ pub(crate) fn semver_build_dir(repo_root: &Path) -> PathBuf {
     cargo_build_root(repo_root).join("semver-checks")
 }
 
-#[cfg(windows)]
 /// Returns the platform-specific FFHN binary name.
 pub(crate) fn binary_name() -> &'static str {
-    "ffhn.exe"
+    binary_name_for_windows(cfg!(windows))
 }
 
-#[cfg(not(windows))]
-/// Returns the platform-specific FFHN binary name.
-pub(crate) fn binary_name() -> &'static str {
-    "ffhn"
+fn binary_name_for_windows(is_windows: bool) -> &'static str {
+    if is_windows { "ffhn.exe" } else { "ffhn" }
 }
 
 fn cargo_build_config(repo_root: &Path) -> CargoBuildConfig {
@@ -154,7 +156,6 @@ fn resolve_artifact_root(
     default_root: PathBuf,
 ) -> PathBuf {
     match configured_root {
-        Some(root) if root.is_absolute() => root,
         Some(root) => repo_root.join(root),
         None => default_root,
     }
@@ -207,6 +208,17 @@ pub(crate) fn coverage_build_root_for_tests(
 }
 
 #[cfg(test)]
+pub(crate) fn mutation_report_root_for_tests(
+    repo_root: &Path,
+    target_root: Option<&Path>,
+) -> PathBuf {
+    sibling_artifact_dir(
+        &cargo_target_root_for_tests(repo_root, target_root),
+        "mutation-runs",
+    )
+}
+
+#[cfg(test)]
 pub(crate) fn coverage_cargo_target_dir_for_tests(
     repo_root: &Path,
     target_root: Option<&Path>,
@@ -243,6 +255,11 @@ pub(crate) fn release_binary_path_for_tests(
 #[cfg(test)]
 pub(crate) fn sibling_artifact_dir_for_tests(path: &Path, sibling_name: &str) -> PathBuf {
     sibling_artifact_dir(path, sibling_name)
+}
+
+#[cfg(test)]
+pub(crate) fn binary_name_for_windows_for_tests(is_windows: bool) -> &'static str {
+    binary_name_for_windows(is_windows)
 }
 
 #[cfg(test)]

@@ -1,9 +1,6 @@
-use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
-use std::process::Stdio;
 use std::{fs, path::PathBuf};
-use std::{thread, time::Duration};
 
 use crate::coverage::{
     coverage_clean_command, coverage_command, coverage_output_path, evaluate_coverage_report,
@@ -13,7 +10,7 @@ use crate::hygiene::{HygieneCleanMode, clean_hygiene, ensure_hygiene, prepare_ar
 use crate::miri::{
     miri_command, miri_preflight_failures, miri_preflight_message, miri_probe_command,
 };
-use crate::model::{CommandArtifactLayout, CommandSpec, DynResult};
+use crate::model::{CommandArtifactLayout, CoverageFailure, DynResult};
 use crate::plan::{
     check_plan, is_semver_check_spec, semver_baseline_target_dir, semver_build_dir,
     semver_check_spec, semver_scratch_dir,
@@ -21,21 +18,11 @@ use crate::plan::{
 use crate::tooling::{CargoQaToolSpec, RustTooling, rust_tooling};
 
 use super::GateOutputOptions;
-use super::command::prepare_command;
 use super::command::{remove_dir_if_exists, run_spec};
 use super::gate::GateReporter;
 
-const AUDIT_RETRY_ATTEMPTS: usize = 3;
-#[cfg(test)]
-const AUDIT_RETRY_DELAY: Duration = Duration::from_millis(1);
-#[cfg(not(test))]
-const AUDIT_RETRY_DELAY: Duration = Duration::from_secs(5);
-const TRANSIENT_AUDIT_FETCH_MARKERS: [&str; 4] = [
-    "couldn't fetch advisory database",
-    "failed to prepare fetch",
-    "error sending request for url",
-    "An IO error occurred when talking to the server",
-];
+mod audit;
+pub(crate) use audit::run_audit;
 
 pub(crate) fn run_check(repo_root: &Path, output: GateOutputOptions) -> DynResult<()> {
     let mut reporter = GateReporter::new(repo_root, "check", output)?;
@@ -134,21 +121,6 @@ pub(crate) fn run_miri(repo_root: &Path) -> DynResult<()> {
     ensure_hygiene(repo_root)
 }
 
-pub(crate) fn run_audit(repo_root: &Path, lockfile: Option<&Path>) -> DynResult<()> {
-    let tooling = rust_tooling(repo_root)?;
-    ensure_cargo_subcommand(
-        CargoQaToolSpec {
-            package_name: "cargo-audit",
-            subcommand_name: "audit",
-            expected_version: &tooling.cargo_audit_version,
-        },
-        bootstrap_hint(),
-    )?;
-
-    let spec = audit_spec(lockfile);
-    run_retrying_audit(repo_root, &spec)
-}
-
 fn run_coverage_with_tooling(repo_root: &Path, tooling: &RustTooling) -> DynResult<()> {
     clean_hygiene(repo_root, HygieneCleanMode::Safe)?;
     prepare_artifact_layout(repo_root, CommandArtifactLayout::ManagedCoverage)?;
@@ -167,18 +139,8 @@ fn run_coverage_with_tooling(repo_root: &Path, tooling: &RustTooling) -> DynResu
         if !summary.failures.is_empty() {
             eprintln!("Rust coverage gate failed.");
             for failure in summary.failures {
-                if !failure.uncovered_lines.is_empty() {
-                    eprintln!(
-                        "- {} lines: {}",
-                        failure.file,
-                        failure.uncovered_lines.join(", ")
-                    );
-                }
-                if failure.uncovered_branch_count > 0 {
-                    eprintln!(
-                        "- {} branches: {} uncovered",
-                        failure.file, failure.uncovered_branch_count
-                    );
+                for message in coverage_failure_messages(&failure) {
+                    eprintln!("{message}");
                 }
             }
             return Err("coverage gate failed".into());
@@ -196,6 +158,24 @@ fn run_coverage_with_tooling(repo_root: &Path, tooling: &RustTooling) -> DynResu
     cleanup?;
     clean_hygiene(repo_root, HygieneCleanMode::Safe)?;
     ensure_hygiene(repo_root)
+}
+
+fn coverage_failure_messages(failure: &CoverageFailure) -> Vec<String> {
+    let mut messages = Vec::new();
+    if !failure.uncovered_lines.is_empty() {
+        messages.push(format!(
+            "- {} lines: {}",
+            failure.file,
+            failure.uncovered_lines.join(", ")
+        ));
+    }
+    if failure.uncovered_branch_count > 0 {
+        messages.push(format!(
+            "- {} branches: {} uncovered",
+            failure.file, failure.uncovered_branch_count
+        ));
+    }
+    messages
 }
 
 fn preflight_full_check(repo_root: &Path) -> DynResult<RustTooling> {
@@ -233,7 +213,7 @@ fn ensure_toolchain_available_with(rustc_program: &str, toolchain: &str) -> DynR
     .into())
 }
 
-fn ensure_cargo_subcommand(tool: CargoQaToolSpec<'_>, hint: &str) -> DynResult<()> {
+pub(super) fn ensure_cargo_subcommand(tool: CargoQaToolSpec<'_>, hint: &str) -> DynResult<()> {
     ensure_cargo_subcommand_with("cargo", tool, hint)
 }
 
@@ -350,64 +330,6 @@ fn ensure_miri_prerequisites(repo_root: &Path, tooling: &RustTooling) -> DynResu
     }
 
     Err(miri_preflight_message(tooling, &failures).into())
-}
-
-fn audit_spec(lockfile: Option<&Path>) -> CommandSpec {
-    let mut args = vec!["audit".to_owned()];
-    if let Some(lockfile) = lockfile {
-        args.push("--file".to_owned());
-        args.push(lockfile.to_string_lossy().into_owned());
-    }
-    args.push("-D".to_owned());
-    args.push("warnings".to_owned());
-    CommandSpec::new("cargo", args, false)
-        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace)
-}
-
-fn run_retrying_audit(repo_root: &Path, spec: &CommandSpec) -> DynResult<()> {
-    let mut last_error = None;
-    for attempt in 1..=AUDIT_RETRY_ATTEMPTS {
-        let mut command = Command::new(&spec.program);
-        prepare_command(&mut command, repo_root, spec)?;
-        command.stdin(Stdio::inherit());
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
-        let output = command.output()?;
-        io::stdout().write_all(&output.stdout)?;
-        io::stderr().write_all(&output.stderr)?;
-        if output.status.success() {
-            return Ok(());
-        }
-
-        let combined = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let retryable = is_transient_audit_fetch_failure(&combined);
-        let status_error = format!("command failed with status {}", output.status);
-        if retryable && attempt < AUDIT_RETRY_ATTEMPTS {
-            eprintln!(
-                "Transient RustSec advisory-database fetch failure on attempt {attempt}/{AUDIT_RETRY_ATTEMPTS}; retrying in {} seconds.",
-                AUDIT_RETRY_DELAY.as_secs()
-            );
-            thread::sleep(AUDIT_RETRY_DELAY);
-            continue;
-        }
-
-        last_error = Some(status_error);
-        break;
-    }
-
-    Err(last_error
-        .unwrap_or_else(|| "command failed without a reported process status".to_owned())
-        .into())
-}
-
-fn is_transient_audit_fetch_failure(output: &str) -> bool {
-    TRANSIENT_AUDIT_FETCH_MARKERS
-        .iter()
-        .any(|marker| output.contains(marker))
 }
 
 fn remove_semver_artifacts(repo_root: &Path) -> DynResult<()> {

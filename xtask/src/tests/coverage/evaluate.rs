@@ -188,6 +188,36 @@ fn evaluate_coverage_report_deduplicates_duplicate_branch_spans() {
     assert!(summary.failures.is_empty());
 }
 
+#[test]
+fn evaluate_coverage_report_counts_both_uncovered_arms_of_a_recorded_branch() {
+    let repo_root = tempdir().expect("tempdir");
+    let relative_path = "xtask/src/coverage.rs";
+    let tracked = tracked_subset(repo_root.path(), &[relative_path]);
+    let report = CoverageReport {
+        data: vec![CoverageDataSet {
+            files: vec![CoverageFile {
+                filename: repo_root.path().join(relative_path),
+                segments: vec![
+                    (1, 1, 1, false, true, false),
+                    (2, 1, 0, false, false, false),
+                ],
+                branches: vec![(1, 1, 1, 8, 0, 0, 0, 0, 4)],
+                summary: CoverageFileSummary::default(),
+            }],
+        }],
+    };
+
+    let summary =
+        evaluate_coverage_report(repo_root.path(), &tracked, report).expect("coverage summary");
+
+    assert_eq!(summary.tracked_line_count, 1);
+    assert_eq!(summary.tracked_branch_count, 2);
+    assert_eq!(summary.failures.len(), 1);
+    assert_eq!(summary.failures[0].file, relative_path);
+    assert!(summary.failures[0].uncovered_lines.is_empty());
+    assert_eq!(summary.failures[0].uncovered_branch_count, 2);
+}
+
 #[cfg(unix)]
 #[test]
 fn evaluate_coverage_report_reports_uncovered_and_missing_files() {
@@ -414,14 +444,12 @@ fn evaluate_coverage_report_ignores_non_executable_files_even_when_the_report_me
     assert!(summary.failures.is_empty());
 }
 
-#[cfg(windows)]
 #[test]
 fn binary_name_matches_the_current_platform() {
-    assert_eq!(binary_name(), "ffhn.exe");
-}
-
-#[cfg(not(windows))]
-#[test]
-fn binary_name_matches_the_current_platform() {
-    assert_eq!(binary_name(), "ffhn");
+    assert_eq!(binary_name_for_windows_for_tests(true), "ffhn.exe");
+    assert_eq!(binary_name_for_windows_for_tests(false), "ffhn");
+    assert_eq!(
+        binary_name(),
+        binary_name_for_windows_for_tests(cfg!(windows))
+    );
 }

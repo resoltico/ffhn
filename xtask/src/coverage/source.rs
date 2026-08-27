@@ -23,10 +23,6 @@ pub(super) fn accumulate_line_coverage(
     metadata: &SourceMetadata,
 ) {
     let line_count = metadata.line_count;
-    if segments.is_empty() || line_count == 0 {
-        return;
-    }
-
     let max_line = u64::try_from(line_count).expect("usize line count fits in u64");
     let eof_segment = (max_line + 1, 1, 0, false, false, false);
     for (index, current) in segments.iter().enumerate() {
@@ -217,6 +213,14 @@ mod tests {
         assert!(impl_item_requires_line_coverage(&syn::ImplItem::Verbatim(
             Default::default(),
         )));
+        assert!(!impl_item_requires_line_coverage(
+            &syn::parse_str::<syn::ImplItem>("const VALUE: usize = 1;")
+                .expect("parse associated constant"),
+        ));
+        assert!(!impl_item_requires_line_coverage(
+            &syn::parse_str::<syn::ImplItem>("type Output = usize;")
+                .expect("parse associated type"),
+        ));
         assert!(trait_item_requires_line_coverage(
             &syn::TraitItem::Verbatim(Default::default(),)
         ));
@@ -295,5 +299,57 @@ mod tests {
         assert!(!trait_item_requires_line_coverage(
             &syn::parse_str::<syn::TraitItem>("type Output;").expect("parse trait type"),
         ));
+    }
+
+    #[test]
+    fn substantive_span_characters_match_rust_tokens_not_punctuation_or_spacing() {
+        for character in ['a', 'Z', '7', '_', '"', '\''] {
+            assert!(
+                is_substantive_rust_span_char(character),
+                "expected {character:?} to be substantive"
+            );
+        }
+        for character in [' ', '\t', '(', ')', '?', ';'] {
+            assert!(
+                !is_substantive_rust_span_char(character),
+                "expected {character:?} to be non-substantive"
+            );
+        }
+
+        let metadata = SourceMetadata {
+            line_count: 1,
+            requires_line_coverage: true,
+            lines: vec!["fn tracked() {}".to_owned()],
+        };
+        assert!(same_line_segment_is_executable(
+            &metadata,
+            (1, 1, 0, false, true, false),
+            (1, 3, 0, false, false, false),
+        ));
+        assert!(!same_line_segment_is_executable(
+            &metadata,
+            (1, 1, 0, false, true, false),
+            (1, 1, 0, false, false, false),
+        ));
+        assert!(!same_line_segment_is_executable(
+            &metadata,
+            (1, 3, 0, false, true, false),
+            (1, 1, 0, false, false, false),
+        ));
+    }
+
+    #[test]
+    fn final_source_line_is_accumulated_and_covered_at_the_exact_boundary() {
+        let metadata = SourceMetadata {
+            line_count: 2,
+            requires_line_coverage: true,
+            lines: vec!["fn first() {}".to_owned(), "fn final_line() {}".to_owned()],
+        };
+        let mut coverage = BTreeMap::new();
+        accumulate_line_coverage(&mut coverage, &[(2, 1, 1, false, true, false)], &metadata);
+        assert_eq!(coverage.len(), 1);
+        let final_line = coverage.get(&2).expect("final source line");
+        assert!(final_line.executable);
+        assert!(final_line.covered);
     }
 }

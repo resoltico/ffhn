@@ -181,7 +181,22 @@ fn bootstrap_rust_tools_stays_self_contained_for_the_contributor_image() {
     assert!(script.contains("verify_stable_toolchain_entrypoints()"));
     assert!(script.contains("cargo build --help >/dev/null"));
     assert!(script.contains("rustc --version >/dev/null"));
+    assert!(script.contains("--rev \"${CARGO_SEMVER_CHECKS_GIT_REVISION}\""));
+    assert!(
+        script.contains(
+            "cargo install cargo-mutants --version \"${CARGO_MUTANTS_VERSION}\" --locked"
+        )
+    );
+    assert!(script.contains("install-mutation-tool)"));
     assert!(!script.contains("common.sh"));
+
+    let tooling = fs::read_to_string(repo_root.join("tooling/rust-tooling.env"))
+        .expect("read Rust tooling authority");
+    assert!(
+        tooling
+            .contains("CARGO_SEMVER_CHECKS_GIT_REVISION=966ade348570e9bc4fb0a8a9651be10e26909671")
+    );
+    assert!(tooling.contains("CARGO_MUTANTS_VERSION=27.1.0"));
 }
 
 #[test]
@@ -194,7 +209,7 @@ fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
             .expect("read devcontainer cli helper dockerfile");
 
     let node_arg = dockerfile
-        .find("ARG NODE_RUNTIME_IMAGE=docker.io/library/node:20-bookworm-slim@sha256:")
+        .find("ARG NODE_RUNTIME_IMAGE=docker.io/library/node:24-bookworm-slim@sha256:")
         .expect("node runtime arg");
     let node_from = dockerfile
         .find("FROM ${NODE_RUNTIME_IMAGE} AS node_runtime")
@@ -231,7 +246,7 @@ fn committed_devcontainer_cli_helper_installs_pinned_devcontainer_cli() {
     assert!(dockerfile.contains("apt-get install --yes --no-install-recommends docker.io"));
     assert!(dockerfile.contains("docker buildx version >/dev/null"));
     assert!(!dockerfile.contains("docker.io nodejs npm"));
-    assert!(dockerfile.contains("@devcontainers/cli@0.87.0"));
+    assert!(dockerfile.contains("@devcontainers/cli@0.88.0"));
     assert!(dockerfile.contains("USER root"));
 }
 

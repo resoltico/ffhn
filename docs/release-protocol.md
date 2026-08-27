@@ -152,7 +152,7 @@ Then verify:
 - `CONTRIBUTING.md` still matches the maintained contributor and release workflow.
 - `docs/README.md` still points at the maintained developer and maintainer docs.
 - `docs/versioning-policy.md` still matches the shipped typed-observation contract policy and semver-baseline rules.
-- `docs/cli.md`, `docs/core.md`, `docs/contracts.md`, `docs/reports.md`, `docs/run-reports.md`, and `docs/targets.md` still match the shipped surfaces.
+- `docs/cli.md`, `docs/core.md`, `docs/contracts.md`, `docs/reports.md`, and `docs/targets.md` still match the shipped surfaces.
 - `docs/quality-gates.md` still matches `cargo xtask`.
 - `docs/operations.md` still matches the release scripts, asset matrix, checksum-manifest flow, and workflow structure.
 - `docs/platform-support.md` still matches the shipped release target matrix, package contents, and deployment floors.

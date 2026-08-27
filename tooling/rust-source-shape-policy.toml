@@ -5,38 +5,6 @@ version = 1
 # outside those families is rejected until its ownership and dependency boundary are explicit.
 
 [[rules]]
-path = "crates/ffhn-core/src/model/tests/"
-match = "prefix"
-role = "core-model-test-scenario"
-owner = "FFHN core model"
-rationale = "Each scenario file proves one model contract without becoming an alternate model implementation."
-split_trigger = "a scenario needs unrelated aggregate setup or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 20
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/model/delivery/tests/"
-match = "prefix"
-role = "core-model-test-scenario"
-owner = "FFHN core model"
-rationale = "Each delivery scenario proves one durable event or payload contract without becoming an alternate implementation."
-split_trigger = "a scenario needs unrelated aggregate setup or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 20
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
-
-[[rules]]
 path = "crates/ffhn-core/src/model/policy/tests/"
 match = "prefix"
 role = "core-model-test-scenario"
@@ -50,14 +18,14 @@ max_imports = 20
 max_functions = 60
 max_decision_points = 180
 max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+allowed_internal_dependencies = ["crate", "model", "stable_json"]
 
 [[rules]]
 path = "crates/ffhn-core/src/model/"
 match = "prefix"
 role = "core-model"
 owner = "FFHN core model"
-rationale = "Model code owns typed target, state, policy, reporting, and durable delivery contracts; it must never depend on runtime orchestration."
+rationale = "Model code owns typed measurement observations and exact policy semantics; it must never depend on graph orchestration."
 split_trigger = "a file takes a second aggregate responsibility, crosses a boundary, or exceeds any declared budget"
 max_physical_lines = 600
 max_items = 70
@@ -66,110 +34,30 @@ max_imports = 24
 max_functions = 55
 max_decision_points = 180
 max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "stable_json", "test_support"]
+allowed_internal_dependencies = ["crate", "model", "stable_json"]
 
 [[rules]]
-path = "crates/ffhn-core/src/runtime/tests/"
+path = "crates/ffhn-core/src/graph/"
 match = "prefix"
-role = "core-runtime-test-scenario"
-owner = "FFHN core runtime"
-rationale = "Each runtime scenario file proves one execution or integration lifecycle."
-split_trigger = "a scenario spans unrelated runtime lifecycles or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 24
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/runtime/acquire/tests.rs"
-match = "exact"
-role = "core-runtime-test-scenario"
-owner = "FFHN core runtime"
-rationale = "Acquisition tests prove one transport and HTML integration boundary without becoming runtime orchestration."
-split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 24
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/runtime/delivery/tests.rs"
-match = "exact"
-role = "core-runtime-test-scenario"
-owner = "FFHN core runtime"
-rationale = "Delivery tests prove one durable outbox and process boundary without becoming runtime orchestration."
-split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 24
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/runtime/execution/tests.rs"
-match = "exact"
-role = "core-runtime-test-scenario"
-owner = "FFHN core runtime"
-rationale = "Execution coverage tests prove non-public lifecycle guards without widening the runtime API."
-split_trigger = "the scenario spans unrelated runtime lifecycles or exceeds any declared budget"
-max_physical_lines = 600
-max_items = 80
-max_public_items = 0
-max_imports = 24
-max_functions = 60
-max_decision_points = 180
-max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/runtime/"
-match = "prefix"
-role = "core-runtime"
-owner = "FFHN core runtime"
-rationale = "Runtime code orchestrates acquisition, state persistence, execution, and delivery over model contracts; model code must not point back here."
-split_trigger = "a file owns more than one lifecycle or exceeds any declared budget"
+role = "core-observation-graph"
+owner = "FFHN core observation graph"
+rationale = "Graph-root configuration, lineage authority, state, and crash-atomic storage form one domain boundary."
+split_trigger = "a file mixes configuration, lineage/state meaning, filesystem mutation, acquisition, delivery, or CLI rendering beyond one coherent responsibility"
 max_physical_lines = 600
 max_items = 70
-max_public_items = 12
-max_imports = 28
+max_public_items = 20
+max_imports = 24
 max_functions = 55
 max_decision_points = 180
 max_match_arms = 80
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json", "test_support"]
-
-[[rules]]
-path = "crates/ffhn-core/src/contract/"
-match = "prefix"
-role = "core-contract"
-owner = "FFHN core contract"
-rationale = "Contract parsing and canonical typed boundaries may depend on model vocabulary but not execution machinery."
-split_trigger = "a file combines schema vocabulary with unrelated parsing or exceeds any declared budget"
-max_physical_lines = 500
-max_items = 60
-max_public_items = 30
-max_imports = 20
-max_functions = 45
-max_decision_points = 140
-max_match_arms = 70
-allowed_internal_dependencies = ["crate", "contract", "model", "stable_json"]
+allowed_internal_dependencies = ["crate", "graph", "model", "stable_json"]
 
 [[rules]]
 path = "crates/ffhn-core/src/"
 match = "prefix"
 role = "core-foundation"
 owner = "FFHN core foundation"
-rationale = "Foundation modules provide only crate-wide error, path, serialization, and public-boundary primitives."
+rationale = "Foundation modules provide only crate-wide errors, serialization, shared measurement vocabulary, and public-boundary primitives."
 split_trigger = "a file gains feature-specific policy or runtime orchestration, or exceeds any declared budget"
 max_physical_lines = 300
 max_items = 45
@@ -178,7 +66,7 @@ max_imports = 16
 max_functions = 35
 max_decision_points = 90
 max_match_arms = 40
-allowed_internal_dependencies = ["crate", "contract", "model", "paths", "runtime", "stable_json"]
+allowed_internal_dependencies = ["crate", "graph", "model", "stable_json"]
 
 [[rules]]
 path = "crates/ffhn-cli/tests/"
@@ -226,38 +114,6 @@ max_imports = 20
 max_functions = 50
 max_decision_points = 140
 max_match_arms = 70
-allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
-
-[[rules]]
-path = "crates/ffhn-cli/src/args/tests.rs"
-match = "exact"
-role = "cli-adapter-test-scenario"
-owner = "FFHN CLI"
-rationale = "Parser and help scenarios prove the public command contract without becoming an alternate command adapter."
-split_trigger = "the scenario spans unrelated command contracts or exceeds any declared budget"
-max_physical_lines = 500
-max_items = 60
-max_public_items = 0
-max_imports = 20
-max_functions = 50
-max_decision_points = 120
-max_match_arms = 60
-allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
-
-[[rules]]
-path = "crates/ffhn-cli/src/execute/tests.rs"
-match = "exact"
-role = "cli-adapter-test-scenario"
-owner = "FFHN CLI"
-rationale = "Command-adapter scenarios prove observable execution behavior without becoming a second CLI implementation."
-split_trigger = "the scenario spans unrelated command contracts or exceeds any declared budget"
-max_physical_lines = 500
-max_items = 60
-max_public_items = 0
-max_imports = 20
-max_functions = 50
-max_decision_points = 120
-max_match_arms = 60
 allowed_internal_dependencies = ["crate", "args", "error", "execute", "metadata", "render"]
 
 [[rules]]

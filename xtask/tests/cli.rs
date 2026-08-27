@@ -34,8 +34,28 @@ fn xtask_binary_help_exposes_the_targeted_semver_lane() {
     assert!(stdout.contains("cargo xtask audit"));
     assert!(stdout.contains("semver-check"));
     assert!(stdout.contains("cargo xtask semver-check"));
+    assert!(stdout.contains("mutants"));
+    assert!(stdout.contains("cargo xtask mutants"));
     assert!(stdout.contains("structure"));
     assert!(stdout.contains("cargo xtask structure check"));
+}
+
+#[test]
+fn xtask_binary_mutants_help_exposes_safe_scopes_and_ci_boundaries() {
+    let output = Command::cargo_bin("xtask")
+        .expect("xtask binary")
+        .args(["mutants", "--help"])
+        .output()
+        .expect("run xtask mutants --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Local runs copy the workspace"));
+    assert!(stdout.contains("--scope <SCOPE>"));
+    assert!(stdout.contains("runtime"));
+    assert!(stdout.contains("tooling"));
+    assert!(stdout.contains("--in-place"));
+    assert!(stdout.contains("--in-diff <DIFF_FILE>"));
 }
 
 #[test]

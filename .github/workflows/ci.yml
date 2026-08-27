@@ -23,7 +23,7 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Export release target matrix
         id: matrix
@@ -42,7 +42,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust toolchains
         shell: bash
@@ -60,7 +60,7 @@ jobs:
         run: bash ./scripts/bootstrap-rust-tools.sh install-qa-tools
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
 
@@ -76,7 +76,7 @@ jobs:
       changed: ${{ steps.filter.outputs.changed }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -118,7 +118,7 @@ jobs:
       FFHN_DEVCONTAINER_SKIP_BUILD: 1
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate committed contributor devcontainer
         shell: bash
@@ -144,7 +144,7 @@ jobs:
             timeout_minutes: 150
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust stable toolchain
         shell: bash
@@ -155,7 +155,7 @@ jobs:
         run: bash ./scripts/bootstrap-rust-tools.sh install-cross-platform-qa-tools
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: cross-platform-${{ matrix.id }}
           cache-bin: false
@@ -219,7 +219,7 @@ jobs:
       matrix: ${{ fromJson(needs.release-target-matrix.outputs.matrix) }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Linux musl toolchain packages
         if: ${{ matrix.needs_musl_tools }}
@@ -237,7 +237,7 @@ jobs:
           rustup target add "${{ matrix.target_triple }}"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target_triple }}
           cache-bin: false

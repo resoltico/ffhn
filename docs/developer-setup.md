@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: SETUP
-updated: "2026-07-20"
+updated: "2026-08-25"
 route:
-  keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, nightly, miri, cargo-fuzz, shellcheck, gh cli, compiler override]
-  questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn's maintained miri proof?", "what is required for ffhn release work?"]
+  keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, nightly, miri, cargo-fuzz, cargo-mutants, shellcheck, gh cli, compiler override]
+  questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "how do I install cargo-mutants for FFHN?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn's maintained miri proof?", "what is required for ffhn release work?"]
 ---
 
 # Developer Setup
@@ -41,6 +41,10 @@ Required for public release work:
 Optional for manual sanitizer-backed fuzz runs:
 
 1. `cargo-fuzz`
+
+Optional for mutation testing:
+
+1. `cargo-mutants`
 
 ## Preferred Contributor Workflow
 
@@ -81,6 +85,17 @@ not part of the required correctness gate, but FFHN uses them for manual fuzzing
 dependency-freshness workflow. The scheduled workflow invokes the dedicated
 `install-dependency-freshness-tool` command, so it does not install unrelated QA tools before
 checking for updates.
+
+The Rust 1.98 toolchain emits Rustdoc v60 metadata. Until a crates.io cargo-semver-checks release supports that format, the bootstrap script installs the exact compatible upstream revision recorded in [../tooling/rust-tooling.env](../tooling/rust-tooling.env); the installed binary version remains part of the same fail-closed preflight contract as every other QA tool.
+
+Mutation testing is intentionally opt-in because complete campaigns execute thousands of behavioral variants and do not belong on the ordinary correctness path. Install the exact pinned tool and run both scopes with:
+
+```bash
+./scripts/bootstrap-rust-tools.sh install-mutation-tool
+cargo xtask mutants
+```
+
+Local mutation runs copy the workspace before changing source. `--in-place` is reserved for disposable CI checkouts.
 
 ## Install Host-Native ShellCheck
 

@@ -16,6 +16,7 @@ pub(super) const MANAGED_TARGET_BUDGET_BYTES: u64 = 4 * GIB;
 pub(super) const MANAGED_BUILD_BUDGET_BYTES: u64 = 24 * GIB;
 pub(super) const MANAGED_COVERAGE_TARGET_BUDGET_BYTES: u64 = 2 * GIB;
 pub(super) const MANAGED_COVERAGE_BUILD_BUDGET_BYTES: u64 = 8 * GIB;
+pub(super) const MANAGED_MUTATION_REPORT_BUDGET_BYTES: u64 = 8 * GIB;
 pub(super) const LEGACY_REPO_TARGET_BUDGET_BYTES: u64 = 512 * MIB;
 pub(super) const LEGACY_REPO_FUZZ_TARGET_BUDGET_BYTES: u64 = 512 * MIB;
 pub(super) const REPO_TMP_BUDGET_BYTES: u64 = 256 * MIB;
@@ -27,6 +28,7 @@ pub(super) enum ManagedArtifactKind {
     WorkspaceBuild,
     CoverageTarget,
     CoverageBuild,
+    MutationReports,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

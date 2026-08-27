@@ -1,10 +1,10 @@
 ---
 afad: "4.0"
 domain: HYGIENE
-updated: "2026-05-14"
+updated: "2026-08-25"
 route:
-  keywords: [artifact hygiene, cargo target dir, cargo build dir, disk usage, cleanup, cache policy, hygiene report]
-  questions: ["where does ffhn put cargo build output?", "how do I clean ffhn build artifacts?", "how do I inspect ffhn disk usage?", "what does cargo xtask hygiene do?"]
+  keywords: [artifact hygiene, cargo target dir, cargo build dir, cargo-mutants, mutation results, disk usage, cleanup, cache policy, hygiene report]
+  questions: ["where does ffhn put cargo build output?", "where are FFHN mutation results retained?", "how do I clean ffhn build artifacts?", "how do I inspect ffhn disk usage?", "what does cargo xtask hygiene do?"]
 ---
 
 # Artifact Hygiene
@@ -33,6 +33,11 @@ The maintained semver lane uses isolated scratch directories under those managed
 
 1. `../.ffhn-artifacts/target/semver-checks`
 2. `../.ffhn-artifacts/build/semver-checks`
+
+Mutation campaigns retain their latest complete evidence outside the Cargo caches:
+
+1. `../.ffhn-artifacts/mutation-runs/runtime/mutants.out`
+2. `../.ffhn-artifacts/mutation-runs/tooling/mutants.out`
 
 Inside the contributor devcontainer, the same policy applies but the roots live under the mounted user cache volume instead of beside the repository checkout:
 
@@ -82,12 +87,14 @@ FFHN's maintained hygiene policy is:
 3. Cargo-target-like scratch directories under `tmp/` are disposable investigation state and should not accumulate
 4. coverage and semver scratch must run in isolated managed roots, not in the repository tree
 5. heavyweight maintained gates must prepare, verify, and clean artifact roots automatically
+6. safe cleanup preserves mutation evidence, while rebuildable cleanup removes it with the Cargo caches
 
 That policy is enforced by `cargo xtask`:
 
 1. `cargo xtask check` safe-cleans legacy scratch, prepares the managed roots, verifies policy, runs the full gate, then safe-cleans and verifies again
 2. `cargo xtask coverage` uses managed coverage roots and leaves the repo-local tree clean
 3. `cargo xtask semver-check` prepares isolated semver scratch under the managed roots and deletes it again after the lane finishes
+4. `cargo xtask mutants` prepares a bounded managed evidence root and replaces only the selected scope's prior generated results
 
 ## Manual Cleanup
 

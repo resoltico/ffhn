@@ -8,6 +8,7 @@ mod check;
 mod command;
 mod gate;
 mod hygiene;
+mod mutants;
 mod semver;
 mod structure;
 
@@ -23,6 +24,8 @@ pub(crate) use command::{remove_file_if_exists, repo_root};
 pub(crate) use gate::{GateOutputFormat, GateOutputOptions, GateVerbosity};
 pub(crate) use hygiene::HygieneTask;
 #[cfg(test)]
+pub(crate) use mutants::{MutantsScope, run_mutants};
+#[cfg(test)]
 pub(crate) use semver::refresh_semver_baseline;
 
 const XTASK_NAME: &str = env!("CARGO_PKG_NAME");
@@ -35,6 +38,7 @@ Examples:
   cargo xtask semver-check
   cargo xtask coverage
   cargo xtask miri
+  cargo xtask mutants
   cargo xtask structure check
   cargo xtask structure report
   cargo xtask hygiene report
@@ -80,6 +84,11 @@ enum Task {
         long_about = "Run only the maintained typed-observation strict-provenance Miri proof under the pinned nightly QA toolchain."
     )]
     Miri,
+    #[command(
+        about = "Run maintained mutation testing against first-party FFHN Rust source.",
+        long_about = "Run cargo-mutants against the checked-in runtime or maintainer-tool scope. Local runs copy the workspace; --in-place is reserved for disposable CI checkouts."
+    )]
+    Mutants(MutantsArgs),
     #[command(
         about = "Verify or report FFHN's fail-closed Rust source-structure contract.",
         long_about = "Verify or report the repository-owned Rust source-structure contract. The check is fail-closed: every maintained Rust source file must have an ownership rule, stay within its declared budgets, and obey its internal dependency boundary."
@@ -150,6 +159,22 @@ struct AuditArgs {
     file: Option<std::path::PathBuf>,
 }
 
+#[derive(Args)]
+struct MutantsArgs {
+    /// First-party mutation surface to execute.
+    #[arg(long, value_enum, default_value_t = mutants::MutantsScope::All)]
+    scope: mutants::MutantsScope,
+    /// Mutate the current checkout. Use only inside a disposable CI checkout.
+    #[arg(long)]
+    in_place: bool,
+    /// Run one zero-based cargo-mutants shard such as `0/12`.
+    #[arg(long, value_name = "INDEX/TOTAL")]
+    shard: Option<String>,
+    /// Test only mutations overlapping one unified diff file.
+    #[arg(long, value_name = "DIFF_FILE")]
+    in_diff: Option<std::path::PathBuf>,
+}
+
 /// Parses the xtask CLI and dispatches the selected maintenance action.
 ///
 /// # Errors
@@ -175,10 +200,37 @@ where
         Task::SemverCheck => check::run_semver_check(&repo_root),
         Task::Coverage => check::run_coverage(&repo_root),
         Task::Miri => check::run_miri(&repo_root),
+        Task::Mutants(args) => mutants::run_mutants(
+            &repo_root,
+            args.scope,
+            args.in_place,
+            args.shard.as_deref(),
+            args.in_diff.as_deref(),
+        ),
         Task::Structure { command } => structure::run_structure(&repo_root, command),
         Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),
         Task::RefreshSemverBaseline(args) => {
             semver::refresh_semver_baseline(&repo_root, &args.git_ref)
         }
+    }
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    #[test]
+    fn gate_output_argument_conversion_preserves_every_nondefault_choice() {
+        let log_dir = std::path::PathBuf::from("/tmp/ffhn-gate-evidence");
+        let options = GateOutputOptions::from(GateOutputArgs {
+            format: GateOutputFormat::Json,
+            verbosity: GateVerbosity::Verbose,
+            log_dir: Some(log_dir.clone()),
+            retain_passing_logs: true,
+        });
+        assert_eq!(options.format, GateOutputFormat::Json);
+        assert_eq!(options.verbosity, GateVerbosity::Verbose);
+        assert_eq!(options.log_dir, Some(log_dir));
+        assert!(options.retain_passing_logs);
     }
 }

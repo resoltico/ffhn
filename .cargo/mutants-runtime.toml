@@ -1,0 +1,29 @@
+# Mutation testing exercises FFHN-owned product behavior. `cargo xtask mutants` supplies the
+# disposable result directory and CI shard while tests remain the judgment authority.
+all_features = true
+# The repository's normal sibling artifact roots would be shared by cargo-mutants' parallel
+# scratch workspaces. Override both roots into each scratch checkout so no mutant can reuse or
+# overwrite another worker's build evidence.
+additional_cargo_args = [
+    "--locked",
+    "--config",
+    "build.target-dir='target/cargo-mutants'",
+    "--config",
+    "build.build-dir='target/cargo-mutants-build'",
+]
+test_tool = "cargo"
+test_package = ["ffhn-core", "ffhn-cli"]
+skip_calls_defaults = true
+sharding = "round-robin"
+
+examine_globs = [
+    "crates/ffhn-core/src/**/*.rs",
+    "crates/ffhn-cli/src/**/*.rs",
+]
+
+exclude_globs = [
+    "**/src/tests/**/*.rs",
+    "**/src/**/tests/**/*.rs",
+    "**/src/tests.rs",
+    "**/src/**/tests.rs",
+]
