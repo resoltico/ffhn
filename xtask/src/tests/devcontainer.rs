@@ -178,15 +178,15 @@ fn bootstrap_rust_tools_stays_self_contained_for_the_contributor_image() {
         .expect("read bootstrap-rust-tools.sh");
 
     assert!(script.contains("ffhn_scrub_ambient_native_toolchain_env()"));
+    assert!(script.contains("ffhn_install_cargo_tool()"));
+    assert!(script.contains("unset CARGO_TARGET_DIR CARGO_BUILD_BUILD_DIR CARGO_BUILD_TARGET"));
     assert!(script.contains("verify_stable_toolchain_entrypoints()"));
     assert!(script.contains("cargo build --help >/dev/null"));
     assert!(script.contains("rustc --version >/dev/null"));
     assert!(script.contains("--rev \"${CARGO_SEMVER_CHECKS_GIT_REVISION}\""));
-    assert!(
-        script.contains(
-            "cargo install cargo-mutants --version \"${CARGO_MUTANTS_VERSION}\" --locked"
-        )
-    );
+    assert!(script.contains(
+        "ffhn_install_cargo_tool cargo-mutants --version \"${CARGO_MUTANTS_VERSION}\" --locked"
+    ));
     assert!(script.contains("install-mutation-tool)"));
     assert!(!script.contains("common.sh"));
 

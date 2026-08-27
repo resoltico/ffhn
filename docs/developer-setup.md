@@ -75,7 +75,7 @@ source "$HOME/.cargo/env"
 Why this shape:
 
 1. [`rust-toolchain.toml`](../rust-toolchain.toml) and [../tooling/rust-tooling.env](../tooling/rust-tooling.env) stay the only canonical owners of exact toolchain and QA-tool versions
-2. [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installs those pinned versions directly instead of depending on ambient host state
+2. [../scripts/bootstrap-rust-tools.sh](../scripts/bootstrap-rust-tools.sh) installs those pinned versions directly instead of depending on ambient host state; each tool builds in an isolated temporary directory so workspace Cargo target/build configuration cannot affect it
 3. the maintained Miri proof, coverage gate, and manual fuzzing need the pinned QA nightly toolchain, while ordinary build/test/run work uses the pinned stable toolchain
 
 Nightly is not required for ordinary `cargo build`, `cargo test`, or `cargo run`. It is required for the maintained Miri proof, the coverage gate, and optional manual fuzzing.
