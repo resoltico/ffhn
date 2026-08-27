@@ -12,6 +12,9 @@ additional_cargo_args = [
     "build.build-dir='target/cargo-mutants-build'",
 ]
 test_tool = "cargo"
+# Mutation workers copy one workspace per candidate. Run each copied workspace's stateful test
+# functions serially so advisory-lock scenarios cannot contend through an inherited host scheduler.
+additional_cargo_test_args = ["--test-threads=1"]
 test_package = ["ffhn-core", "ffhn-cli"]
 skip_calls_defaults = true
 sharding = "round-robin"
