@@ -145,7 +145,8 @@ instead of reintroducing repo-local build output.
 
 Then verify:
 
-- `Cargo.toml` `[workspace.package] version` equals `${RELEASE_VERSION}` exactly. This is the single version source of truth for both crates and for `ffhn --version`.
+- `Cargo.toml` `[workspace.package] version` equals `${RELEASE_VERSION}` exactly. This is the version source of truth for both crates and for `ffhn --version`; update every exact internal workspace dependency constraint to the same value, including `workspace.dependencies.ffhn-core.version`.
+- Every maintained Cargo lockfile, including `Cargo.lock` and `fuzz/Cargo.lock`, records `${RELEASE_VERSION}` for the workspace packages it resolves. Regenerate every affected lockfile through Cargo after changing an exact internal workspace dependency; do not hand-edit lockfiles.
 - `Cargo.toml` `[workspace.package] description` still reflects the current product in task-facing language.
 - `changelog.md` has a `## [${RELEASE_VERSION}] - YYYY-MM-DD` section with at least one entry.
 - `README.md` still documents the current install flow, CLI model, durable runtime model, and the exact public release asset names.
