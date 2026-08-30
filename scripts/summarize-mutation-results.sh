@@ -50,6 +50,8 @@ trap 'rm -rf -- "$scratch_dir"' EXIT
 expected_artifacts="$scratch_dir/expected-artifacts.txt"
 actual_artifacts="$scratch_dir/actual-artifacts.txt"
 summary_rows="$scratch_dir/summary-rows.md"
+expected_records="$scratch_dir/expected-records.jsonl"
+actual_records="$scratch_dir/actual-records.jsonl"
 
 jq -r '.[].artifact_name' <<< "$shard_plan_json" | LC_ALL=C sort > "$expected_artifacts"
 if [[ -d "$artifact_root" ]]; then
@@ -75,9 +77,12 @@ timed_out=0
 unviable=0
 artifacts_complete=true
 : > "$summary_rows"
+: > "$expected_records"
+: > "$actual_records"
 
 while IFS=$'\t' read -r scope selector artifact_name; do
     outcome_file="$artifact_root/$artifact_name/mutants.out/outcomes.json"
+    scope_file="$artifact_root/$artifact_name/scope.json"
     if [[ ! -f "$outcome_file" ]]; then
         printf 'missing completed mutation outcome: %s\n' "$outcome_file" >&2
         artifacts_complete=false
@@ -101,11 +106,30 @@ while IFS=$'\t' read -r scope selector artifact_name; do
         continue
     fi
 
+    if ! jq -e \
+        --arg scope "$scope" \
+        --arg selector "$selector" '
+            .scope == $scope
+            and .selector == $selector
+            and (.expected_total | type == "number" and . > 0 and floor == .)
+        ' "$scope_file" >/dev/null; then
+        printf 'invalid or missing mutation scope evidence: %s\n' "$scope_file" >&2
+        artifacts_complete=false
+        continue
+    fi
+
+    jq -c . "$scope_file" >> "$expected_records"
+
     shard_total="$(jq -r '.total_mutants' "$outcome_file")"
     shard_caught="$(jq -r '.caught' "$outcome_file")"
     shard_missed="$(jq -r '.missed' "$outcome_file")"
     shard_timed_out="$(jq -r '.timeout' "$outcome_file")"
     shard_unviable="$(jq -r '.unviable' "$outcome_file")"
+    jq -cn \
+        --arg scope "$scope" \
+        --argjson total "$shard_total" \
+        --argjson caught "$shard_caught" \
+        '{scope: $scope, total: $total, caught: $caught}' >> "$actual_records"
     total=$((total + shard_total))
     caught=$((caught + shard_caught))
     missed=$((missed + shard_missed))
@@ -124,6 +148,44 @@ while IFS=$'\t' read -r scope selector artifact_name; do
 done < <(jq -r '.[] | [.scope, .selector, .artifact_name] | @tsv' <<< "$shard_plan_json")
 
 if [[ "$artifacts_complete" != true ]]; then
+    exit 1
+fi
+
+if ! jq -es '
+    group_by(.scope)
+    | length == 2
+      and all(
+          .[];
+          length > 0
+          and ([.[].expected_total] | unique | length) == 1
+          and .[0].expected_total > 0
+      )
+' "$expected_records" >/dev/null; then
+    echo "mutation scope evidence is incomplete, contradictory, or empty" >&2
+    exit 1
+fi
+
+if ! jq -ne \
+    --slurpfile expected "$expected_records" \
+    --slurpfile actual "$actual_records" '
+        def totals:
+            group_by(.scope)
+            | map({key: .[0].scope, value: (map(.total) | add)})
+            | from_entries;
+        def caught:
+            group_by(.scope)
+            | map({key: .[0].scope, value: (map(.caught) | add)})
+            | from_entries;
+        ($expected
+            | group_by(.scope)
+            | map({key: .[0].scope, value: .[0].expected_total})
+            | from_entries) as $expected_totals
+        | ($actual | totals) as $actual_totals
+        | ($actual | caught) as $caught_totals
+        | $expected_totals == $actual_totals
+          and all($expected_totals | keys[]; $caught_totals[.] > 0)
+    ' >/dev/null; then
+    echo "mutation outcomes do not match the enumerated scope or caught no mutants" >&2
     exit 1
 fi
 

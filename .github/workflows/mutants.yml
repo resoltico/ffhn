@@ -2,19 +2,8 @@ name: Mutation testing
 
 on:
   pull_request:
-    paths:
-      - ".cargo/mutants-*.toml"
-      - ".github/workflows/mutants.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "crates/**/*.rs"
-      - "crates/**/Cargo.toml"
-      - "scripts/bootstrap-rust-tools.sh"
-      - "scripts/mutation-shard-plan.sh"
-      - "scripts/summarize-mutation-results.sh"
-      - "tooling/rust-tooling.env"
-      - "xtask/src/**/*.rs"
-      - "xtask/Cargo.toml"
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "47 3 * * 1"
@@ -24,12 +13,13 @@ permissions:
 
 concurrency:
   group: mutants-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   mutation-plan:
     name: Plan cargo-mutants shards
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
 
@@ -50,8 +40,6 @@ jobs:
     name: cargo-mutants (${{ matrix.shard.scope }} ${{ matrix.shard.selector }})
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-    env:
-      CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT: "120"
     strategy:
       fail-fast: false
       matrix:
@@ -80,13 +68,8 @@ jobs:
         with:
           tool: ${{ steps.mutation_tool.outputs.tool }}
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: ${{ matrix.shard.artifact_name }}
-          workspaces: ". -> ../.ffhn-artifacts/target"
-
       - name: Verify mutation scope
+        id: mutation_scope
         shell: bash
         env:
           MUTATION_SCOPE: ${{ matrix.shard.scope }}
@@ -115,6 +98,7 @@ jobs:
               ;;
           esac
           jq -e 'all(.[].file; test("/(tests/|tests\\.rs$)") | not)' "$RUNNER_TEMP/mutants.json" >/dev/null
+          echo "expected_total=$(jq 'length' \"$RUNNER_TEMP/mutants.json\")" >> "$GITHUB_OUTPUT"
 
       - name: Run mutation shard
         shell: bash
@@ -130,6 +114,12 @@ jobs:
           test -d "$source_dir"
           mkdir -p "$stage_dir"
           cp -R "$source_dir" "$stage_dir/mutants.out"
+          jq -cn \
+            --arg scope "${{ matrix.shard.scope }}" \
+            --arg selector "${{ matrix.shard.selector }}" \
+            --argjson expected_total "${{ steps.mutation_scope.outputs.expected_total }}" \
+            '{scope: $scope, selector: $selector, expected_total: $expected_total}' \
+            > "$stage_dir/scope.json"
 
       - name: Upload mutation results
         if: always()
@@ -145,8 +135,6 @@ jobs:
     name: cargo-mutants (${{ matrix.shard.scope }} pull-request diff ${{ matrix.shard.selector }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT: "120"
     strategy:
       fail-fast: false
       matrix:
@@ -177,12 +165,6 @@ jobs:
         with:
           tool: ${{ steps.mutation_tool.outputs.tool }}
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: mutants-pr-diff-${{ matrix.shard.scope }}-${{ matrix.shard.selector }}
-          workspaces: ". -> ../.ffhn-artifacts/target"
-
       - name: Verify mutation scope
         shell: bash
         env:
@@ -193,10 +175,20 @@ jobs:
           cargo mutants --config "$config" --list --json > "$RUNNER_TEMP/mutants.json"
           case "$MUTATION_SCOPE" in
             runtime)
-              jq -e 'length > 0 and ([.[].package] | unique == ["ffhn-cli", "ffhn-core"])' "$RUNNER_TEMP/mutants.json" >/dev/null
+              jq -e '
+                length > 0
+                and ([.[].package] | unique == ["ffhn-cli", "ffhn-core"])
+                and all(.[].file; test("^crates/(ffhn-cli|ffhn-core)/src/"))
+                and all(.[].file; test("/(tests/|tests\\.rs$)") | not)
+              ' "$RUNNER_TEMP/mutants.json" >/dev/null
               ;;
             tooling)
-              jq -e 'length > 0 and ([.[].package] | unique == ["xtask"])' "$RUNNER_TEMP/mutants.json" >/dev/null
+              jq -e '
+                length > 0
+                and ([.[].package] | unique == ["xtask"])
+                and all(.[].file; test("^xtask/src/"))
+                and all(.[].file; test("/(tests/|tests\\.rs$)") | not)
+              ' "$RUNNER_TEMP/mutants.json" >/dev/null
               ;;
             *) exit 1 ;;
           esac
@@ -258,7 +250,7 @@ jobs:
   mutation-summary:
     if: github.event_name != 'pull_request' && always()
     needs: [mutation-plan, mutants]
-    name: cargo-mutants summary
+    name: Mutation testing
     runs-on: ubuntu-24.04
 
     steps:
@@ -288,3 +280,21 @@ jobs:
             echo "one or more mutation shards did not complete successfully" >&2
             exit 1
           fi
+
+  mutation-pr-summary:
+    if: github.event_name == 'pull_request' && always()
+    needs: [mutation-plan, mutants-diff]
+    name: Mutation testing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Confirm complete pull-request mutation evidence
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.mutation-plan.result }}
+          SHARDS_RESULT: ${{ needs.mutants-diff.result }}
+        run: |
+          set -euo pipefail
+          test "$PLAN_RESULT" = success
+          test "$SHARDS_RESULT" = success

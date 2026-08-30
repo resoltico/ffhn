@@ -1,6 +1,7 @@
 # Maintainer-tool mutation testing is separate from the product runtime so each mutant is judged
 # by the tests that own its repository-policy semantics.
 all_features = true
+minimum_test_timeout = 120
 # The repository's normal sibling artifact roots would be shared by cargo-mutants' parallel
 # scratch workspaces. Override both roots into each scratch checkout so no mutant can reuse or
 # overwrite another worker's build evidence.
@@ -13,7 +14,7 @@ additional_cargo_args = [
 ]
 test_tool = "cargo"
 test_package = ["xtask"]
-skip_calls_defaults = true
+error_values = ["std::io::Error::other(\"mutated\").into()"]
 sharding = "round-robin"
 
 examine_globs = ["xtask/src/**/*.rs"]

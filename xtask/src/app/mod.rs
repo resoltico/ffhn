@@ -170,6 +170,9 @@ struct MutantsArgs {
     /// Test only mutations overlapping one unified diff file.
     #[arg(long, value_name = "DIFF_FILE")]
     in_diff: Option<std::path::PathBuf>,
+    /// Skip mutants caught or unviable in the selected scope's previous local run.
+    #[arg(long)]
+    iterate: bool,
 }
 
 /// Parses the xtask CLI and dispatches the selected maintenance action.
@@ -202,6 +205,7 @@ where
             args.scope,
             args.shard.as_deref(),
             args.in_diff.as_deref(),
+            args.iterate,
         ),
         Task::Structure { command } => structure::run_structure(&repo_root, command),
         Task::Hygiene { command } => hygiene::run_hygiene(&repo_root, command),

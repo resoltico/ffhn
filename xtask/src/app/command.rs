@@ -40,6 +40,9 @@ pub(crate) fn prepare_command(
             command.env_remove(variable);
         }
     }
+    for variable in &spec.removed_env {
+        command.env_remove(variable);
+    }
     command.envs(&spec.env);
     apply_artifact_layout(command, repo_root, spec)
 }

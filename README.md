@@ -2,7 +2,7 @@
 
 FFHN monitors typed scalar measurements from shared HTTP or local-file sources. A source is acquired once per cycle; its measurements project, parse, and evaluate independent typed policies over that same complete representation. Durable lineage, state, event identities, outboxes, and retry behavior make every accepted decision auditable and deterministic.
 
-FFHN supports exact Unicode text, integers, decimals, money, Semantic Versions, and explicit-offset date-times. It never infers values, rounds policy arithmetic, or uses the machine time zone for typed decisions. HTML extraction uses HTMLCut v13.1.0 with plain DOM text, rendered text, or attributes as explicitly configured.
+FFHN supports exact Unicode text, integers, decimals, money, Semantic Versions, and explicit-offset date-times. It never infers values, rounds policy arithmetic, or uses the machine time zone for typed decisions. HTML extraction uses HTMLCut v13.2.0 with plain DOM text, rendered text, or attributes as explicitly configured.
 
 ## Install
 

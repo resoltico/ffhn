@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: RELEASE
-updated: "2026-07-19"
+updated: "2026-08-30"
 route:
   keywords: [release protocol, gh cli, tag push, release workflow, semver baseline, verification, local branch cleanup]
   questions: ["how do I release ffhn?", "what must be verified before tagging a release?", "when do I refresh the ffhn semver baseline?", "how do I safely delete a local release branch after GitHub deletes its remote branch?"]
@@ -164,8 +164,11 @@ Then verify:
   - no required approving reviews on `main`
   - no admin-enforced branch protection override requirement
   - required conversation resolution before merge
-  - required status checks exactly:
+  - before creating the release branch, required status checks exactly:
     - `Check`
+    - `Mutation testing`
+
+When a substantive pre-release PR introduces or renames a required check, bootstrap that check before cutting the release branch: land its workflow producer through the normal protected PR path while the existing required checks remain in force, verify that the new check completes successfully on the merged `main` commit, then update branch protection to require the new stable check. Do not require a check before its producer is present on `main`, because that would block every PR without creating the status that can satisfy the requirement.
 
 Before cutting the release branch, enumerate open PRs so dependency-automation work is never surprise-discovered after publication:
 
@@ -220,11 +223,12 @@ If `gh pr diff "$PR_NUMBER" --name-only` fails with HTTP `406` because the diff 
 gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename'
 ```
 
-Do not continue until the required job in workflow `CI` is green:
+Do not continue until every required status is green:
 
-- `Check`
+- `Check` from workflow `CI`
+- `Mutation testing` from the mutation workflow
 
-`Check` is the aggregate branch-protection gate. It must reflect the Linux maintainer gate, the cross-platform Rust gate, and the release-target smoke matrix.
+`Check` is the aggregate branch-protection gate for the Linux maintainer gate, the cross-platform Rust gate, and the release-target smoke matrix. `Mutation testing` is the stable aggregate for the diff-scoped mutation matrix. Both must be present on the release PR; do not replace either with a manually inferred set of dynamic matrix rows.
 
 `gh pr checks` is the maintained first-line gate view, but it is not a reliable step-progress
 monitor for FFHN's longest jobs. If long-running checks remain generic `pending` with no useful
@@ -240,7 +244,7 @@ Use the `detailsUrl` or check-run names from `statusCheckRollup` to identify the
 Treat the job API as the authoritative live progress view when `gh pr checks` lags or omits step
 detail.
 
-If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks and the `CI` workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
+If the PR is open and mergeable but `gh pr checks "$PR_NUMBER"` still reports no checks, or either required workflow has no `pull_request` run for `${RELEASE_BRANCH}` after a short wait, treat that as a delivery failure, not as permission to merge without CI.
 
 Recover in this order:
 
@@ -252,18 +256,21 @@ gh pr close "$PR_NUMBER"
 gh pr reopen "$PR_NUMBER"
 gh pr checks "$PR_NUMBER"
 gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+gh run list --workflow=mutants.yml --branch "$RELEASE_BRANCH" --limit 10
 ```
 
-3. If `Check` is still absent, push one more commit to the release branch to force a `pull_request` synchronize event. Prefer a real corrective follow-up commit when the protocol or release docs genuinely need refinement; use an empty retrigger commit only as the last resort.
-4. If the synchronize event still does not produce `Check`, dispatch the `CI` workflow manually against the release branch and wait for the resulting `Check` status:
+3. If either required status is still absent, push one more commit to the release branch to force a `pull_request` synchronize event. Prefer a real corrective follow-up commit when the protocol or release docs genuinely need refinement; use an empty retrigger commit only as the last resort.
+4. If the synchronize event still does not produce the missing status, dispatch its workflow manually against the release branch and wait for the resulting status:
 
 ```bash
 gh workflow run ci.yml --ref "$RELEASE_BRANCH"
+gh workflow run mutants.yml --ref "$RELEASE_BRANCH"
 gh run list --workflow=ci.yml --branch "$RELEASE_BRANCH" --limit 10
+gh run list --workflow=mutants.yml --branch "$RELEASE_BRANCH" --limit 10
 gh pr checks "$PR_NUMBER"
 ```
 
-`CI` intentionally exposes `workflow_dispatch` for this maintainer recovery path. If `Check` still never materializes after the manual dispatch, stop and investigate repository or GitHub-side drift instead of merging blind.
+Both workflows intentionally expose `workflow_dispatch` for this maintainer recovery path. If either required status still never materializes after the manual dispatch, stop and investigate repository or GitHub-side drift instead of merging blind.
 
 ## 4. Merge handoff
 

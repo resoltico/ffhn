@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::path::PathBuf;
 
@@ -32,6 +32,8 @@ pub(crate) struct CommandSpec {
     pub args: Vec<String>,
     /// Environment overrides to apply for the command.
     pub env: BTreeMap<String, String>,
+    /// Ambient environment variables that must not reach the command.
+    pub removed_env: BTreeSet<String>,
     /// Whether stdout should be suppressed.
     pub quiet_stdout: bool,
     /// Artifact-root policy for the command.
@@ -50,6 +52,7 @@ impl CommandSpec {
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
             env: BTreeMap::new(),
+            removed_env: BTreeSet::new(),
             quiet_stdout,
             artifact_layout: CommandArtifactLayout::Inherit,
         }
@@ -72,6 +75,16 @@ impl CommandSpec {
             .into_iter()
             .map(|(key, value)| (key.into(), value.into()))
             .collect();
+        self
+    }
+
+    /// Prevents ambient variables from influencing this command.
+    pub(crate) fn without_envs<I, S>(mut self, variables: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.removed_env = variables.into_iter().map(Into::into).collect();
         self
     }
 

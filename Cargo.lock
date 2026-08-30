@@ -711,8 +711,8 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "htmlcut-core"
-version = "13.1.0"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+version = "13.2.0"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "ego-tree",
  "htmlcut-scraper",
@@ -729,7 +729,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-html5ever"
 version = "0.39.0-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "htmlcut-markup5ever",
  "log",
@@ -738,7 +738,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-markup5ever"
 version = "0.39.0-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "htmlcut-tendril",
  "log",
@@ -748,7 +748,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-scraper"
 version = "0.27.0-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "cssparser",
  "ego-tree",
@@ -761,7 +761,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-selectors"
 version = "0.38.0-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "bitflags",
  "cssparser",
@@ -779,7 +779,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-servo-arc"
 version = "0.4.3-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -787,7 +787,7 @@ dependencies = [
 [[package]]
 name = "htmlcut-tendril"
 version = "0.5.0-htmlcut.1"
-source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.1.0#a2a071ec012b6c300f89acc1a72473b9609e2488"
+source = "git+https://github.com/resoltico/HTMLCut.git?tag=v13.2.0#1d01313119701d71f5d9a1d6d4aad724e66a63d1"
 dependencies = [
  "new_debug_unreachable",
  "utf-8",

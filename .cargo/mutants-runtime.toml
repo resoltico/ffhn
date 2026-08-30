@@ -1,6 +1,7 @@
 # Mutation testing exercises FFHN-owned product behavior. `cargo xtask mutants` supplies the
 # disposable result directory and CI shard while tests remain the judgment authority.
 all_features = true
+minimum_test_timeout = 120
 # The repository's normal sibling artifact roots would be shared by cargo-mutants' parallel
 # scratch workspaces. Override both roots into each scratch checkout so no mutant can reuse or
 # overwrite another worker's build evidence.
@@ -16,7 +17,10 @@ test_tool = "cargo"
 # functions serially so advisory-lock scenarios cannot contend through an inherited host scheduler.
 additional_cargo_test_args = ["--", "--test-threads=1"]
 test_package = ["ffhn-core", "ffhn-cli"]
-skip_calls_defaults = true
+error_values = [
+    "crate::CoreError::internal(\"mutated\")",
+    "ffhn_core::CoreError::internal(\"mutated\")",
+]
 sharding = "round-robin"
 
 examine_globs = [
