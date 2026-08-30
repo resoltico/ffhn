@@ -21,6 +21,8 @@ fn policy_values_cover_each_typed_comparison_and_exact_arithmetic_path() {
     let datetime = PolicyValue::Datetime(instant);
     let later_datetime = PolicyValue::Datetime(later);
     let text = PolicyValue::Text("In Stock".to_owned());
+    let integer_one = PolicyValue::Integer(1);
+    let integer_two = PolicyValue::Integer(2);
 
     assert_eq!(dollar.compare(&dollar_three), Some(Ordering::Less));
     assert_eq!(dollar.compare(&euro), None);
@@ -40,6 +42,8 @@ fn policy_values_cover_each_typed_comparison_and_exact_arithmetic_path() {
     assert!(!semver_one.is_negative_numeric());
     assert!(!datetime.is_negative_numeric());
     assert!(!text.is_negative_numeric());
+    assert!(integer_one.canonical_identity_eq(&integer_one));
+    assert!(!integer_one.canonical_identity_eq(&integer_two));
     assert!(dollar.canonical_identity_eq(&dollar));
     assert!(!dollar.canonical_identity_eq(&euro));
     assert!(!dollar.canonical_identity_eq(&dollar_three));

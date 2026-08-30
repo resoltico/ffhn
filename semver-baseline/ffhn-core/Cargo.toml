@@ -54,13 +54,13 @@ version = "4.6.6"
 
 [workspace.dependencies.ffhn-core]
 path = "crates/ffhn-core"
-version = "=11.0.0"
+version = "=11.0.1"
 
 [workspace.dependencies.htmlcut-core]
 git = "https://github.com/resoltico/HTMLCut.git"
 package = "htmlcut-core"
-tag = "v13.1.0"
-version = "=13.1.0"
+tag = "v13.2.0"
+version = "=13.2.0"
 
 [workspace.dependencies.process-wrap]
 default-features = false
@@ -114,4 +114,4 @@ homepage = "https://github.com/resoltico/ffhn"
 license = "MIT"
 repository = "https://github.com/resoltico/ffhn"
 rust-version = "1.98"
-version = "11.0.0"
+version = "11.0.1"
