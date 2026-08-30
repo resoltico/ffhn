@@ -73,6 +73,14 @@ cargo xtask mutants
 
 Use `--scope runtime` for `ffhn-core` plus `ffhn-cli`, or `--scope tooling` for `xtask`. Each parallel cargo-mutants scratch checkout builds into its own checkout-local Cargo artifact roots, so no worker can reuse or overwrite another mutant's evidence. Mutation testing is deliberately separate from `./check.sh`; pull requests receive diff-scoped checks, while scheduled and manually dispatched campaigns run every maintained shard and retain their complete evidence.
 
+For a local test-writing loop, retain the selected scope's caught and unviable evidence with:
+
+```bash
+cargo xtask mutants --scope runtime --iterate
+```
+
+`--iterate` cannot combine with `--shard` or `--in-diff`, and it never replaces a clean complete campaign.
+
 ## Release Hygiene
 
 Before cutting or repairing a release:

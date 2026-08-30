@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: HYGIENE
-updated: "2026-08-25"
+updated: "2026-08-30"
 route:
   keywords: [artifact hygiene, cargo target dir, cargo build dir, cargo-mutants, mutation results, disk usage, cleanup, cache policy, hygiene report]
   questions: ["where does ffhn put cargo build output?", "where are FFHN mutation results retained?", "how do I clean ffhn build artifacts?", "how do I inspect ffhn disk usage?", "what does cargo xtask hygiene do?"]
@@ -94,7 +94,7 @@ That policy is enforced by `cargo xtask`:
 1. `cargo xtask check` safe-cleans legacy scratch, prepares the managed roots, verifies policy, runs the full gate, then safe-cleans and verifies again
 2. `cargo xtask coverage` uses managed coverage roots and leaves the repo-local tree clean
 3. `cargo xtask semver-check` prepares isolated semver scratch under the managed roots and deletes it again after the lane finishes
-4. `cargo xtask mutants` prepares a bounded managed evidence root and replaces only the selected scope's prior generated results
+4. `cargo xtask mutants` prepares a bounded managed evidence root and replaces only the selected scope's prior generated results, except that its explicit `--iterate` mode retains them for local test-writing work
 
 ## Manual Cleanup
 

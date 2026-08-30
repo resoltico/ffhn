@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: QUALITY
-updated: "2026-08-25"
+updated: "2026-08-30"
 route:
   keywords: [quality gates, check.sh, cargo xtask, cargo-mutants, mutation testing, source structure, source shape, ownership policy, devcontainer, coverage, miri, nextest, cargo deny, semver baseline, fuzz compile smoke, package smoke, dependency freshness, cargo outdated]
   questions: ["what does ffhn check.sh run?", "how do I run FFHN mutation testing?", "why is cargo-mutants separate from the required gate?", "how does FFHN prevent god files and forbidden Rust module dependencies?", "how does the ffhn contributor container get validated?", "how does the ffhn strict-provenance miri proof run?", "how does the ffhn coverage gate work?", "what fuzzing checks are automatic versus manual?"]
@@ -194,15 +194,15 @@ There is no separate rustdoc-coverage percentage gate. Public-surface documentat
 
 ## Mutation Testing
 
-`cargo xtask mutants` runs the pinned cargo-mutants tool against two independently judged first-party scopes. The runtime scope mutates `ffhn-core` and `ffhn-cli` and runs their product tests; the tooling scope mutates `xtask` and runs its maintainer-policy tests. Both configurations use all features, locked Cargo resolution, built-in non-semantic call filtering, round-robin sharding, and exclude test modules from mutation.
+`cargo xtask mutants` runs the pinned cargo-mutants tool against two independently judged first-party scopes. The runtime scope mutates `ffhn-core` and `ffhn-cli` and runs their product tests; the tooling scope mutates `xtask` and runs its maintainer-policy tests. Both configurations use all features, locked Cargo resolution, a 120-second minimum test timeout, round-robin sharding, explicit error-return mutations, and exclude test modules from mutation.
 
 Mutation testing asks whether the tests reject plausible behavioral changes; 100% line/branch coverage alone proves only that code executed. It complements coverage, fuzzing, and Miri and remains separate from `./check.sh` because complete campaigns contain thousands of mutants.
 
-Every run uses cargo-mutants' copied-workspace mode and retains results under `../.ffhn-artifacts/mutation-runs/<scope>/mutants.out`. Each new run clears only the selected scope's prior generated result tree; no mutation mode writes build output into the checkout it evaluates.
+Every run uses cargo-mutants' copied-workspace mode and retains results under `../.ffhn-artifacts/mutation-runs/<scope>/mutants.out`. The mutation child process clears ambient Cargo target and build-root overrides before its checked-in configuration assigns checkout-local scratch roots, so no worker can reuse or overwrite another worker's build evidence. A clean run replaces the selected scope's prior generated result tree; `--iterate` deliberately retains it for a local test-writing loop.
 
-The dedicated [mutation workflow](../.github/workflows/mutants.yml) enumerates each pull-request diff first, then runs and retains a runtime or tooling mutation result only when that scope contains changed production mutants; an empty scope is a successful explicit zero rather than fabricated evidence. Weekly and manually dispatched full campaigns use one generated plan containing twelve runtime shards and four tooling shards. Machine selectors such as `0/12` remain distinct from artifact-safe identities. The summary authority rejects missing, unexpected, flattened, malformed, or incomplete shard evidence before aggregating caught, missed, timed-out, and unviable counts.
+The dedicated [mutation workflow](../.github/workflows/mutants.yml) runs on every pull request, enumerates each pull-request diff first, then runs and retains a runtime or tooling mutation result only when that scope contains changed production mutants; an empty scope is a successful explicit zero rather than fabricated evidence. Its stable `Mutation testing` aggregate owns the pull-request result and is suitable for branch protection. Weekly and manually dispatched full campaigns use one generated plan containing twelve runtime shards and four tooling shards. Machine selectors such as `0/12` remain distinct from artifact-safe identities. The summary authority rejects missing, unexpected, flattened, malformed, incomplete, empty, contradictory, or non-catching shard evidence before aggregating caught, missed, timed-out, and unviable counts.
 
-Missed mutants and timeouts fail the campaign. FFHN maintains no survivor allowlist, skip annotations, or compatibility exemptions; fix the governing test or production design and rerun the affected scope. `--iterate` is suitable only for a local test-writing loop and never substitutes for a complete authoritative campaign.
+Missed mutants and timeouts fail the campaign. FFHN maintains no survivor allowlist, skip annotations, or compatibility exemptions; fix the governing test or production design and rerun the affected scope. `cargo xtask mutants --scope <runtime|tooling> --iterate` is suitable only for a local test-writing loop, cannot combine with CI selectors, and never substitutes for a complete authoritative campaign.
 
 The contributor devcontainer is a maintained surface too, but it is validated separately from
 `./check.sh`. That split is intentional: `./check.sh` is designed to run inside the contributor

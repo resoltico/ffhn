@@ -6,11 +6,8 @@ use clap::ValueEnum;
 
 use crate::{
     app::{check::ensure_cargo_subcommand, command::remove_dir_if_exists},
-    hygiene::{
-        HygieneCleanMode, clean_hygiene, ensure_hygiene, prepare_artifact_layout,
-        prepare_mutation_report_root,
-    },
-    model::{CommandArtifactLayout, CommandSpec, DynResult},
+    hygiene::{HygieneCleanMode, clean_hygiene, ensure_hygiene, prepare_mutation_report_root},
+    model::{CommandSpec, DynResult},
     tooling::{CargoQaToolSpec, rust_tooling},
 };
 
@@ -49,11 +46,22 @@ pub(crate) fn run_mutants(
     scope: MutantsScope,
     shard: Option<&str>,
     in_diff: Option<&Path>,
+    iterate: bool,
 ) -> DynResult<()> {
     if scope == MutantsScope::All && shard.is_some() {
         return Err(
             "--shard requires an explicit --scope runtime or --scope tooling so its denominator has one meaning"
                 .into(),
+        );
+    }
+    if iterate && shard.is_some() {
+        return Err(
+            "--iterate is a local scope workflow and cannot be combined with --shard".into(),
+        );
+    }
+    if iterate && in_diff.is_some() {
+        return Err(
+            "--iterate is a local scope workflow and cannot be combined with --in-diff".into(),
         );
     }
 
@@ -67,18 +75,19 @@ pub(crate) fn run_mutants(
         "Install the pinned mutation tool with `./scripts/bootstrap-rust-tools.sh install-mutation-tool`.",
     )?;
     clean_hygiene(repo_root, HygieneCleanMode::Safe)?;
-    prepare_artifact_layout(repo_root, CommandArtifactLayout::ManagedWorkspace)?;
     let report_root = prepare_mutation_report_root(repo_root)?;
     ensure_hygiene(repo_root)?;
 
     for selected in selected_scopes(scope) {
         let output_dir = report_root.join(selected.name);
         fs::create_dir_all(&output_dir)?;
-        remove_dir_if_exists(&output_dir.join("mutants.out"))?;
-        remove_dir_if_exists(&output_dir.join("mutants.out.old"))?;
+        if !iterate {
+            remove_dir_if_exists(&output_dir.join("mutants.out"))?;
+            remove_dir_if_exists(&output_dir.join("mutants.out.old"))?;
+        }
         let execution = run_spec(
             repo_root,
-            &mutants_command(&output_dir, *selected, shard, in_diff),
+            &mutants_command(&output_dir, *selected, shard, in_diff, iterate),
         );
         if let Err(error) = execution {
             return Err(mutation_execution_error(error, selected.name));
@@ -101,6 +110,7 @@ fn mutants_command(
     scope: ScopeSpec,
     shard: Option<&str>,
     in_diff: Option<&Path>,
+    iterate: bool,
 ) -> CommandSpec {
     let mut args = vec![
         "mutants".to_owned(),
@@ -115,10 +125,17 @@ fn mutants_command(
     if let Some(diff) = in_diff {
         args.extend(["--in-diff".to_owned(), diff.to_string_lossy().into_owned()]);
     }
+    if iterate {
+        args.push("--iterate".to_owned());
+    }
 
     CommandSpec::new("cargo", args, false)
         .with_step_id(format!("mutants-{}", scope.name))
-        .with_artifact_layout(CommandArtifactLayout::ManagedWorkspace)
+        .without_envs([
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+            "CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT",
+        ])
 }
 
 fn mutation_execution_error(
@@ -157,7 +174,7 @@ mod tests {
 
     #[test]
     fn command_always_uses_the_isolated_workspace_mode() {
-        let safe = mutants_command(Path::new("/tmp/runtime"), RUNTIME, None, None);
+        let safe = mutants_command(Path::new("/tmp/runtime"), RUNTIME, None, None, false);
         assert_eq!(
             safe.args,
             [
@@ -173,6 +190,19 @@ mod tests {
             TOOLING,
             Some("2/4"),
             Some(Path::new("changes.diff")),
+            false,
+        );
+        let iterate = mutants_command(Path::new("/tmp/runtime"), RUNTIME, None, None, true);
+        assert_eq!(iterate.args.last(), Some(&"--iterate".to_owned()));
+        assert_eq!(
+            iterate.removed_env,
+            [
+                "CARGO_BUILD_BUILD_DIR".to_owned(),
+                "CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT".to_owned(),
+                "CARGO_TARGET_DIR".to_owned()
+            ]
+            .into_iter()
+            .collect()
         );
         assert_eq!(
             ci.args,

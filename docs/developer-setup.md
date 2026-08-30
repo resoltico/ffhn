@@ -1,7 +1,7 @@
 ---
 afad: "4.0"
 domain: SETUP
-updated: "2026-08-25"
+updated: "2026-08-30"
 route:
   keywords: [developer setup, devcontainer, docker desktop, rustup, rust toolchain, nightly, miri, cargo-fuzz, cargo-mutants, shellcheck, gh cli, compiler override]
   questions: ["how do I set up a fresh machine for ffhn?", "what is the preferred FFHN contributor workflow?", "which tools are required for ffhn development?", "how do I install cargo-mutants for FFHN?", "what is optional versus required for ffhn fuzzing?", "what is required for ffhn's maintained miri proof?", "what is required for ffhn release work?"]
@@ -95,7 +95,7 @@ Mutation testing is intentionally opt-in because complete campaigns execute thou
 cargo xtask mutants
 ```
 
-Every mutation run uses cargo-mutants' isolated copied-workspace mode, so it cannot create build output in the checkout it evaluates.
+Every mutation run uses cargo-mutants' isolated copied-workspace mode with a checkout-local scratch target and build root, so concurrent workers cannot reuse or overwrite each other's compilation output. For a local test-writing loop, `cargo xtask mutants --scope runtime --iterate` retains caught and unviable evidence for that scope; run a clean command without `--iterate` before treating the result as authoritative.
 
 ## Install Host-Native ShellCheck
 

@@ -268,6 +268,7 @@ fn run_git(repo_root: &Path, args: &[&str]) {
 mod app;
 mod audit;
 mod automation;
+mod command;
 mod coverage;
 mod devcontainer;
 mod hygiene;

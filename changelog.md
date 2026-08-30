@@ -2,6 +2,22 @@
 
 Notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `cargo xtask mutants --iterate` for a local test-writing loop that reuses caught and unviable evidence for one selected scope while refusing CI shard and diff selectors.
+- Added a stable `Mutation testing` pull-request aggregate, so branch protection can require one fail-closed mutation result instead of tracking dynamically named shards.
+
+### Changed
+
+- Changed mutation campaigns to own their minimum test timeout and generate explicit `CoreError` return mutations; complete-campaign evidence now reconciles each scope's enumerated mutant count with its completed outcomes and requires every scope to catch at least one mutant.
+- Updated HTML extraction and both maintained Cargo dependency graphs to the public `htmlcut-core v13.2.0` release.
+
+### Fixed
+
+- Fixed copied cargo-mutants workers so inherited Cargo target and build roots cannot redirect parallel scratch builds into shared artifact directories.
+
 ## [11.0.0] - 2026-08-27
 
 ### Added
