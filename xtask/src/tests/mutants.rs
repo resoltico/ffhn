@@ -83,6 +83,8 @@ fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     assert!(workflow.contains("steps.diff_mutants.outputs.has_mutants == 'true'"));
     assert!(workflow.contains("path: ${{ runner.temp }}/ffhn-mutation-results\n"));
     assert!(workflow.contains("scope.json"));
+    assert!(workflow.contains("expected_total=\"$(jq 'length' \"$RUNNER_TEMP/mutants.json\")\""));
+    assert!(workflow.contains("invalid mutation count: $expected_total"));
     assert!(workflow.contains("pattern: cargo-mutants-*-shard-*-of-*"));
     assert!(workflow.contains("merge-multiple: false"));
     assert!(workflow.contains("./scripts/summarize-mutation-results.sh"));
