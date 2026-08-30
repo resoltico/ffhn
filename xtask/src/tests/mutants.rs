@@ -468,24 +468,21 @@ fn mutation_runner_iterates_existing_scope_evidence_without_accepting_ci_selecto
     write_executable(
         &bin.join("cargo"),
         &format!(
-            "#!/bin/sh\nif [ \"$1\" = mutants ] && [ \"$2\" = --version ]; then printf 'cargo-mutants 27.1.0\\n'; exit 0; fi\nprintf '%s\\n' \"$*\" >> {calls:?}\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --output ]; then shift; mkdir -p \"$1/mutants.out\"; fi; shift; done\nexit 0\n",
+            "#!/bin/sh\nif [ \"$1\" = mutants ] && [ \"$2\" = --version ]; then printf 'cargo-mutants 27.1.0\\n'; exit 0; fi\nprintf '%s\\n' \"$*\" >> {calls:?}\niterate=false\noutput_dir=\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    --iterate) iterate=true ;;\n    --output) shift; output_dir=\"$1\" ;;\n  esac\n  shift\ndone\nif [ \"$iterate\" = true ]; then test -f \"$output_dir/mutants.out/caught.txt\"; fi\nmkdir -p \"$output_dir/mutants.out\"\nexit 0\n",
             calls = calls,
         ),
     );
 
-    let report_root = mutation_report_root(root.path());
-    let retained = report_root.join("runtime/mutants.out/caught.txt");
-    fs::create_dir_all(retained.parent().expect("retained parent")).expect("retained parent");
-    fs::write(&retained, "previously caught mutant\n").expect("retained evidence");
-
     with_test_artifact_roots(root.path(), || {
+        let retained = mutation_report_root(root.path()).join("runtime/mutants.out/caught.txt");
+        fs::create_dir_all(retained.parent().expect("retained parent")).expect("retained parent");
+        fs::write(&retained, "previously caught mutant\n").expect("retained evidence");
         with_test_environment(&bin, Some(root.path()), || {
             run_mutants(root.path(), MutantsScope::Runtime, None, None, true)
         })
         .expect("iterate selected scope");
+        assert!(retained.is_file());
     });
-
-    assert!(retained.is_file());
     assert!(
         fs::read_to_string(calls)
             .expect("calls")
