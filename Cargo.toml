@@ -8,7 +8,7 @@ exclude = ["semver-baseline/ffhn-core"]
 resolver = "3"
 
 [workspace.package]
-version = "11.0.0"
+version = "11.0.1"
 edition = "2024"
 rust-version = "1.98"
 description = "Deterministic observation graphs for typed HTTP and local-file measurements"
@@ -23,7 +23,7 @@ base64 = "0.23.1"
 cap-std = "4.0.3"
 cap-fs-ext = "4.0.3"
 clap = { version = "4.6.6", features = ["derive"] }
-ffhn-core = { path = "crates/ffhn-core", version = "=11.0.0" }
+ffhn-core = { path = "crates/ffhn-core", version = "=11.0.1" }
 fs2 = "0.4.3"
 htmlcut-core = { version = "=13.2.0", git = "https://github.com/resoltico/HTMLCut.git", tag = "v13.2.0", package = "htmlcut-core" }
 predicates = "3.1.4"
