@@ -61,7 +61,7 @@ cargo xtask refresh-semver-baseline --git-ref vX.Y.Z
 `CI` also exposes `workflow_dispatch` so maintainers can rerun the exact aggregate `Check` against a branch when GitHub fails to attach the `pull_request` workflow on the initial PR open.
 The Rust-cache steps in both `ci.yml` and `release.yml` intentionally exclude `~/.cargo/bin`, so pinned Rust toolchains and Cargo QA tools stay owned by the repo bootstrap contract rather than by restored runner cache state.
 
-`/.github/workflows/mutants.yml` is a separate mutation-testing surface. It runs on every pull request, performs diff-scoped runtime and tooling checks, and emits the stable `Mutation testing` aggregate for branch protection. Weekly/manual campaigns execute the complete generated shard plan, retain each `mutants.out` tree, and fail closed unless enumerated, complete evidence agrees with the executed mutant totals and each scope catches at least one mutant.
+`/.github/workflows/mutants.yml` is a separate mutation-testing surface. It runs on every pull request, performs diff-scoped runtime and tooling checks, and emits the stable `Mutation testing` aggregate for branch protection. Every `main` push, weekly run, and manual dispatch executes the complete generated shard plan, retains each `mutants.out` tree, and fails closed unless enumerated, complete evidence agrees with the executed mutant totals and each scope catches at least one mutant.
 
 `/.github/workflows/release.yml` uses one helper job, two build jobs, and one publication job. The effective publication flow is:
 

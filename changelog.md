@@ -7,7 +7,7 @@ Notable changes to this project are documented in this file. The format is based
 ### Added
 
 - Added `cargo xtask mutants --iterate` for a local test-writing loop that reuses caught and unviable evidence for one selected scope while refusing CI shard and diff selectors.
-- Added a stable `Mutation testing` pull-request aggregate, so branch protection can require one fail-closed mutation result instead of tracking dynamically named shards.
+- Added a stable `Mutation testing` aggregate, so branch protection can require one fail-closed mutation result instead of tracking dynamically named shards; every `main` push now also runs the complete mutation campaign.
 
 ### Changed
 

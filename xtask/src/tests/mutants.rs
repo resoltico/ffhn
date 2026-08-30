@@ -59,6 +59,7 @@ fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     assert!(workflow.contains("workflow_dispatch:"));
     assert!(workflow.contains("schedule:"));
     assert!(workflow.contains("pull_request:\n"));
+    assert!(workflow.contains("push:\n    branches: [main]"));
     assert!(!workflow.contains("paths:"));
     assert!(workflow.contains("cancel-in-progress: true"));
     assert!(workflow.contains("timeout-minutes: 5"));
@@ -87,7 +88,10 @@ fn mutation_workflow_uses_canonical_safe_shards_and_retains_complete_results() {
     assert!(workflow.contains("./scripts/summarize-mutation-results.sh"));
     assert!(workflow.contains("if: always()"));
     assert!(workflow.contains("mutation-pr-summary:"));
-    assert!(workflow.contains("name: Mutation testing"));
+    assert_eq!(
+        workflow.matches("\n    name: Mutation testing\n").count(),
+        2
+    );
     assert!(workflow.contains("needs: [mutation-plan, mutants-diff]"));
 }
 
