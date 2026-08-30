@@ -98,7 +98,14 @@ jobs:
               ;;
           esac
           jq -e 'all(.[].file; test("/(tests/|tests\\.rs$)") | not)' "$RUNNER_TEMP/mutants.json" >/dev/null
-          echo "expected_total=$(jq 'length' \"$RUNNER_TEMP/mutants.json\")" >> "$GITHUB_OUTPUT"
+          expected_total="$(jq 'length' "$RUNNER_TEMP/mutants.json")"
+          case "$expected_total" in
+            '' | *[!0-9]*)
+              echo "invalid mutation count: $expected_total" >&2
+              exit 1
+              ;;
+          esac
+          echo "expected_total=$expected_total" >> "$GITHUB_OUTPUT"
 
       - name: Run mutation shard
         shell: bash
